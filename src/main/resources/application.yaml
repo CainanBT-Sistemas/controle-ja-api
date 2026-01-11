@@ -1,0 +1,50 @@
+spring:
+  application:
+    name: controleja
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+      format_sql: true
+    show-sql: true
+
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID:default-client-id}
+            client-secret: ${GOOGLE_CLIENT_SECRET:default-client-secret}
+            scope:
+              - openid
+              - profile
+              - email
+        provider:
+          google:
+            authorization-uri: https://accounts.google.com/o/oauth2/v2/auth
+            token-uri: https://oauth2.googleapis.com/token
+            user-info-uri: https://openidconnect.googleapis.com/v1/userinfo
+            user-name-attribute: sub
+
+app:
+  config:
+    jwt:
+      secret: ${JWT_SECRET:verysecretkeythatshouldbeatleast32chars!}
+      expiration-ms: 3600000
+      refresh-expiration-ms: 86400000
+    token:
+      issue: controle_ja_api
+
+    springdoc:
+      api-docs:
+        path: /v3/api-docs
+      swagger-ui:
+        path: /swagger-ui.html
+
+server:
+  address: 0.0.0.0
+  port: 8080
