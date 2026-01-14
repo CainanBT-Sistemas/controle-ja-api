@@ -14,6 +14,12 @@ public class UserResponseDTO {
     private AuthResponseDTO tokens;
 
     public static UserResponseDTO toDTO(Users newUser) {
-        return new UserResponseDTO(null, newUser.getUsername(), newUser.getEmail(), newUser.getCreatedAt(), null);
+        return new UserResponseDTO(
+                newUser.getId().toString(),
+                newUser.getUsername(),
+                newUser.getEmail(),
+                newUser.getCreatedAt(),
+                null
+        );
     }
 }
