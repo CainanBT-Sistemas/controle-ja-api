@@ -1,17 +1,16 @@
 package com.cainanbt.softwares.controleja.services.impl;
 
-import com.cainanbt.softwares.controleja.dtos.UserResponseDTO;
-import com.cainanbt.softwares.controleja.dtos.UserUpdateTokenDTO;
-import com.cainanbt.softwares.controleja.dtos.AuthResponseDTO;
 import com.cainanbt.softwares.controleja.dtos.UserAuthenticateDTO;
-import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.dtos.UserLoginDTO;
+import com.cainanbt.softwares.controleja.dtos.UserUpdateTokenDTO;
+import com.cainanbt.softwares.controleja.dtos.responses.AuthResponseDTO;
+import com.cainanbt.softwares.controleja.dtos.responses.UserResponseDTO;
 import com.cainanbt.softwares.controleja.entities.Users;
+import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.services.AuthService;
 import com.cainanbt.softwares.controleja.services.UsersService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.ID;
-import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -19,7 +18,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
-import java.util.UUID;
 
 @Service
 public class AuthServiceImp implements AuthService {

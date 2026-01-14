@@ -1,4 +1,4 @@
-package com.cainanbt.softwares.controleja.dtos;
+package com.cainanbt.softwares.controleja.dtos.responses;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

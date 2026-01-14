@@ -1,4 +1,4 @@
-package com.cainanbt.softwares.controleja.dtos;
+package com.cainanbt.softwares.controleja.dtos.responses;
 
 import com.cainanbt.softwares.controleja.entities.Users;
 import lombok.AllArgsConstructor;

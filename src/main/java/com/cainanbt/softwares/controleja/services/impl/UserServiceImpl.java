@@ -1,28 +1,25 @@
 package com.cainanbt.softwares.controleja.services.impl;
 
-import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
-import com.cainanbt.softwares.controleja.dtos.UserAuthenticateDTO;
 import com.cainanbt.softwares.controleja.dtos.InsertUpdateUserDTO;
-import com.cainanbt.softwares.controleja.enums.RoleEnum;
+import com.cainanbt.softwares.controleja.dtos.UserAuthenticateDTO;
 import com.cainanbt.softwares.controleja.dtos.UserUpdateTokenDTO;
 import com.cainanbt.softwares.controleja.entities.Users;
+import com.cainanbt.softwares.controleja.enums.RoleEnum;
+import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.repositories.UsersRepository;
 import com.cainanbt.softwares.controleja.services.UsersService;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
-import org.slf4j.MDC;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.regex.Pattern;
 
 @Service
 @Slf4j
@@ -57,14 +54,16 @@ public class UserServiceImpl implements UsersService {
     }
 
     @Override
-    public Users createNewUser(InsertUpdateUserDTO user,HttpServletRequest request) {
+    public Users createNewUser(InsertUpdateUserDTO userDTO, HttpServletRequest request) {
+        if (userRepository.findByEmailIgnoreCase(userDTO.getEmail()).isPresent()) {
+            throw new BadRequestException("Erro de Cadastro", "Este email já está em uso.");
+        }
         try{
-            if(isValidUser(user)) {
-                Users save = userRepository.save(Users.builder()
+            Users newUser = Users.builder()
                     .id(ID.generate())
-                    .username(user.getUsername())
-                    .password(passwordEncoder.encode(user.getPassword()))
-                    .email(user.getEmail())
+                    .username(userDTO.getUsername())
+                    .password(passwordEncoder.encode(userDTO.getPassword())) // Criptografia
+                    .email(userDTO.getEmail())
                     .enabled(true)
                     .accountNonExpired(true)
                     .accountNonLocked(true)
@@ -72,33 +71,13 @@ public class UserServiceImpl implements UsersService {
                     .role(RoleEnum.ROLE_USER.getValue())
                     .oauth2User(false)
                     .createdAt(DateUtils.localDateTimeToEpoch(LocalDateTime.now()))
-                    .build());
-
-            }
-            return null;
+                    .build();
+            return userRepository.save(newUser);
         }catch (Exception e){
-            throw new BadRequestException("Falha critica no sistema: ", e.getMessage());
+            log.error("Erro ao salvar usuário: ", e);
+            throw new BadRequestException("Falha crítica", "Erro ao processar o cadastro no banco de dados.");
         }
 
-    }
-
-    private boolean isValidUser(InsertUpdateUserDTO user) {
-        if (Objects.isNull(user.getEmail())) {
-            throw new BadRequestException("Erro ao criar usuário", "Campo email é um campo obrigatório");
-        }
-        if (Objects.isNull(user.getUsername())) {
-            throw new BadRequestException("Erro ao criar usuário", "Campo email é um campo username");
-        }
-        if (Objects.isNull(user.getPassword())) {
-            throw new BadRequestException("Erro ao criar usuário", "Campo email é um campo password");
-        }
-        if (userRepository.findByEmailIgnoreCase(user.getEmail()).isPresent()) {
-            throw new BadRequestException("OPS", "Não foi possível cadastrar usuário, este email já está em uso.");
-        }
-        if(!Pattern.compile("^[a-zA-Z0-9+_.-]+@[a-zA-Z0-9.-]+$").matcher(user.getEmail()).matches()){
-            throw new BadRequestException("Erro ao criar usuário", "Email informado não é valido");
-        }
-        return true;
     }
 
     @Override

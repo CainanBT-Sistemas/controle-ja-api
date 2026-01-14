@@ -1,0 +1,28 @@
+package com.cainanbt.softwares.controleja.dtos.responses;
+
+import com.cainanbt.softwares.controleja.entities.Accounts;
+import lombok.Data;
+
+import java.math.BigDecimal;
+import java.util.UUID;
+
+@Data
+public class AccountResponseDTO {
+    private UUID id;
+    private String name;
+    private String type;
+    private String institution;
+    private BigDecimal currentBalance;
+    private Boolean enabled;
+
+    public static AccountResponseDTO toDTO(Accounts entity) {
+        AccountResponseDTO dto = new AccountResponseDTO();
+        dto.setId(entity.getId());
+        dto.setName(entity.getName());
+        dto.setType(entity.getType());
+        dto.setInstitution(entity.getInstitution());
+        dto.setCurrentBalance(entity.getCurrentBalance());
+        dto.setEnabled(entity.getEnabled());
+        return dto;
+    }
+}
