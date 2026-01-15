@@ -46,5 +46,6 @@ public class TransactionDTO {
     private BigDecimal currentOdometer;
     private Double liters;
     private FuelType fuelType;
+    private Double efficiency;
 
 }

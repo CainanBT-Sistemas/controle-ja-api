@@ -3,6 +3,7 @@ package com.cainanbt.softwares.controleja.services.impl;
 import com.cainanbt.softwares.controleja.dtos.VehicleDTO;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.entities.Vehicle;
+import com.cainanbt.softwares.controleja.enums.FuelType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.repositories.VehicleRepository;
 import com.cainanbt.softwares.controleja.services.VehicleService;
@@ -57,5 +58,37 @@ public class VehicleServiceImpl implements VehicleService {
             vehicle.setCurrentOdometer(newOdometer);
             repository.save(vehicle);
         }
+    }
+
+    @Override
+    public Double processRefuel(Vehicle vehicle, BigDecimal newOdometer, Double liters, FuelType fuelType) {
+        if (newOdometer == null || newOdometer.compareTo(vehicle.getCurrentOdometer()) <= 0) {
+            return null; // Não dá pra calcular
+        }
+        if (liters == null || liters <= 0) {
+            vehicle.setCurrentOdometer(newOdometer); // Só atualiza KM
+            repository.save(vehicle);
+            return null;
+        }
+
+        BigDecimal distance = newOdometer.subtract(vehicle.getCurrentOdometer());
+        double km = distance.doubleValue();
+        double consumption = km / liters;
+
+        if (fuelType == FuelType.GASOLINA) {
+            vehicle.setAvgKmPerLiterGasoline(calculateRollingAverage(vehicle.getAvgKmPerLiterGasoline(), consumption));
+        } else if (fuelType == FuelType.ETANOL) {
+            vehicle.setAvgKmPerLiterEthanol(calculateRollingAverage(vehicle.getAvgKmPerLiterEthanol(), consumption));
+        }
+        vehicle.setCurrentOdometer(newOdometer);
+        repository.save(vehicle);
+        return consumption;
+    }
+
+    private Double calculateRollingAverage(Double currentAverage, double newConsumption) {
+        if (currentAverage == null || currentAverage == 0) {
+            return newConsumption;
+        }
+        return (currentAverage + newConsumption) / 2;
     }
 }

@@ -76,4 +76,6 @@ public class Transactions {
     @Enumerated(EnumType.STRING)
     @Column(nullable = true)
     private FuelType fuelType;
+    @Column(nullable = true)
+    private Double efficiency; // Km/L deste abastecimento específico
 }

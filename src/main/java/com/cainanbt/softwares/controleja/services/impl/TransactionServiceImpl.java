@@ -174,11 +174,13 @@ public class TransactionServiceImpl implements TransactionService {
             if (!vehicle.getUser().getId().equals(user.getId())) {
                 throw new BadRequestException("Erro", "Veículo inválido");
             }
+            Double efficiency = vehicleService.processRefuel(vehicle, dto.getCurrentOdometer(), dto.getLiters(), dto.getFuelType());
+
             builder.vehicle(vehicle)
                     .liters(dto.getLiters())
                     .currentOdometer(dto.getCurrentOdometer())
-                    .fuelType(dto.getFuelType());
-            vehicleService.updateOdometer(vehicle, dto.getCurrentOdometer());
+                    .fuelType(dto.getFuelType())
+                    .efficiency(efficiency);
         }
         return builder;
     }
