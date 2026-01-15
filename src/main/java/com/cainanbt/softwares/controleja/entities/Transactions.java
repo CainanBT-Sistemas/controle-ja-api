@@ -1,5 +1,6 @@
 package com.cainanbt.softwares.controleja.entities;
 
+import com.cainanbt.softwares.controleja.enums.FuelType;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -64,4 +65,15 @@ public class Transactions {
     @ManyToOne
     @JoinColumn(name = "user_id",nullable = false)
     private Users user;
+
+    @ManyToOne
+    @JoinColumn(name = "vehicle_id", nullable = true)
+    private Vehicle vehicle;
+    @Column(nullable = true)
+    private BigDecimal currentOdometer;
+    @Column(nullable = true)
+    private Double liters;
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = true)
+    private FuelType fuelType;
 }

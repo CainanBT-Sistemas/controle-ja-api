@@ -1,5 +1,6 @@
 package com.cainanbt.softwares.controleja.dtos;
 
+import com.cainanbt.softwares.controleja.enums.FuelType;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
@@ -40,4 +41,10 @@ public class TransactionDTO {
 
     @NotNull
     private Boolean paid;
+
+    private UUID vehicleId;
+    private BigDecimal currentOdometer;
+    private Double liters;
+    private FuelType fuelType;
+
 }

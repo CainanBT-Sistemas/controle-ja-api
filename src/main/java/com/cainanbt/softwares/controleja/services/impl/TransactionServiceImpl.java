@@ -6,6 +6,7 @@ import com.cainanbt.softwares.controleja.entities.Category;
 import com.cainanbt.softwares.controleja.entities.CreditCard;
 import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.entities.Users;
+import com.cainanbt.softwares.controleja.entities.Vehicle;
 import com.cainanbt.softwares.controleja.enums.AccountType;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
@@ -14,6 +15,7 @@ import com.cainanbt.softwares.controleja.services.AccountsService;
 import com.cainanbt.softwares.controleja.services.CategoryService;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
 import com.cainanbt.softwares.controleja.services.TransactionService;
+import com.cainanbt.softwares.controleja.services.VehicleService;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import org.springframework.stereotype.Service;
@@ -33,12 +35,14 @@ public class TransactionServiceImpl implements TransactionService {
     private final AccountsService accountsService;
     private final CategoryService categoryService;
     private final CreditCardService creditCardService;
+    private final VehicleService vehicleService;
 
-    public TransactionServiceImpl(TransactionRepository transactionRepository, AccountsService accountsService, CategoryService categoryService, CreditCardService creditCardService) {
+    public TransactionServiceImpl(TransactionRepository transactionRepository, AccountsService accountsService, CategoryService categoryService, CreditCardService creditCardService, VehicleService vehicleService) {
         this.repository = transactionRepository;
         this.accountsService = accountsService;
         this.categoryService = categoryService;
         this.creditCardService = creditCardService;
+        this.vehicleService = vehicleService;
     }
 
     @Override
@@ -150,7 +154,7 @@ public class TransactionServiceImpl implements TransactionService {
     }
 
     private Transactions.TransactionsBuilder createBaseTransactionBuilder(TransactionDTO dto, Accounts account, Category category, Users user) {
-        return Transactions.builder()
+        var builder = Transactions.builder()
                 .id(ID.generate())
                 .name(dto.getName())
                 .description(dto.getDescription())
@@ -164,6 +168,19 @@ public class TransactionServiceImpl implements TransactionService {
                 .category(category)
                 .user(user)
                 .createdAt(System.currentTimeMillis());
+
+        if (dto.getVehicleId() != null) {
+            Vehicle vehicle = vehicleService.findById(dto.getVehicleId());
+            if (!vehicle.getUser().getId().equals(user.getId())) {
+                throw new BadRequestException("Erro", "Veículo inválido");
+            }
+            builder.vehicle(vehicle)
+                    .liters(dto.getLiters())
+                    .currentOdometer(dto.getCurrentOdometer())
+                    .fuelType(dto.getFuelType());
+            vehicleService.updateOdometer(vehicle, dto.getCurrentOdometer());
+        }
+        return builder;
     }
 
     @Override

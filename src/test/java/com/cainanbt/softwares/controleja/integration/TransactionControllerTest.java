@@ -7,8 +7,10 @@ import com.cainanbt.softwares.controleja.dtos.CreditCardDTO;
 import com.cainanbt.softwares.controleja.dtos.InsertUpdateUserDTO;
 import com.cainanbt.softwares.controleja.dtos.TransactionDTO;
 import com.cainanbt.softwares.controleja.dtos.UserLoginDTO;
+import com.cainanbt.softwares.controleja.dtos.VehicleDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.AccountResponseDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.CategoryResponseDTO;
+import com.cainanbt.softwares.controleja.dtos.responses.VehicleResponseDTO;
 import com.cainanbt.softwares.controleja.enums.AccountType;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
 import io.restassured.http.ContentType;
@@ -183,6 +185,50 @@ public class TransactionControllerTest extends BaseTest {
         // 5. Valida Saldo da Carteira (1000 - 300 = 700)
         given().header("Authorization", "Bearer " + token).get("/accounts")
                 .then().body("find { it.id == '" + walletId + "' }.currentBalance", is(700.0f));
+    }
+
+    @Test
+    @DisplayName("CENÁRIO 5: Despesa de Abastecimento (Atualiza Hodômetro e Debita)")
+    void shouldCreateFuelExpenseAndUpdateOdometer() {
+        // 1. Cria Veículo
+        VehicleDTO vDto = new VehicleDTO();
+        vDto.setName("Meu Gol");
+        vDto.setBrand("VW");
+        vDto.setModel("Gol G5");
+        vDto.setYear(2012);
+        vDto.setCurrentOdometer(new BigDecimal("50000"));
+
+        UUID vehicleId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(vDto).post("/vehicles")
+                .then().statusCode(200).extract().as(VehicleResponseDTO.class).getId();
+
+        // 2. Cria Transação de Abastecimento
+        TransactionDTO dto = new TransactionDTO();
+        dto.setName("Posto Ipiranga");
+        dto.setType(TransactionType.DESPESA);
+        dto.setAmount(new BigDecimal("200.00"));
+        dto.setDate(System.currentTimeMillis());
+        dto.setPaid(true);
+        dto.setAccountId(walletId);
+        dto.setCategoryId(categoryId);
+        // Dados do Veículo
+        dto.setVehicleId(vehicleId);
+        dto.setCurrentOdometer(new BigDecimal("50400")); // Andou 400km
+        dto.setLiters(40.0);
+        dto.setFuelType(com.cainanbt.softwares.controleja.enums.FuelType.GASOLINA);
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(dto).post("/transactions")
+                .then().statusCode(200);
+
+        // 3. Validações
+        // A) Saldo debitado (1000 - 200 = 800)
+        given().header("Authorization", "Bearer " + token).get("/accounts")
+                .then().body("find { it.id == '" + walletId + "' }.currentBalance", is(800.0f));
+
+        // B) Hodômetro do carro atualizado para 50400
+        given().header("Authorization", "Bearer " + token).get("/vehicles")
+                .then().body("[0].currentOdometer", is(50400.0f));
     }
 
     // Helper para criar cartão e retornar o ID da Conta Vinculada
