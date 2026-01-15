@@ -6,6 +6,8 @@ import com.cainanbt.softwares.controleja.entities.Category;
 import com.cainanbt.softwares.controleja.entities.CreditCard;
 import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.entities.Users;
+import com.cainanbt.softwares.controleja.enums.AccountType;
+import com.cainanbt.softwares.controleja.enums.TransactionType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.services.AccountsService;
@@ -18,6 +20,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 @Service
@@ -40,16 +46,111 @@ public class TransactionServiceImpl implements TransactionService {
     public Transactions createTransaction(TransactionDTO dto) {
         Users user = SecurityContextUtils.getCurrentUser();
 
-        Accounts account = accountsService.findById(dto.getAccountId()).orElseThrow(() -> new BadRequestException("Erro", "Conta não encontrada"));
+        Accounts account = accountsService.findById(dto.getAccountId())
+                .orElseThrow(() -> new BadRequestException("Erro", "Conta não encontrada"));
 
         if (!account.getUser().getId().equals(user.getId())) {
-            throw new BadRequestException("Erro", "Conta inválida");
+            throw new BadRequestException("Erro", "Conta inválida (Não pertence ao usuário)");
         }
 
         Category category = categoryService.findById(dto.getCategoryId())
                 .orElseThrow(() -> new BadRequestException("Erro", "Categoria não encontrada"));
 
-        Transactions transaction = Transactions.builder()
+        if (dto.getType() == TransactionType.PAGAMENTO_FATURA) {
+            return processInvoicePayment(dto, account, category, user);
+        }
+
+        if (account.getType() == AccountType.CREDIT_CARD) {
+            return processCreditCardExpense(dto, account, category, user);
+        }
+
+        return processNormalTransaction(dto, account, category, user);
+    }
+
+    private Transactions processInvoicePayment(TransactionDTO dto, Accounts sourceAccount, Category category, Users user) {
+        if (dto.getTargetAccountId() == null) {
+            throw new BadRequestException("Erro", "Para pagar fatura, informe o ID da conta do cartão (targetAccountId).");
+        }
+        Accounts cardAccount = accountsService.findById(dto.getTargetAccountId())
+                .orElseThrow(() -> new BadRequestException("Erro", "Conta do cartão não encontrada"));
+
+        if (cardAccount.getType() != AccountType.CREDIT_CARD) {
+            throw new BadRequestException("Erro", "A conta de destino deve ser um Cartão de Crédito.");
+        }
+
+        sourceAccount.debit(dto.getAmount());
+        accountsService.update(sourceAccount);
+
+        cardAccount.credit(dto.getAmount());
+        accountsService.update(cardAccount);
+
+        CreditCard card = creditCardService.findByAccountId(cardAccount.getId());
+        card.restoreLimit(dto.getAmount());
+        creditCardService.updateLimit(card);
+
+        Transactions t = createBaseTransactionBuilder(dto, sourceAccount, category, user)
+                .paid(true)
+                .build();
+
+        return repository.save(t);
+    }
+
+    private Transactions processNormalTransaction(TransactionDTO dto, Accounts account, Category category, Users user) {
+        Transactions t = createBaseTransactionBuilder(dto, account, category, user).build();
+
+        if (Boolean.TRUE.equals(t.getPaid())) {
+            if (t.getType() == TransactionType.DESPESA) {
+                account.debit(t.getAmount());
+            } else if (t.getType() == TransactionType.RECEITA) {
+                account.credit(t.getAmount());
+            }
+            accountsService.update(account);
+        }
+        return repository.save(t);
+    }
+
+    private Transactions processCreditCardExpense(TransactionDTO dto, Accounts account, Category category, Users user) {
+        if (dto.getType() != TransactionType.DESPESA) {
+            throw new BadRequestException("Erro", "Em conta de cartão, use apenas DESPESA.");
+        }
+
+        CreditCard card = creditCardService.findByAccountId(account.getId());
+        card.consumeLimit(dto.getAmount());
+        creditCardService.updateLimit(card);
+
+        int parcelas = (dto.getInstallments() == null || dto.getInstallments() < 1) ? 1 : dto.getInstallments();
+
+        BigDecimal valorParcela = dto.getAmount().divide(BigDecimal.valueOf(parcelas), 2, RoundingMode.DOWN);
+        BigDecimal somaParcelas = valorParcela.multiply(BigDecimal.valueOf(parcelas));
+        BigDecimal diferenca = dto.getAmount().subtract(somaParcelas); // O que sobrou (ex: 0.01)
+
+        LocalDateTime dataBase = LocalDateTime.ofInstant(Instant.ofEpochMilli(dto.getDate()), ZoneId.systemDefault());
+        Transactions first = null;
+
+        for (int i = 0; i < parcelas; i++) {
+            long dataVencimento = dataBase.plusMonths(i).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+
+            BigDecimal valorDestaParcela = valorParcela;
+            if (i == 0) {
+                valorDestaParcela = valorDestaParcela.add(diferenca);
+            }
+            String nomeParcelado = dto.getName() + (parcelas > 1 ? " (" + (i + 1) + "/" + parcelas + ")" : "");
+            Transactions t = createBaseTransactionBuilder(dto, account, category, user)
+                    .name(nomeParcelado)
+                    .amount(valorDestaParcela)
+                    .date(dataVencimento)
+                    .paid(false)
+                    .build();
+            Transactions saved = repository.save(t);
+            if (i == 0) first = saved;
+            account.debit(valorDestaParcela);
+        }
+        accountsService.update(account);
+        return first;
+    }
+
+    private Transactions.TransactionsBuilder createBaseTransactionBuilder(TransactionDTO dto, Accounts account, Category category, Users user) {
+        return Transactions.builder()
                 .id(ID.generate())
                 .name(dto.getName())
                 .description(dto.getDescription())
@@ -62,44 +163,7 @@ public class TransactionServiceImpl implements TransactionService {
                 .account(account)
                 .category(category)
                 .user(user)
-                .createdAt(System.currentTimeMillis())
-                .build();
-
-        if ("CREDIT_CARD".equals(account.getType())) {
-            return processCreditCardTransaction(dto, account, category, user);
-        }
-
-        if (Boolean.TRUE.equals(transaction.getPaid())) {
-            processBalanceOrLimit(account, transaction);
-            accountsService.update(account);
-        }
-        return repository.save(transaction);
-    }
-
-    private void processBalanceOrLimit(Accounts account, Transactions transaction) {
-
-        if ("CREDIT_CARD".equals(account.getType())) {
-            CreditCard card = creditCardService.findByAccountId(account.getId());
-            if ("DESPESA".equalsIgnoreCase(transaction.getType())) {
-                card.setCurrentLimit(card.getCurrentLimit().subtract(transaction.getAmount()));
-                account.setCurrentBalance(account.getCurrentBalance().subtract(transaction.getAmount()));
-            } else if ("RECEITA".equalsIgnoreCase(transaction.getType())) {
-                card.setCurrentLimit(card.getCurrentLimit().add(transaction.getAmount()));
-                account.setCurrentBalance(account.getCurrentBalance().add(transaction.getAmount()));
-            }
-            if (card.getCurrentLimit().compareTo(BigDecimal.ZERO) < 0) {
-                throw new BadRequestException("Erro", "Limite insuficiente!");
-            }
-            creditCardService.updateLimit(card);
-            accountsService.update(account);
-        } else {
-            if ("DESPESA".equalsIgnoreCase(transaction.getType())) {
-                account.setCurrentBalance(account.getCurrentBalance().subtract(transaction.getAmount()));
-            } else if ("RECEITA".equalsIgnoreCase(transaction.getType())) {
-                account.setCurrentBalance(account.getCurrentBalance().add(transaction.getAmount()));
-            }
-            accountsService.update(account);
-        }
+                .createdAt(System.currentTimeMillis());
     }
 
     @Override

@@ -4,6 +4,7 @@ import com.cainanbt.softwares.controleja.config.BaseTest;
 import com.cainanbt.softwares.controleja.dtos.AccountDTO;
 import com.cainanbt.softwares.controleja.dtos.InsertUpdateUserDTO;
 import com.cainanbt.softwares.controleja.dtos.UserLoginDTO;
+import com.cainanbt.softwares.controleja.enums.AccountType;
 import io.restassured.http.ContentType;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,7 +43,7 @@ public class AccountsControllerTest extends BaseTest {
     void shouldCreateAccountSuccessfully() {
         AccountDTO account = new AccountDTO();
         account.setName("Carteira Principal");
-        account.setType("WALLET");
+        account.setType(AccountType.WALLET); // <--- MUDOU AQUI (Era String)
         account.setInitialBalance(new BigDecimal("150.00"));
         account.setInstitution("N/A");
 
@@ -55,7 +56,7 @@ public class AccountsControllerTest extends BaseTest {
                 .then()
                 .statusCode(200)
                 .body("id", notNullValue())
-                .body("currentBalance", is(150.0f)); // Cuidado com ponto flutuante, mas para MVP ok
+                .body("currentBalance", is(150.0f));
     }
 
     @Test
@@ -63,7 +64,7 @@ public class AccountsControllerTest extends BaseTest {
     void shouldListAccounts() {
         AccountDTO account = new AccountDTO();
         account.setName("Conta Teste List");
-        account.setType("BANK");
+        account.setType(AccountType.BANK); // <--- MUDOU AQUI
         account.setInitialBalance(BigDecimal.ZERO);
         account.setInstitution("Nubank");
 

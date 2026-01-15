@@ -26,13 +26,13 @@ public class AccountsServiceImpl implements AccountsService {
     @Override
     public Accounts createAccount(AccountDTO dto) {
         Users user = SecurityContextUtils.getCurrentUser();
-
+        String institution = dto.getInstitution() != null ? dto.getInstitution() : "N/A";
         Accounts newAccount = Accounts.builder()
                 .id(ID.generate())
                 .name(dto.getName())
                 .type(dto.getType())
-                .institution(dto.getInstitution() != null ? dto.getInstitution() : "N/A") // Tratamento simples
-                .currency("BRL") // Hardcoded para MVP
+                .institution(institution)
+                .currency("BRL")
                 .currentBalance(dto.getInitialBalance())
                 .initialBalance(dto.getInitialBalance())
                 .calculateBalance(true)

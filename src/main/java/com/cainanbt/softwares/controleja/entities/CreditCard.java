@@ -1,5 +1,6 @@
 package com.cainanbt.softwares.controleja.entities;
 
+import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -56,4 +57,18 @@ public class CreditCard {
     @OneToOne
     @JoinColumn(name = "account_id", nullable = false)
     private Accounts accounts;
+
+    public void consumeLimit(BigDecimal amount) {
+        if (this.currentLimit.compareTo(amount) < 0) {
+            throw new BadRequestException("Erro", "Limite insuficiente.");
+        }
+        this.currentLimit = this.currentLimit.subtract(amount);
+    }
+
+    public void restoreLimit(BigDecimal amount) {
+        this.currentLimit = this.currentLimit.add(amount);
+        if (this.currentLimit.compareTo(this.totalLimit) > 0) {
+            this.currentLimit = this.totalLimit;
+        }
+    }
 }

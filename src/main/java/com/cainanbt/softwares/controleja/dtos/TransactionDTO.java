@@ -17,7 +17,7 @@ public class TransactionDTO {
     private String name;
     private String description;
 
-    @NotBlank(message = "O tipo é obrigatório (RECEITA, DESPESA)")
+    @NotNull(message = "O tipo é obrigatório (RECEITA, DESPESA)")
     private TransactionType type;
 
     @NotNull(message = "O valor é obrigatório")
@@ -27,8 +27,10 @@ public class TransactionDTO {
     @NotNull(message = "A data é obrigatória")
     private Long date;
 
-    @NotNull(message = "A conta é obrigatória")
+    @NotNull(message = "A conta de origem é obrigatória")
     private UUID accountId;
+
+    private UUID targetAccountId;
 
     @NotNull(message = "A categoria é obrigatória")
     private UUID categoryId;

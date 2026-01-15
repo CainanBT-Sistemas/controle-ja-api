@@ -1,6 +1,7 @@
 package com.cainanbt.softwares.controleja.dtos.responses;
 
 import com.cainanbt.softwares.controleja.entities.Accounts;
+import com.cainanbt.softwares.controleja.enums.AccountType;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -10,7 +11,7 @@ import java.util.UUID;
 public class AccountResponseDTO {
     private UUID id;
     private String name;
-    private String type;
+    private AccountType type;
     private String institution;
     private BigDecimal currentBalance;
     private Boolean enabled;

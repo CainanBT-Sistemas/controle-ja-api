@@ -4,6 +4,7 @@ import com.cainanbt.softwares.controleja.dtos.CreditCardDTO;
 import com.cainanbt.softwares.controleja.entities.Accounts;
 import com.cainanbt.softwares.controleja.entities.CreditCard;
 import com.cainanbt.softwares.controleja.entities.Users;
+import com.cainanbt.softwares.controleja.enums.AccountType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.repositories.AccountsRepository;
 import com.cainanbt.softwares.controleja.repositories.CreditCardRepository;
@@ -41,7 +42,7 @@ public class CreditCardServiceImpl implements CreditCardService {
         Accounts cardAccount = Accounts.builder()
                 .id(ID.generate())
                 .name(dto.getName() + " (Fatura)")
-                .type("CREDIT_CARD")
+                .type(AccountType.CREDIT_CARD)
                 .institution(dto.getName())
                 .currency("BRL")
                 .currentBalance(BigDecimal.ZERO)
