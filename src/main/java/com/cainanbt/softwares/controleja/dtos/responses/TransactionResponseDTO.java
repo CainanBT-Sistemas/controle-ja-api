@@ -1,6 +1,7 @@
 package com.cainanbt.softwares.controleja.dtos.responses;
 
 import com.cainanbt.softwares.controleja.entities.Transactions;
+import com.cainanbt.softwares.controleja.enums.TransactionType;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -10,7 +11,7 @@ import java.util.UUID;
 public class TransactionResponseDTO {
     private UUID id;
     private String name;
-    private String type;
+    private TransactionType type;
     private BigDecimal amount;
     private Long date;
     private Boolean paid;

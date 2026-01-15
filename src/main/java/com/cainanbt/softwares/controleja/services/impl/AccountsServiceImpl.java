@@ -25,8 +25,7 @@ public class AccountsServiceImpl implements AccountsService {
 
     @Override
     public Accounts createAccount(AccountDTO dto) {
-        Users user = SecurityContextUtils.getUserLogged()
-                .orElseThrow(() -> new BadRequestException("Erro de Segurança", "Usuário não autenticado"));
+        Users user = SecurityContextUtils.getCurrentUser();
 
         Accounts newAccount = Accounts.builder()
                 .id(ID.generate())
@@ -52,8 +51,7 @@ public class AccountsServiceImpl implements AccountsService {
 
     @Override
     public List<Accounts> listMyAccounts() {
-        Users user = SecurityContextUtils.getUserLogged()
-                .orElseThrow(() -> new BadRequestException("Erro de Segurança", "Usuário não autenticado"));
+        Users user = SecurityContextUtils.getCurrentUser();
 
         return repository.findByUserId(user.getId());
     }
@@ -61,7 +59,7 @@ public class AccountsServiceImpl implements AccountsService {
     @Override
     public Accounts update(Accounts accounts) {
         if (accounts.getId() == null) {
-            new BadRequestException("Erro", "IMpossivel atualizar conta sem ID");
+            throw new BadRequestException("Erro", "IMpossivel atualizar conta sem ID");
         }
         return repository.save(accounts);
     }

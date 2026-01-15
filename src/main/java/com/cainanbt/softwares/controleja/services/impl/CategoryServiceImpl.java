@@ -25,8 +25,7 @@ public class CategoryServiceImpl implements CategoryService {
 
     @Override
     public Category createCategory(CategoryDTO dto) {
-        Users user = SecurityContextUtils.getUserLogged()
-                .orElseThrow(() -> new BadRequestException("Erro", "Usuário não autenticado"));
+        Users user = SecurityContextUtils.getCurrentUser();
 
         Category parent = null;
         if (dto.getParentId() != null) {
@@ -54,8 +53,7 @@ public class CategoryServiceImpl implements CategoryService {
 
     @Override
     public List<Category> listMyCategories() {
-        Users user = SecurityContextUtils.getUserLogged()
-                .orElseThrow(() -> new BadRequestException("Erro", "Usuário não autenticado"));
+        Users user = SecurityContextUtils.getCurrentUser();
         return repository.findByUserIdAndDeletedAtIsNull(user.getId());
     }
 

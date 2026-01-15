@@ -14,6 +14,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.UUID;
 
 @Service
 public class CreditCardServiceImpl implements CreditCardService {
@@ -29,8 +31,7 @@ public class CreditCardServiceImpl implements CreditCardService {
     @Override
     @Transactional
     public CreditCard createCard(CreditCardDTO dto) {
-        Users user = SecurityContextUtils.getUserLogged()
-                .orElseThrow(() -> new BadRequestException("Acesso Negado", "Usuário não autenticado"));
+        Users user = SecurityContextUtils.getCurrentUser();
 
         long totalCards = creditCardRepository.countByUserId(user.getId());
         if (totalCards >= 2) {
@@ -67,5 +68,22 @@ public class CreditCardServiceImpl implements CreditCardService {
                 .build();
 
         return creditCardRepository.save(card);
+    }
+
+    @Override
+    public List<CreditCard> listMyCards() {
+        Users user = SecurityContextUtils.getCurrentUser();
+        return creditCardRepository.findByUserId(user.getId());
+    }
+
+    @Override
+    public CreditCard findByAccountId(UUID accountId) {
+        return creditCardRepository.findByAccountsId(accountId)
+                .orElseThrow(() -> new BadRequestException("Erro", "Cartão não encontrado para esta conta"));
+    }
+
+    @Override
+    public void updateLimit(CreditCard card) {
+        creditCardRepository.save(card);
     }
 }

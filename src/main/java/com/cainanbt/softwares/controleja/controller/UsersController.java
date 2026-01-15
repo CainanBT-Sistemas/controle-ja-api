@@ -30,7 +30,7 @@ public class UsersController {
 
     @GetMapping()
     public ResponseEntity<?> teste(){
-        SecurityContextUtils.getUserLogged();
+        SecurityContextUtils.getCurrentUser();
         return ResponseEntity.ok("OK");
     }
 

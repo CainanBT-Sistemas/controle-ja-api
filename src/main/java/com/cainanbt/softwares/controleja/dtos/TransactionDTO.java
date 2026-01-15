@@ -1,6 +1,8 @@
 package com.cainanbt.softwares.controleja.dtos;
 
+import com.cainanbt.softwares.controleja.enums.TransactionType;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
@@ -16,7 +18,7 @@ public class TransactionDTO {
     private String description;
 
     @NotBlank(message = "O tipo é obrigatório (RECEITA, DESPESA)")
-    private String type;
+    private TransactionType type;
 
     @NotNull(message = "O valor é obrigatório")
     @DecimalMin(value = "0.01", message = "O valor deve ser maior que zero")
@@ -30,6 +32,9 @@ public class TransactionDTO {
 
     @NotNull(message = "A categoria é obrigatória")
     private UUID categoryId;
+
+    @Min(value = 1, message = "O número mínimo de parcelas é 1")
+    private Integer installments;
 
     @NotNull
     private Boolean paid;
