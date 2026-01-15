@@ -5,6 +5,7 @@ import com.cainanbt.softwares.controleja.dtos.AccountDTO;
 import com.cainanbt.softwares.controleja.dtos.InsertUpdateUserDTO;
 import com.cainanbt.softwares.controleja.dtos.UserLoginDTO;
 import io.restassured.http.ContentType;
+import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -17,12 +18,14 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
 
+@Slf4j
 public class AccountsControllerTest extends BaseTest {
 
     private String token;
 
     @BeforeEach
     void setupUser() {
+        log.info("Stating AccountsControllerTest");
         InsertUpdateUserDTO user = new InsertUpdateUserDTO();
         user.setUsername("account_owner");
         user.setEmail("owner@bank.com");
@@ -31,6 +34,7 @@ public class AccountsControllerTest extends BaseTest {
 
         UserLoginDTO login = UserLoginDTO.builder().email("owner@bank.com").password("123456").build();
         token = given().contentType(ContentType.JSON).body(login).post("/auth").then().extract().path("tokens.accessToken");
+
     }
 
     @Test

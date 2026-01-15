@@ -3,6 +3,8 @@ package com.cainanbt.softwares.controleja.integration;
 import com.cainanbt.softwares.controleja.config.BaseTest;
 import com.cainanbt.softwares.controleja.dtos.InsertUpdateUserDTO;
 import io.restassured.http.ContentType;
+import lombok.extern.slf4j.Slf4j;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -10,7 +12,13 @@ import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
 
+@Slf4j
 public class UsersControllerTest extends BaseTest {
+
+    @BeforeEach
+    void setup() {
+        log.info("Stating UsersControllerTest");
+    }
 
     @Test
     @DisplayName("Deve retornar erro 400 quando criar usuário com email inválido")

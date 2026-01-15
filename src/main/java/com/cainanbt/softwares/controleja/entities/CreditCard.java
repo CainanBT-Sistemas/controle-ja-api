@@ -1,6 +1,5 @@
 package com.cainanbt.softwares.controleja.entities;
 
-import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -20,7 +19,7 @@ import java.math.BigDecimal;
 import java.util.UUID;
 
 @Entity
-@Table(name = "accounts")
+@Table(name = "credit_cards")
 @Getter
 @Builder
 @AllArgsConstructor

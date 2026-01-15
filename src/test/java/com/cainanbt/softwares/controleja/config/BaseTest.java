@@ -1,10 +1,12 @@
 package com.cainanbt.softwares.controleja.config;
 
 import io.restassured.RestAssured;
+import io.restassured.parsing.Parser;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.boot.test.web.server.LocalServerPort;
 
 public class BaseTest extends BaseIntegrationTest {
+
     @LocalServerPort
     private int port;
 
@@ -12,6 +14,7 @@ public class BaseTest extends BaseIntegrationTest {
     void setUp() {
         RestAssured.port = port;
         RestAssured.basePath = "/controle_ja_api/v1";
+        RestAssured.defaultParser = Parser.JSON;
     }
 }
 

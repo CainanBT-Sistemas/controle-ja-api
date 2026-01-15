@@ -18,7 +18,7 @@ import java.math.BigDecimal;
 import java.util.UUID;
 
 @Entity
-@Table(name = "installments")
+@Table(name = "invoicess")
 @Getter
 @Builder
 @AllArgsConstructor

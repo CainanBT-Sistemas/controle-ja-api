@@ -5,6 +5,8 @@ import com.cainanbt.softwares.controleja.dtos.responses.CategoryResponseDTO;
 import com.cainanbt.softwares.controleja.services.CategoryService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -22,10 +24,12 @@ public class CategoryController {
         this.categoryService = categoryService;
     }
 
+    @PostMapping
     public ResponseEntity<CategoryResponseDTO> create(@RequestBody @Valid CategoryDTO categoryDTO) {
         return ResponseEntity.ok(CategoryResponseDTO.toDTO(categoryService.createCategory(categoryDTO)));
     }
 
+    @GetMapping
     public ResponseEntity<List<CategoryResponseDTO>> listAll() {
         return ResponseEntity.ok(categoryService.listMyCategories().stream().map(CategoryResponseDTO::toDTO).toList());
     }
