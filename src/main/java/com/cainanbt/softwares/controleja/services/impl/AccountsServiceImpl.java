@@ -11,14 +11,16 @@ import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 @Service
 public class AccountsServiceImpl implements AccountsService {
 
-    private final AccountsRepository accountsRepository;
+    private final AccountsRepository repository;
 
     public AccountsServiceImpl(AccountsRepository accountsRepository) {
-        this.accountsRepository = accountsRepository;
+        this.repository = accountsRepository;
     }
 
     @Override
@@ -40,7 +42,12 @@ public class AccountsServiceImpl implements AccountsService {
                 .createdAt(System.currentTimeMillis())
                 .build();
 
-        return accountsRepository.save(newAccount);
+        return repository.save(newAccount);
+    }
+
+    @Override
+    public Optional<Accounts> findById(UUID id) {
+        return repository.findById(id);
     }
 
     @Override
@@ -48,6 +55,14 @@ public class AccountsServiceImpl implements AccountsService {
         Users user = SecurityContextUtils.getUserLogged()
                 .orElseThrow(() -> new BadRequestException("Erro de Segurança", "Usuário não autenticado"));
 
-        return accountsRepository.findByUserId(user.getId());
+        return repository.findByUserId(user.getId());
+    }
+
+    @Override
+    public Accounts update(Accounts accounts) {
+        if (accounts.getId() == null) {
+            new BadRequestException("Erro", "IMpossivel atualizar conta sem ID");
+        }
+        return repository.save(accounts);
     }
 }

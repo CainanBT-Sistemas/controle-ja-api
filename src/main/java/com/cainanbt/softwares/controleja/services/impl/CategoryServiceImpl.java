@@ -11,14 +11,16 @@ import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 @Service
 public class CategoryServiceImpl implements CategoryService {
 
-    private final CategoryRepository categoryRepository;
+    private final CategoryRepository repository;
 
     public CategoryServiceImpl(CategoryRepository categoryRepository) {
-        this.categoryRepository = categoryRepository;
+        this.repository = categoryRepository;
     }
 
     @Override
@@ -28,7 +30,7 @@ public class CategoryServiceImpl implements CategoryService {
 
         Category parent = null;
         if (dto.getParentId() != null) {
-            parent = categoryRepository.findById(dto.getParentId())
+            parent = repository.findById(dto.getParentId())
                     .orElseThrow(() -> new BadRequestException("Erro", "Categoria pai não encontrada"));
 
             if (!parent.getUser().getId().equals(user.getId())) {
@@ -47,13 +49,18 @@ public class CategoryServiceImpl implements CategoryService {
                 .createdAt(System.currentTimeMillis())
                 .build();
 
-        return categoryRepository.save(category);
+        return repository.save(category);
     }
 
     @Override
     public List<Category> listMyCategories() {
         Users user = SecurityContextUtils.getUserLogged()
                 .orElseThrow(() -> new BadRequestException("Erro", "Usuário não autenticado"));
-        return categoryRepository.findByUserIdAndDeletedAtIsNull(user.getId());
+        return repository.findByUserIdAndDeletedAtIsNull(user.getId());
+    }
+
+    @Override
+    public Optional<Category> findById(UUID id) {
+        return repository.findById(id);
     }
 }
