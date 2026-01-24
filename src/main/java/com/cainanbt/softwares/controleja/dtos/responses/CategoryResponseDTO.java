@@ -11,7 +11,9 @@ public class CategoryResponseDTO {
     private String name;
     private String categoryType;
     private Boolean isSubCategory;
-    private String parentName; // Facilitador para o Frontend
+    private String parentName;
+    private String icon;
+    private String color;
 
     public static CategoryResponseDTO toDTO(Category entity) {
         CategoryResponseDTO dto = new CategoryResponseDTO();
@@ -19,6 +21,8 @@ public class CategoryResponseDTO {
         dto.setName(entity.getName());
         dto.setCategoryType(entity.getCategoryType());
         dto.setIsSubCategory(entity.getIsSubCategory());
+        dto.setIcon(entity.getIcon());
+        dto.setColor(entity.getColor());
 
         if (entity.getSubCategory() != null) {
             dto.setParentName(entity.getSubCategory().getName());

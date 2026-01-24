@@ -3,10 +3,15 @@ package com.cainanbt.softwares.controleja.services.impl;
 import com.cainanbt.softwares.controleja.dtos.InsertUpdateUserDTO;
 import com.cainanbt.softwares.controleja.dtos.UserAuthenticateDTO;
 import com.cainanbt.softwares.controleja.dtos.UserUpdateTokenDTO;
+import com.cainanbt.softwares.controleja.entities.Accounts;
+import com.cainanbt.softwares.controleja.entities.Category;
 import com.cainanbt.softwares.controleja.entities.Users;
+import com.cainanbt.softwares.controleja.enums.AccountType;
 import com.cainanbt.softwares.controleja.enums.RoleEnum;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.repositories.UsersRepository;
+import com.cainanbt.softwares.controleja.services.AccountsService;
+import com.cainanbt.softwares.controleja.services.CategoryService;
 import com.cainanbt.softwares.controleja.services.UsersService;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
@@ -17,6 +22,7 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
@@ -26,12 +32,15 @@ import java.util.UUID;
 public class UserServiceImpl implements UsersService {
 
     private final UsersRepository userRepository;
-
     private final PasswordEncoder passwordEncoder;
+    private final CategoryService categoryService;
+    private final AccountsService accountsService;
 
-    public UserServiceImpl(UsersRepository userRepository, PasswordEncoder passwordEncoder) {
+    public UserServiceImpl(UsersRepository userRepository, PasswordEncoder passwordEncoder, CategoryService categoryService, AccountsService accountsService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.categoryService = categoryService;
+        this.accountsService = accountsService;
     }
 
     @Override
@@ -62,7 +71,7 @@ public class UserServiceImpl implements UsersService {
             Users newUser = Users.builder()
                     .id(ID.generate())
                     .username(userDTO.getUsername())
-                    .password(passwordEncoder.encode(userDTO.getPassword())) // Criptografia
+                    .password(passwordEncoder.encode(userDTO.getPassword()))
                     .email(userDTO.getEmail())
                     .enabled(true)
                     .accountNonExpired(true)
@@ -72,13 +81,16 @@ public class UserServiceImpl implements UsersService {
                     .oauth2User(false)
                     .createdAt(DateUtils.localDateTimeToEpoch(LocalDateTime.now()))
                     .build();
-            return userRepository.save(newUser);
+            Users saved = userRepository.save(newUser);
+            setupNewUser(saved);
+            return saved;
         }catch (Exception e){
             log.error("Erro ao salvar usuário: ", e);
             throw new BadRequestException("Falha crítica", "Erro ao processar o cadastro no banco de dados.");
         }
 
     }
+
 
     @Override
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
@@ -91,5 +103,49 @@ public class UserServiceImpl implements UsersService {
             throw new BadRequestException("Acesso negado","Usuário bloqueado");
         }
         return new UserAuthenticateDTO(user);
+    }
+
+    private void setupNewUser(Users user) {
+        long now = System.currentTimeMillis();
+        Accounts wallet = Accounts.builder()
+                .id(ID.generate())
+                .name("Minha Carteira")
+                .type(AccountType.WALLET)
+                .institution("N/A")
+                .currency("BRL")
+                .currentBalance(BigDecimal.ZERO)
+                .initialBalance(BigDecimal.ZERO)
+                .calculateBalance(true)
+                .enabled(true)
+                .user(user)
+                .createdAt(now)
+                .build();
+        Accounts accountSaved = accountsService.save(wallet);
+
+        createDefaultCategory(user, "Alimentação", "DESPESA", "restaurant", "#FFCA28", now);
+        createDefaultCategory(user, "Moradia", "DESPESA", "home", "#FF5252", now);
+        createDefaultCategory(user, "Transporte", "DESPESA", "directions_car", "#42A5F5", now);
+        createDefaultCategory(user, "Saúde", "DESPESA", "medical_services", "#66BB6A", now);
+        createDefaultCategory(user, "Lazer", "DESPESA", "sports_esports", "#AB47BC", now);
+        createDefaultCategory(user, "Educação", "DESPESA", "school", "#EC407A", now);
+
+        createDefaultCategory(user, "Salário", "RECEITA", "attach_money", "#00E676", now);
+        createDefaultCategory(user, "Investimentos", "RECEITA", "trending_up", "#2979FF", now);
+        createDefaultCategory(user, "Outros", "RECEITA", "add_circle", "#BDBDBD", now);
+
+    }
+
+    private void createDefaultCategory(Users user, String name, String type, String icon, String color, long now) {
+        categoryService.save(Category.builder()
+                .id(ID.generate())
+                .name(name)
+                .categoryType(type)
+                .enabled(true)
+                .isSubCategory(false)
+                .icon(icon)   // Novo Campo
+                .color(color) // Novo Campo
+                .user(user)
+                .createdAt(now)
+                .build());
     }
 }

@@ -20,6 +20,7 @@ public class SecurityConfig {
 
     private final String URL_API = "/controle_ja_api/v1";
     private final String URL_LOGIN_API = URL_API+"/auth";
+    private final String URL_LOGIN_API_GOOGLE = URL_LOGIN_API + "/google";
     private final String URL_REGISTER_API = URL_API+"/users/register";
     private final String URL_SWAGGER_v3 = "/v3/api-docs/**";
     private final String URL_SWAGGER_UI = "/swagger-ui/**";
@@ -33,6 +34,7 @@ public class SecurityConfig {
     private final String[] PUBLIC = {
             URL_LOGIN_API,
             URL_REGISTER_API,
+            URL_LOGIN_API_GOOGLE,
             URL_SWAGGER_v3,
             URL_SWAGGER_UI,
             URL_SWAGGER_HTML,

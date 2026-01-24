@@ -14,4 +14,6 @@ public interface AccountsService {
     List<Accounts> listMyAccounts();
 
     Accounts update(Accounts accounts);
+
+    Accounts save(Accounts accounts);
 }

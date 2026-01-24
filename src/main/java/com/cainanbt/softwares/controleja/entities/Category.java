@@ -43,6 +43,10 @@ public class Category {
     @Column(nullable = false)
     private Long createdAt;
     @Column(nullable = true)
+    private String icon;
+    @Column(nullable = true)
+    private String color;
+    @Column(nullable = true)
     private Long updatedAt;
     @Column(nullable = true)
     private Long deletedAt;

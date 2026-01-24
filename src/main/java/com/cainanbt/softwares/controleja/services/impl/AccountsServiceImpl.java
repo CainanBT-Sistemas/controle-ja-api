@@ -63,4 +63,9 @@ public class AccountsServiceImpl implements AccountsService {
         }
         return repository.save(accounts);
     }
+
+    @Override
+    public Accounts save(Accounts accounts) {
+        return repository.save(accounts);
+    }
 }

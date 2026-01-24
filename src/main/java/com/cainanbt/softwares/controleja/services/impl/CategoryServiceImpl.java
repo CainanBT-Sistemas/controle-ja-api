@@ -61,4 +61,9 @@ public class CategoryServiceImpl implements CategoryService {
     public Optional<Category> findById(UUID id) {
         return repository.findById(id);
     }
+
+    @Override
+    public void save(Category category) {
+        repository.save(category);
+    }
 }

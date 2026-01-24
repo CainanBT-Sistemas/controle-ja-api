@@ -13,4 +13,6 @@ public interface CategoryService {
     List<Category> listMyCategories();
 
     Optional<Category> findById(UUID categoryId);
+
+    void save(Category category);
 }

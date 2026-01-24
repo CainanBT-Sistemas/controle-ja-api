@@ -1,5 +1,7 @@
 package com.cainanbt.softwares.controleja.services.impl;
 
+import com.cainanbt.softwares.controleja.dtos.GoogleLoginDTO;
+import com.cainanbt.softwares.controleja.dtos.InsertUpdateUserDTO;
 import com.cainanbt.softwares.controleja.dtos.UserAuthenticateDTO;
 import com.cainanbt.softwares.controleja.dtos.UserLoginDTO;
 import com.cainanbt.softwares.controleja.dtos.UserUpdateTokenDTO;
@@ -22,7 +24,7 @@ import java.util.Optional;
 @Service
 public class AuthServiceImp implements AuthService {
 
-    private final UsersService UserService;
+    private final UsersService usersService;
 
     private final PasswordEncoder passwordEncoder;
 
@@ -31,7 +33,7 @@ public class AuthServiceImp implements AuthService {
     private final JwtServiceImp jwtService;
 
     public AuthServiceImp(UsersService UserService, PasswordEncoder passwordEncoder, AuthenticationManager authenticationManager, JwtServiceImp jwtService) {
-        this.UserService = UserService;
+        this.usersService = UserService;
         this.passwordEncoder = passwordEncoder;
         this.authenticationManager = authenticationManager;
         this.jwtService = jwtService;
@@ -39,7 +41,7 @@ public class AuthServiceImp implements AuthService {
 
     @Override
     public UserResponseDTO login(UserLoginDTO loginAdapter, HttpServletRequest request){
-        Optional<Users> userOptional = UserService.getUserByEmail(loginAdapter.getEmail());
+        Optional<Users> userOptional = usersService.getUserByEmail(loginAdapter.getEmail());
         if(userOptional.isEmpty() || !passwordEncoder.matches(loginAdapter.getPassword(), userOptional.get().getPassword())){
             throw new BadRequestException(ConstsMessages.ACCESS_DENIED,ConstsMessages.WRONG_LOGIN_CREDENTIALS);
         }
@@ -56,8 +58,41 @@ public class AuthServiceImp implements AuthService {
         String refreshToken = jwtService.generateRefreshToken(userAuthenticate);
 
         AuthResponseDTO authResponse = new AuthResponseDTO(accessToken, refreshToken);
-        UserService.updateTokens(new UserUpdateTokenDTO(user.getId(),authResponse.getRefreshToken(), jwtService.getRefreshExpiration()));
-        return new UserResponseDTO(ID.toString(user.getId()),user.getUsername(),user.getEmail(),user.getCreatedAt(),authResponse);
+        usersService.updateTokens(new UserUpdateTokenDTO(user.getId(), authResponse.getRefreshToken(), jwtService.getRefreshExpiration()));
+        return new UserResponseDTO(ID.toString(user.getId()), user.getUsername(), user.getEmail(), user.getCreatedAt(), authResponse);
 
+    }
+
+    @Override
+    public UserResponseDTO loginGoogle(GoogleLoginDTO dto, HttpServletRequest request) {
+        Users user;
+        Optional<Users> userByEmail = usersService.getUserByEmail(dto.getEmail());
+        if (userByEmail.isPresent()) {
+            user = userByEmail.get();
+            if (!Boolean.TRUE.equals(user.getOauth2User())) {
+                user.setOauth2User(true);
+                user.setOauth2Provider("GOOGLE");
+                user.setOauth2ProviderId(dto.getGoogleId());
+            }
+        } else {
+            InsertUpdateUserDTO newUserDto = new InsertUpdateUserDTO();
+            newUserDto.setEmail(dto.getEmail());
+            newUserDto.setUsername(dto.getDisplayName() != null ? dto.getDisplayName() : "Usuário Google");
+            newUserDto.setPassword(java.util.UUID.randomUUID().toString());
+            user = usersService.createNewUser(newUserDto, request);
+            user.setOauth2User(true);
+            user.setOauth2Provider("GOOGLE");
+            user.setOauth2ProviderId(dto.getGoogleId());
+        }
+        if (!user.getEnabled() || !user.getAccountNonLocked()) {
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, ConstsMessages.BLOCKED_USER);
+        }
+        UserAuthenticateDTO userAuthDTO = new UserAuthenticateDTO(user);
+        String refreshToken = jwtService.generateRefreshToken(userAuthDTO);
+        String accessToken = jwtService.generateAccessToken(userAuthDTO);
+
+        AuthResponseDTO authResponse = new AuthResponseDTO(accessToken, refreshToken);
+        usersService.updateTokens(new UserUpdateTokenDTO(user.getId(), authResponse.getRefreshToken(), jwtService.getRefreshExpiration()));
+        return new UserResponseDTO(ID.toString(user.getId()), user.getUsername(), user.getEmail(), user.getCreatedAt(), authResponse);
     }
 }
