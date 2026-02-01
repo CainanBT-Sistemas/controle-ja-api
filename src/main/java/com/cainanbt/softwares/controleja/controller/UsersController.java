@@ -3,11 +3,9 @@ package com.cainanbt.softwares.controleja.controller;
 import com.cainanbt.softwares.controleja.dtos.InsertUpdateUserDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.UserResponseDTO;
 import com.cainanbt.softwares.controleja.services.UsersService;
-import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -26,12 +24,6 @@ public class UsersController {
     @PostMapping("/register")
     public ResponseEntity<?> createNewUser(@RequestBody @Valid InsertUpdateUserDTO insertUpdateUser, HttpServletRequest request) {
         return ResponseEntity.ok(UserResponseDTO.toDTO(usersService.createNewUser(insertUpdateUser, request)));
-    }
-
-    @GetMapping()
-    public ResponseEntity<?> teste(){
-        SecurityContextUtils.getCurrentUser();
-        return ResponseEntity.ok("OK");
     }
 
 }

@@ -9,4 +9,7 @@ public interface JwtService {
     boolean validateToken(String token, UserAuthenticateDTO userAuthenticate);
     String validateToken(String token);
 
+    boolean isValidTokenToLogin(String token);
+
+    UserAuthenticateDTO getUserAuthenticateFromRefreshToken(String refreshToken);
 }

@@ -1,6 +1,7 @@
 package com.cainanbt.softwares.controleja.controller;
 
 import com.cainanbt.softwares.controleja.dtos.GoogleLoginDTO;
+import com.cainanbt.softwares.controleja.dtos.TokenLoginDTO;
 import com.cainanbt.softwares.controleja.dtos.UserLoginDTO;
 import com.cainanbt.softwares.controleja.services.impl.AuthServiceImp;
 import jakarta.servlet.http.HttpServletRequest;
@@ -22,12 +23,17 @@ public class AuthController {
     }
 
     @PostMapping
-    public ResponseEntity<?> login(@RequestBody UserLoginDTO userLoginAdapter, HttpServletRequest request){
+    public ResponseEntity<?> login(@RequestBody @Valid UserLoginDTO userLoginAdapter, HttpServletRequest request) {
         return ResponseEntity.ok().body(authService.login(userLoginAdapter,request));
     }
 
     @PostMapping("/google")
     public ResponseEntity<?> loginGoogle(@RequestBody @Valid GoogleLoginDTO googleDto, HttpServletRequest request) {
         return ResponseEntity.ok().body(authService.loginGoogle(googleDto, request));
+    }
+
+    @PostMapping("/auto-login")
+    public ResponseEntity<?> loginAuto(@RequestBody @Valid TokenLoginDTO tokenLoginDTO, HttpServletRequest request) {
+        return ResponseEntity.ok().body(authService.loginAuto(tokenLoginDTO, request));
     }
 }

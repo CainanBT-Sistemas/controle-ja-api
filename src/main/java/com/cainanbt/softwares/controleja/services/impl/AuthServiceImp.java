@@ -2,6 +2,7 @@ package com.cainanbt.softwares.controleja.services.impl;
 
 import com.cainanbt.softwares.controleja.dtos.GoogleLoginDTO;
 import com.cainanbt.softwares.controleja.dtos.InsertUpdateUserDTO;
+import com.cainanbt.softwares.controleja.dtos.TokenLoginDTO;
 import com.cainanbt.softwares.controleja.dtos.UserAuthenticateDTO;
 import com.cainanbt.softwares.controleja.dtos.UserLoginDTO;
 import com.cainanbt.softwares.controleja.dtos.UserUpdateTokenDTO;
@@ -40,14 +41,14 @@ public class AuthServiceImp implements AuthService {
     }
 
     @Override
-    public UserResponseDTO login(UserLoginDTO loginAdapter, HttpServletRequest request){
+    public UserResponseDTO login(UserLoginDTO loginAdapter, HttpServletRequest request) {
         Optional<Users> userOptional = usersService.getUserByEmail(loginAdapter.getEmail());
-        if(userOptional.isEmpty() || !passwordEncoder.matches(loginAdapter.getPassword(), userOptional.get().getPassword())){
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED,ConstsMessages.WRONG_LOGIN_CREDENTIALS);
+        if (userOptional.isEmpty() || !passwordEncoder.matches(loginAdapter.getPassword(), userOptional.get().getPassword())) {
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, ConstsMessages.WRONG_LOGIN_CREDENTIALS);
         }
         Users user = userOptional.get();
-        if(!user.getEnabled() || !user.getAccountNonLocked()){
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED,ConstsMessages.BLOCKED_USER);
+        if (!user.getEnabled() || !user.getAccountNonLocked()) {
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, ConstsMessages.BLOCKED_USER);
         }
 
         var authenticate = new UsernamePasswordAuthenticationToken(loginAdapter.getEmail(), loginAdapter.getPassword());
@@ -93,6 +94,49 @@ public class AuthServiceImp implements AuthService {
 
         AuthResponseDTO authResponse = new AuthResponseDTO(accessToken, refreshToken);
         usersService.updateTokens(new UserUpdateTokenDTO(user.getId(), authResponse.getRefreshToken(), jwtService.getRefreshExpiration()));
+        return new UserResponseDTO(ID.toString(user.getId()), user.getUsername(), user.getEmail(), user.getCreatedAt(), authResponse);
+    }
+
+    @Override
+    public UserResponseDTO loginAuto(TokenLoginDTO tokenLoginDTO, HttpServletRequest request) {
+        String refreshToken = tokenLoginDTO.getToken();
+        if (refreshToken == null || refreshToken.isBlank()) {
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, "Token inválido");
+        }
+
+        if (!jwtService.isValidTokenToLogin(refreshToken)) {
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, "Token inválido");
+        }
+
+        UserAuthenticateDTO userAuthDTO = jwtService.getUserAuthenticateFromRefreshToken(refreshToken);
+        if (userAuthDTO == null) {
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, "Token inválido");
+        }
+
+        Optional<Users> userOptional = usersService.getUserByEmail(userAuthDTO.getUser().getEmail());
+        if (userOptional.isEmpty()) {
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, "Usuário não encontrado");
+        }
+
+        Users user = userOptional.get();
+        if (!user.getEnabled() || !user.getAccountNonLocked()) {
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, ConstsMessages.BLOCKED_USER);
+        }
+
+        if (!user.getRefreshToken().equals(refreshToken)) {
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, "Token inválido");
+        }
+
+        if (!user.getId().equals(userAuthDTO.getUser().getId())) {
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, "Token inválido");
+        }
+
+        String accessToken = jwtService.generateAccessToken(userAuthDTO);
+        String newRefreshToken = jwtService.generateRefreshToken(userAuthDTO);
+
+        AuthResponseDTO authResponse = new AuthResponseDTO(accessToken, newRefreshToken);
+        usersService.updateTokens(new UserUpdateTokenDTO(user.getId(), authResponse.getRefreshToken(), jwtService.getRefreshExpiration()));
+
         return new UserResponseDTO(ID.toString(user.getId()), user.getUsername(), user.getEmail(), user.getCreatedAt(), authResponse);
     }
 }

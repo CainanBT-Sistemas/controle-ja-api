@@ -39,10 +39,15 @@ public class TransactionDTO {
     @Min(value = 1, message = "O número mínimo de parcelas é 1")
     private Integer installments;
 
-    @NotNull
+    @NotNull(message = "Deve ser informado se a transação foi paga ou não")
     private Boolean paid;
 
+    @NotNull(message = "Deve ser informado se a transação é recorrente ou não")
+    private Boolean isRecurring;
+
     private UUID vehicleId;
+
+    private UUID creditCardId;
     private BigDecimal currentOdometer;
     private Double liters;
     private FuelType fuelType;

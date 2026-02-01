@@ -2,6 +2,7 @@ package com.cainanbt.softwares.controleja.services.impl;
 
 
 import com.cainanbt.softwares.controleja.dtos.UserAuthenticateDTO;
+import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.services.JwtService;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Service;
 import java.nio.charset.StandardCharsets;
 import java.security.Key;
 import java.util.Date;
+import java.util.UUID;
 import java.util.function.Function;
 
 @Service
@@ -56,6 +58,69 @@ public class JwtServiceImp implements JwtService {
     public String validateToken(String token) {
         final String username = extractUsername(token);
         return username;
+    }
+
+    @Override
+    public boolean isValidTokenToLogin(String token) {
+        try {
+            Claims claims = extractAllClaims(token);
+
+            // verifica issuer
+            if (claims.getIssuer() == null || !claims.getIssuer().equals(issueToken)) {
+                return false;
+            }
+
+            // verifica expiração
+            Date expiration = claims.getExpiration();
+            if (expiration == null || expiration.before(new Date())) {
+                return false;
+            }
+
+            // extrai username (email) e id
+            String username = claims.get("username", String.class);
+            Object idObj = claims.get("id");
+            String idStr = idObj != null ? idObj.toString() : null;
+
+            if (username == null || username.isBlank() || idStr == null || idStr.isBlank()) {
+                return false;
+            }
+            try {
+                UUID.fromString(idStr);
+            } catch (IllegalArgumentException ex) {
+                return false;
+            }
+
+            return true;
+        } catch (io.jsonwebtoken.JwtException | IllegalArgumentException ex) {
+            return false;
+        }
+    }
+
+    @Override
+    public UserAuthenticateDTO getUserAuthenticateFromRefreshToken(String token) {
+        Claims claims = extractAllClaims(token);
+
+        // extrai email/username e id
+        String email = claims.get("username", String.class);
+        String idStr = claims.get("id", String.class);
+
+        if (email == null || email.isBlank() || idStr == null || idStr.isBlank()) {
+            throw new IllegalArgumentException("Refresh token não contém `username` ou `id`");
+        }
+
+        UUID id;
+        try {
+            id = UUID.fromString(idStr);
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException("ID no refresh token não é um UUID válido", ex);
+        }
+
+        // monta um Users mínimo para autenticação em memória
+        Users user = Users.builder()
+                .id(id)
+                .email(email)
+                .build();
+        return new UserAuthenticateDTO(user);
     }
 
     private String buildToken(UserAuthenticateDTO userAuthenticate, long expirationTime) {
