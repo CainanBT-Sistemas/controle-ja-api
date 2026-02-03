@@ -100,4 +100,24 @@ public class AccountsServiceImpl implements AccountsService {
             throw new InternalServerException("Erro ao salvar conta", "Não foi possível salvar a conta. Tente novamente.", e);
         }
     }
+
+    @Override
+    @Transactional
+    public void deleteAccount(UUID id) {
+        Users user = SecurityContextUtils.getCurrentUser();
+        
+        Accounts account = repository.findById(id)
+                .orElseThrow(() -> new NotFoundException("Conta não encontrada", "A conta especificada não existe."));
+        
+        if (!account.getUser().getId().equals(user.getId())) {
+            throw new ForbiddenException("Acesso negado", "Você não tem permissão para deletar esta conta.");
+        }
+        
+        try {
+            account.setDeletedAt(System.currentTimeMillis());
+            repository.save(account);
+        } catch (Exception e) {
+            throw new InternalServerException("Erro ao deletar conta", "Não foi possível deletar a conta. Tente novamente.", e);
+        }
+    }
 }

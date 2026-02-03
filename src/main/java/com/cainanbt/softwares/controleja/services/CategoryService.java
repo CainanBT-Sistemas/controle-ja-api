@@ -15,4 +15,6 @@ public interface CategoryService {
     Optional<Category> findById(UUID categoryId);
 
     void save(Category category);
+
+    void deleteCategory(UUID id);
 }

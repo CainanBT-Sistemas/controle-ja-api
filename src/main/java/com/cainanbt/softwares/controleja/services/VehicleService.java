@@ -19,4 +19,5 @@ public interface VehicleService {
 
     Double processRefuel(Vehicle vehicle, BigDecimal newOdometer, Double liters, FuelType fuelType);
 
+    void deleteVehicle(UUID id);
 }

@@ -4,6 +4,7 @@ import com.cainanbt.softwares.controleja.dtos.VehicleDTO;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.entities.Vehicle;
 import com.cainanbt.softwares.controleja.enums.FuelType;
+import com.cainanbt.softwares.controleja.exceptions.models.ForbiddenException;
 import com.cainanbt.softwares.controleja.exceptions.models.InternalServerException;
 import com.cainanbt.softwares.controleja.exceptions.models.NotFoundException;
 import com.cainanbt.softwares.controleja.repositories.VehicleRepository;
@@ -113,5 +114,25 @@ public class VehicleServiceImpl implements VehicleService {
             return newConsumption;
         }
         return (currentAverage + newConsumption) / 2;
+    }
+
+    @Override
+    @Transactional
+    public void deleteVehicle(UUID id) {
+        Users user = SecurityContextUtils.getCurrentUser();
+        
+        Vehicle vehicle = repository.findById(id)
+                .orElseThrow(() -> new NotFoundException("Veículo não encontrado", "O veículo especificado não existe."));
+        
+        if (!vehicle.getUser().getId().equals(user.getId())) {
+            throw new ForbiddenException("Acesso negado", "Você não tem permissão para deletar este veículo.");
+        }
+        
+        try {
+            vehicle.setDeletedAt(System.currentTimeMillis());
+            repository.save(vehicle);
+        } catch (Exception e) {
+            throw new InternalServerException("Erro ao deletar veículo", "Não foi possível deletar o veículo. Tente novamente.", e);
+        }
     }
 }

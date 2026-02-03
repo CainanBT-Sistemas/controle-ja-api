@@ -14,4 +14,6 @@ public interface CreditCardService {
     CreditCard findByAccountId(UUID accountId);
 
     void updateLimit(CreditCard card);
+
+    void deleteCreditCard(UUID id);
 }

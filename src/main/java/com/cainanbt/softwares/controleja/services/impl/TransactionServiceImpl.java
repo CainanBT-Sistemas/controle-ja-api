@@ -30,6 +30,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class TransactionServiceImpl implements TransactionService {
@@ -198,5 +199,25 @@ public class TransactionServiceImpl implements TransactionService {
     public List<Transactions> listLastTransactions() {
         Users user = SecurityContextUtils.getCurrentUser();
         return repository.findByUserIdOrderByDateDesc(user.getId());
+    }
+
+    @Override
+    @Transactional
+    public void deleteTransaction(UUID id) {
+        Users user = SecurityContextUtils.getCurrentUser();
+        
+        Transactions transaction = repository.findById(id)
+                .orElseThrow(() -> new NotFoundException("Transação não encontrada", "A transação especificada não existe."));
+        
+        if (!transaction.getUser().getId().equals(user.getId())) {
+            throw new ForbiddenException("Acesso negado", "Você não tem permissão para deletar esta transação.");
+        }
+        
+        try {
+            transaction.setDeletedAt(System.currentTimeMillis());
+            repository.save(transaction);
+        } catch (Exception e) {
+            throw new InternalServerException("Erro ao deletar transação", "Não foi possível deletar a transação. Tente novamente.", e);
+        }
     }
 }

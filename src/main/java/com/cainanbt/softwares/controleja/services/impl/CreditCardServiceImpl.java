@@ -6,6 +6,7 @@ import com.cainanbt.softwares.controleja.entities.CreditCard;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.enums.AccountType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
+import com.cainanbt.softwares.controleja.exceptions.models.ForbiddenException;
 import com.cainanbt.softwares.controleja.exceptions.models.InternalServerException;
 import com.cainanbt.softwares.controleja.exceptions.models.NotFoundException;
 import com.cainanbt.softwares.controleja.repositories.AccountsRepository;
@@ -98,6 +99,33 @@ public class CreditCardServiceImpl implements CreditCardService {
             creditCardRepository.save(card);
         } catch (Exception e) {
             throw new InternalServerException("Erro ao atualizar limite", "Não foi possível atualizar o limite do cartão. Tente novamente.", e);
+        }
+    }
+
+    @Override
+    @Transactional
+    public void deleteCreditCard(UUID id) {
+        Users user = SecurityContextUtils.getCurrentUser();
+        
+        CreditCard card = creditCardRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("Cartão não encontrado", "O cartão de crédito especificado não existe."));
+        
+        if (!card.getUser().getId().equals(user.getId())) {
+            throw new ForbiddenException("Acesso negado", "Você não tem permissão para deletar este cartão de crédito.");
+        }
+        
+        try {
+            card.setDeletedAt(System.currentTimeMillis());
+            creditCardRepository.save(card);
+            
+            // Also soft-delete the associated account
+            Accounts account = card.getAccounts();
+            if (account != null) {
+                account.setDeletedAt(System.currentTimeMillis());
+                accountsRepository.save(account);
+            }
+        } catch (Exception e) {
+            throw new InternalServerException("Erro ao deletar cartão", "Não foi possível deletar o cartão de crédito. Tente novamente.", e);
         }
     }
 }

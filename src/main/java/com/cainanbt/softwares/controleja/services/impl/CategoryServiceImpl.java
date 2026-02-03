@@ -80,4 +80,24 @@ public class CategoryServiceImpl implements CategoryService {
             throw new InternalServerException("Erro ao salvar categoria", "Não foi possível salvar a categoria. Tente novamente.", e);
         }
     }
+
+    @Override
+    @Transactional
+    public void deleteCategory(UUID id) {
+        Users user = SecurityContextUtils.getCurrentUser();
+        
+        Category category = repository.findById(id)
+                .orElseThrow(() -> new NotFoundException("Categoria não encontrada", "A categoria especificada não existe."));
+        
+        if (!category.getUser().getId().equals(user.getId())) {
+            throw new ForbiddenException("Acesso negado", "Você não tem permissão para deletar esta categoria.");
+        }
+        
+        try {
+            category.setDeletedAt(System.currentTimeMillis());
+            repository.save(category);
+        } catch (Exception e) {
+            throw new InternalServerException("Erro ao deletar categoria", "Não foi possível deletar a categoria. Tente novamente.", e);
+        }
+    }
 }
