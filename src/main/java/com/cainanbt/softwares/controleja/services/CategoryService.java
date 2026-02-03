@@ -13,6 +13,12 @@ public interface CategoryService {
     List<Category> listMyCategories();
 
     Optional<Category> findById(UUID categoryId);
+    
+    Category findByIdOrThrow(UUID id);
+    
+    Category updateCategory(UUID id, CategoryDTO dto);
+    
+    void softDelete(UUID id);
 
     void save(Category category);
 }

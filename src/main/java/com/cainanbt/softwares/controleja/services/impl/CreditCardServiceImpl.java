@@ -6,9 +6,11 @@ import com.cainanbt.softwares.controleja.entities.CreditCard;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.enums.AccountType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
+import com.cainanbt.softwares.controleja.exceptions.models.EntityNotFoundException;
 import com.cainanbt.softwares.controleja.repositories.AccountsRepository;
 import com.cainanbt.softwares.controleja.repositories.CreditCardRepository;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
+import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import org.springframework.stereotype.Service;
@@ -16,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -85,6 +88,64 @@ public class CreditCardServiceImpl implements CreditCardService {
 
     @Override
     public void updateLimit(CreditCard card) {
+        creditCardRepository.save(card);
+    }
+    
+    @Override
+    public Optional<CreditCard> findById(UUID id) {
+        return creditCardRepository.findByIdAndNotDeleted(id);
+    }
+    
+    @Override
+    public CreditCard findByIdOrThrow(UUID id) {
+        return findById(id)
+                .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.CREDIT_CARD_NOT_FOUND,
+                    "Cartão de crédito com ID " + id + " não encontrado ou já foi excluído"));
+    }
+    
+    @Override
+    public CreditCard updateCard(UUID id, CreditCardDTO dto) {
+        CreditCard card = findByIdOrThrow(id);
+        Users currentUser = SecurityContextUtils.getCurrentUser();
+        
+        if (!card.getUser().getId().equals(currentUser.getId())) {
+            throw new BadRequestException("Acesso negado", "Você não tem permissão para alterar este cartão");
+        }
+        
+        if (dto.getName() != null) {
+            card.setName(dto.getName());
+        }
+        if (dto.getLimit() != null) {
+            BigDecimal difference = dto.getLimit().subtract(card.getTotalLimit());
+            card.setTotalLimit(dto.getLimit());
+            card.setCurrentLimit(card.getCurrentLimit().add(difference));
+        }
+        if (dto.getCloseDay() > 0) {
+            card.setCloseDay(dto.getCloseDay());
+        }
+        if (dto.getBestDay() > 0) {
+            card.setBestDay(dto.getBestDay());
+        }
+        
+        card.setUpdatedAt(System.currentTimeMillis());
+        
+        return creditCardRepository.save(card);
+    }
+    
+    @Override
+    public void softDelete(UUID id) {
+        CreditCard card = findByIdOrThrow(id);
+        Users currentUser = SecurityContextUtils.getCurrentUser();
+        
+        if (!card.getUser().getId().equals(currentUser.getId())) {
+            throw new BadRequestException("Acesso negado", "Você não tem permissão para excluir este cartão");
+        }
+        
+        if (card.getDeletedAt() != null) {
+            throw new BadRequestException("Erro", ConstsMessages.ENTITY_ALREADY_DELETED);
+        }
+        
+        card.setDeletedAt(System.currentTimeMillis());
         creditCardRepository.save(card);
     }
 }

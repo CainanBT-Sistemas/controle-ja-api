@@ -11,9 +11,16 @@ public interface AccountsService {
     Accounts createAccount(AccountDTO dto);
 
     Optional<Accounts> findById(UUID id);
+    
+    Accounts findByIdOrThrow(UUID id);
+    
     List<Accounts> listMyAccounts();
 
     Accounts update(Accounts accounts);
+    
+    Accounts updateAccount(UUID id, AccountDTO dto);
+    
+    void softDelete(UUID id);
 
     Accounts save(Accounts accounts);
 }
