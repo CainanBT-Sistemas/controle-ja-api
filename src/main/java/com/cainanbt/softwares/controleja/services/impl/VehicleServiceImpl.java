@@ -4,12 +4,14 @@ import com.cainanbt.softwares.controleja.dtos.VehicleDTO;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.entities.Vehicle;
 import com.cainanbt.softwares.controleja.enums.FuelType;
-import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
+import com.cainanbt.softwares.controleja.exceptions.models.InternalServerException;
+import com.cainanbt.softwares.controleja.exceptions.models.NotFoundException;
 import com.cainanbt.softwares.controleja.repositories.VehicleRepository;
 import com.cainanbt.softwares.controleja.services.VehicleService;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -24,20 +26,26 @@ public class VehicleServiceImpl implements VehicleService {
     }
 
     @Override
+    @Transactional
     public Vehicle createVehicle(VehicleDTO dto) {
         Users user = SecurityContextUtils.getCurrentUser();
-        Vehicle vehicle = Vehicle.builder()
-                .id(ID.generate())
-                .name(dto.getName())
-                .brand(dto.getBrand())
-                .model(dto.getModel())
-                .year(dto.getYear())
-                .plate(dto.getPlate())
-                .currentOdometer(dto.getCurrentOdometer())
-                .user(user)
-                .createdAt(System.currentTimeMillis())
-                .build();
-        return repository.save(vehicle);
+        
+        try {
+            Vehicle vehicle = Vehicle.builder()
+                    .id(ID.generate())
+                    .name(dto.getName())
+                    .brand(dto.getBrand())
+                    .model(dto.getModel())
+                    .year(dto.getYear())
+                    .plate(dto.getPlate())
+                    .currentOdometer(dto.getCurrentOdometer())
+                    .user(user)
+                    .createdAt(System.currentTimeMillis())
+                    .build();
+            return repository.save(vehicle);
+        } catch (Exception e) {
+            throw new InternalServerException("Erro ao criar veículo", "Não foi possível criar o veículo. Tente novamente.", e);
+        }
     }
 
     @Override
@@ -49,25 +57,35 @@ public class VehicleServiceImpl implements VehicleService {
     @Override
     public Vehicle findById(UUID id) {
         return repository.findById(id)
-                .orElseThrow(() -> new BadRequestException("Erro", "Veículo não encontrado"));
+                .orElseThrow(() -> new NotFoundException("Veículo não encontrado", "O veículo especificado não existe."));
     }
 
     @Override
+    @Transactional
     public void updateOdometer(Vehicle vehicle, BigDecimal newOdometer) {
         if (newOdometer != null && newOdometer.compareTo(vehicle.getCurrentOdometer()) > 0) {
             vehicle.setCurrentOdometer(newOdometer);
-            repository.save(vehicle);
+            try {
+                repository.save(vehicle);
+            } catch (Exception e) {
+                throw new InternalServerException("Erro ao atualizar odômetro", "Não foi possível atualizar o odômetro. Tente novamente.", e);
+            }
         }
     }
 
     @Override
+    @Transactional
     public Double processRefuel(Vehicle vehicle, BigDecimal newOdometer, Double liters, FuelType fuelType) {
         if (newOdometer == null || newOdometer.compareTo(vehicle.getCurrentOdometer()) <= 0) {
             return null; // Não dá pra calcular
         }
         if (liters == null || liters <= 0) {
             vehicle.setCurrentOdometer(newOdometer); // Só atualiza KM
-            repository.save(vehicle);
+            try {
+                repository.save(vehicle);
+            } catch (Exception e) {
+                throw new InternalServerException("Erro ao processar abastecimento", "Não foi possível processar o abastecimento. Tente novamente.", e);
+            }
             return null;
         }
 
@@ -81,7 +99,12 @@ public class VehicleServiceImpl implements VehicleService {
             vehicle.setAvgKmPerLiterEthanol(calculateRollingAverage(vehicle.getAvgKmPerLiterEthanol(), consumption));
         }
         vehicle.setCurrentOdometer(newOdometer);
-        repository.save(vehicle);
+        
+        try {
+            repository.save(vehicle);
+        } catch (Exception e) {
+            throw new InternalServerException("Erro ao processar abastecimento", "Não foi possível processar o abastecimento. Tente novamente.", e);
+        }
         return consumption;
     }
 

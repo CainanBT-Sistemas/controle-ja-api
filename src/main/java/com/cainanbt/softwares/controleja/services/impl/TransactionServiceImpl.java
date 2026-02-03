@@ -10,6 +10,9 @@ import com.cainanbt.softwares.controleja.entities.Vehicle;
 import com.cainanbt.softwares.controleja.enums.AccountType;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
+import com.cainanbt.softwares.controleja.exceptions.models.ForbiddenException;
+import com.cainanbt.softwares.controleja.exceptions.models.InternalServerException;
+import com.cainanbt.softwares.controleja.exceptions.models.NotFoundException;
 import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.services.AccountsService;
 import com.cainanbt.softwares.controleja.services.CategoryService;
@@ -50,25 +53,31 @@ public class TransactionServiceImpl implements TransactionService {
     public Transactions createTransaction(TransactionDTO dto) {
         Users user = SecurityContextUtils.getCurrentUser();
 
-        Accounts account = accountsService.findById(dto.getAccountId())
-                .orElseThrow(() -> new BadRequestException("Erro", "Conta não encontrada"));
+        try {
+            Accounts account = accountsService.findById(dto.getAccountId())
+                    .orElseThrow(() -> new NotFoundException("Conta não encontrada", "A conta especificada não existe."));
 
-        if (!account.getUser().getId().equals(user.getId())) {
-            throw new BadRequestException("Erro", "Conta inválida (Não pertence ao usuário)");
+            if (!account.getUser().getId().equals(user.getId())) {
+                throw new ForbiddenException("Acesso negado", "A conta não pertence ao usuário.");
+            }
+
+            Category category = categoryService.findById(dto.getCategoryId())
+                    .orElseThrow(() -> new NotFoundException("Categoria não encontrada", "A categoria especificada não existe."));
+
+            if (dto.getType() == TransactionType.PAGAMENTO_FATURA) {
+                return processInvoicePayment(dto, account, category, user);
+            }
+
+            if (account.getType() == AccountType.CREDIT_CARD) {
+                return processCreditCardExpense(dto, account, category, user);
+            }
+
+            return processNormalTransaction(dto, account, category, user);
+        } catch (NotFoundException | ForbiddenException | BadRequestException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new InternalServerException("Erro ao criar transação", "Não foi possível criar a transação. Tente novamente.", e);
         }
-
-        Category category = categoryService.findById(dto.getCategoryId())
-                .orElseThrow(() -> new BadRequestException("Erro", "Categoria não encontrada"));
-
-        if (dto.getType() == TransactionType.PAGAMENTO_FATURA) {
-            return processInvoicePayment(dto, account, category, user);
-        }
-
-        if (account.getType() == AccountType.CREDIT_CARD) {
-            return processCreditCardExpense(dto, account, category, user);
-        }
-
-        return processNormalTransaction(dto, account, category, user);
     }
 
     private Transactions processInvoicePayment(TransactionDTO dto, Accounts sourceAccount, Category category, Users user) {
@@ -76,7 +85,7 @@ public class TransactionServiceImpl implements TransactionService {
             throw new BadRequestException("Erro", "Para pagar fatura, informe o ID da conta do cartão (targetAccountId).");
         }
         Accounts cardAccount = accountsService.findById(dto.getTargetAccountId())
-                .orElseThrow(() -> new BadRequestException("Erro", "Conta do cartão não encontrada"));
+                .orElseThrow(() -> new NotFoundException("Conta do cartão não encontrada", "A conta do cartão especificada não existe."));
 
         if (cardAccount.getType() != AccountType.CREDIT_CARD) {
             throw new BadRequestException("Erro", "A conta de destino deve ser um Cartão de Crédito.");
@@ -172,7 +181,7 @@ public class TransactionServiceImpl implements TransactionService {
         if (dto.getVehicleId() != null) {
             Vehicle vehicle = vehicleService.findById(dto.getVehicleId());
             if (!vehicle.getUser().getId().equals(user.getId())) {
-                throw new BadRequestException("Erro", "Veículo inválido");
+                throw new ForbiddenException("Acesso negado", "O veículo não pertence ao usuário.");
             }
             Double efficiency = vehicleService.processRefuel(vehicle, dto.getCurrentOdometer(), dto.getLiters(), dto.getFuelType());
 

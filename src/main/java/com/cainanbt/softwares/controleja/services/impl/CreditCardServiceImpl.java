@@ -6,6 +6,8 @@ import com.cainanbt.softwares.controleja.entities.CreditCard;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.enums.AccountType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
+import com.cainanbt.softwares.controleja.exceptions.models.InternalServerException;
+import com.cainanbt.softwares.controleja.exceptions.models.NotFoundException;
 import com.cainanbt.softwares.controleja.repositories.AccountsRepository;
 import com.cainanbt.softwares.controleja.repositories.CreditCardRepository;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
@@ -39,36 +41,42 @@ public class CreditCardServiceImpl implements CreditCardService {
             throw new BadRequestException("Limite Atingido", "Usuários Free só podem ter 2 cartões de crédito. Assine o Premium!");
         }
 
-        Accounts cardAccount = Accounts.builder()
-                .id(ID.generate())
-                .name(dto.getName() + " (Fatura)")
-                .type(AccountType.CREDIT_CARD)
-                .institution(dto.getName())
-                .currency("BRL")
-                .currentBalance(BigDecimal.ZERO)
-                .initialBalance(BigDecimal.ZERO)
-                .calculateBalance(false)
-                .enabled(true)
-                .user(user)
-                .createdAt(System.currentTimeMillis())
-                .build();
+        try {
+            Accounts cardAccount = Accounts.builder()
+                    .id(ID.generate())
+                    .name(dto.getName() + " (Fatura)")
+                    .type(AccountType.CREDIT_CARD)
+                    .institution(dto.getName())
+                    .currency("BRL")
+                    .currentBalance(BigDecimal.ZERO)
+                    .initialBalance(BigDecimal.ZERO)
+                    .calculateBalance(false)
+                    .enabled(true)
+                    .user(user)
+                    .createdAt(System.currentTimeMillis())
+                    .build();
 
-        Accounts savedAccount = accountsRepository.save(cardAccount);
+            Accounts savedAccount = accountsRepository.save(cardAccount);
 
-        CreditCard card = CreditCard.builder()
-                .id(ID.generate())
-                .name(dto.getName())
-                .totalLimit(dto.getLimit())
-                .currentLimit(dto.getLimit())
-                .closeDay(dto.getCloseDay())
-                .bestDay(dto.getBestDay())
-                .user(user)
-                .accounts(savedAccount)
-                .enabled(true)
-                .createdAt(System.currentTimeMillis())
-                .build();
+            CreditCard card = CreditCard.builder()
+                    .id(ID.generate())
+                    .name(dto.getName())
+                    .totalLimit(dto.getLimit())
+                    .currentLimit(dto.getLimit())
+                    .closeDay(dto.getCloseDay())
+                    .bestDay(dto.getBestDay())
+                    .user(user)
+                    .accounts(savedAccount)
+                    .enabled(true)
+                    .createdAt(System.currentTimeMillis())
+                    .build();
 
-        return creditCardRepository.save(card);
+            return creditCardRepository.save(card);
+        } catch (BadRequestException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new InternalServerException("Erro ao criar cartão", "Não foi possível criar o cartão de crédito. Tente novamente.", e);
+        }
     }
 
     @Override
@@ -80,11 +88,16 @@ public class CreditCardServiceImpl implements CreditCardService {
     @Override
     public CreditCard findByAccountId(UUID accountId) {
         return creditCardRepository.findByAccountsId(accountId)
-                .orElseThrow(() -> new BadRequestException("Erro", "Cartão não encontrado para esta conta"));
+                .orElseThrow(() -> new NotFoundException("Cartão não encontrado", "Não foi encontrado um cartão de crédito para esta conta."));
     }
 
     @Override
+    @Transactional
     public void updateLimit(CreditCard card) {
-        creditCardRepository.save(card);
+        try {
+            creditCardRepository.save(card);
+        } catch (Exception e) {
+            throw new InternalServerException("Erro ao atualizar limite", "Não foi possível atualizar o limite do cartão. Tente novamente.", e);
+        }
     }
 }
