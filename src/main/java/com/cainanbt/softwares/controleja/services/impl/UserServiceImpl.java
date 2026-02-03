@@ -1,6 +1,7 @@
 package com.cainanbt.softwares.controleja.services.impl;
 
 import com.cainanbt.softwares.controleja.dtos.InsertUpdateUserDTO;
+import com.cainanbt.softwares.controleja.dtos.PasswordChangeDTO;
 import com.cainanbt.softwares.controleja.dtos.UserAuthenticateDTO;
 import com.cainanbt.softwares.controleja.dtos.UserUpdateTokenDTO;
 import com.cainanbt.softwares.controleja.entities.Accounts;
@@ -13,8 +14,10 @@ import com.cainanbt.softwares.controleja.repositories.UsersRepository;
 import com.cainanbt.softwares.controleja.services.AccountsService;
 import com.cainanbt.softwares.controleja.services.CategoryService;
 import com.cainanbt.softwares.controleja.services.UsersService;
+import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
+import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -103,6 +106,26 @@ public class UserServiceImpl implements UsersService {
             throw new BadRequestException("Acesso negado","Usuário bloqueado");
         }
         return new UserAuthenticateDTO(user);
+    }
+    
+    @Override
+    public void changePassword(PasswordChangeDTO passwordChangeDTO) {
+        Users currentUser = SecurityContextUtils.getCurrentUser();
+        
+        // Verify current password
+        if (!passwordEncoder.matches(passwordChangeDTO.getCurrentPassword(), currentUser.getPassword())) {
+            throw new BadRequestException("Erro de autenticação", ConstsMessages.INVALID_CURRENT_PASSWORD);
+        }
+        
+        // Validate new password
+        if (passwordChangeDTO.getNewPassword().length() < 6) {
+            throw new BadRequestException("Erro de validação", ConstsMessages.PASSWORD_REQUIREMENTS);
+        }
+        
+        // Update password
+        currentUser.setPassword(passwordEncoder.encode(passwordChangeDTO.getNewPassword()));
+        currentUser.setUpdatedAt(System.currentTimeMillis());
+        userRepository.save(currentUser);
     }
 
     private void setupNewUser(Users user) {
