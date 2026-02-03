@@ -101,16 +101,16 @@ public class AuthServiceImp implements AuthService {
     public UserResponseDTO loginAuto(TokenLoginDTO tokenLoginDTO, HttpServletRequest request) {
         String refreshToken = tokenLoginDTO.getToken();
         if (refreshToken == null || refreshToken.isBlank()) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, "Token inválido");
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, ConstsMessages.INVALID_TOKEN);
         }
 
         if (!jwtService.isValidTokenToLogin(refreshToken)) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, "Token inválido");
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, ConstsMessages.INVALID_TOKEN);
         }
 
         UserAuthenticateDTO userAuthDTO = jwtService.getUserAuthenticateFromRefreshToken(refreshToken);
         if (userAuthDTO == null) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, "Token inválido");
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, ConstsMessages.INVALID_TOKEN);
         }
 
         Optional<Users> userOptional = usersService.getUserByEmail(userAuthDTO.getUser().getEmail());
@@ -124,11 +124,11 @@ public class AuthServiceImp implements AuthService {
         }
 
         if (!user.getRefreshToken().equals(refreshToken)) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, "Token inválido");
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, ConstsMessages.INVALID_TOKEN);
         }
 
         if (!user.getId().equals(userAuthDTO.getUser().getId())) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, "Token inválido");
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, ConstsMessages.INVALID_TOKEN);
         }
 
         String accessToken = jwtService.generateAccessToken(userAuthDTO);
