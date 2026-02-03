@@ -6,6 +6,8 @@ import com.cainanbt.softwares.controleja.exceptions.models.BadRequestExceptionDe
 import com.cainanbt.softwares.controleja.exceptions.models.ForbiddenException;
 import com.cainanbt.softwares.controleja.exceptions.models.InternalServerException;
 import com.cainanbt.softwares.controleja.exceptions.models.NotFoundException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -18,6 +20,7 @@ import java.util.stream.Collectors;
 
 @ControllerAdvice
 public class RestExceptionHandler {
+    private static final Logger log = LoggerFactory.getLogger(RestExceptionHandler.class);
     @ExceptionHandler(BadRequestException.class)
     public ResponseEntity<BadRequestExceptionDetails> handlerBadRequestException(BadRequestException badRequestException){
         String title = badRequestException.getMessage().split("\ndetail:")[0];
@@ -96,8 +99,7 @@ public class RestExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<BadRequestExceptionDetails> handlerGenericException(Exception ex) {
         // Log the exception details for debugging in production
-        System.err.println("Erro inesperado: " + ex.getClass().getName() + " - " + ex.getMessage());
-        ex.printStackTrace();
+        log.error("Erro inesperado: {} - {}", ex.getClass().getName(), ex.getMessage(), ex);
         
         return new ResponseEntity<>(BadRequestExceptionDetails.builder()
                 .code(HttpStatus.INTERNAL_SERVER_ERROR.value())
