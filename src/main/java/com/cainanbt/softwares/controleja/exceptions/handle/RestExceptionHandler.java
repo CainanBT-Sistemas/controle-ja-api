@@ -65,14 +65,17 @@ public class RestExceptionHandler {
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<BadRequestExceptionDetails> handlerDataIntegrityViolationException(DataIntegrityViolationException ex) {
         String message = "Erro ao persistir dados. Verifique se não há violação de restrições do banco de dados.";
+        
+        // Check for common constraint violations without exposing internal details
         if (ex.getRootCause() != null && ex.getRootCause().getMessage() != null) {
-            String rootMessage = ex.getRootCause().getMessage();
-            if (rootMessage.contains("duplicate key")) {
+            String rootMessage = ex.getRootCause().getMessage().toLowerCase();
+            if (rootMessage.contains("duplicate key") || rootMessage.contains("unique constraint")) {
                 message = "Registro duplicado. Este item já existe no sistema.";
-            } else if (rootMessage.contains("foreign key")) {
+            } else if (rootMessage.contains("foreign key") || rootMessage.contains("violates foreign key")) {
                 message = "Não é possível realizar a operação. Existem registros relacionados.";
             }
         }
+        
         return new ResponseEntity<>(BadRequestExceptionDetails.builder()
                 .code(HttpStatus.BAD_REQUEST.value())
                 .title("Erro de Integridade de Dados")
@@ -92,6 +95,10 @@ public class RestExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<BadRequestExceptionDetails> handlerGenericException(Exception ex) {
+        // Log the exception details for debugging in production
+        System.err.println("Erro inesperado: " + ex.getClass().getName() + " - " + ex.getMessage());
+        ex.printStackTrace();
+        
         return new ResponseEntity<>(BadRequestExceptionDetails.builder()
                 .code(HttpStatus.INTERNAL_SERVER_ERROR.value())
                 .title("Erro Interno")

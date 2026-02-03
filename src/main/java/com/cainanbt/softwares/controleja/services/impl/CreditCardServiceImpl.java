@@ -115,15 +115,16 @@ public class CreditCardServiceImpl implements CreditCardService {
         }
         
         try {
+            // Mark both card and account as deleted in the same transaction
             card.setDeletedAt(System.currentTimeMillis());
-            creditCardRepository.save(card);
             
-            // Also soft-delete the associated account
             Accounts account = card.getAccounts();
             if (account != null) {
                 account.setDeletedAt(System.currentTimeMillis());
                 accountsRepository.save(account);
             }
+            
+            creditCardRepository.save(card);
         } catch (Exception e) {
             throw new InternalServerException("Erro ao deletar cartão", "Não foi possível deletar o cartão de crédito. Tente novamente.", e);
         }
