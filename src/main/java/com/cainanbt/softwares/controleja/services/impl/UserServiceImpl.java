@@ -117,11 +117,6 @@ public class UserServiceImpl implements UsersService {
             throw new BadRequestException("Erro de autenticação", ConstsMessages.INVALID_CURRENT_PASSWORD);
         }
         
-        // Validate new password
-        if (passwordChangeDTO.getNewPassword().length() < 6) {
-            throw new BadRequestException("Erro de validação", ConstsMessages.PASSWORD_REQUIREMENTS);
-        }
-        
         // Update password
         currentUser.setPassword(passwordEncoder.encode(passwordChangeDTO.getNewPassword()));
         currentUser.setUpdatedAt(System.currentTimeMillis());
