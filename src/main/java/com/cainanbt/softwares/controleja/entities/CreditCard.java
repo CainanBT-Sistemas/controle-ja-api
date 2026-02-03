@@ -15,6 +15,8 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
 import org.hibernate.annotations.DynamicUpdate;
+import org.hibernate.annotations.SQLDelete;
+import org.hibernate.annotations.Where;
 
 import java.math.BigDecimal;
 import java.util.UUID;
@@ -28,6 +30,8 @@ import java.util.UUID;
 @DynamicUpdate
 @Setter
 @ToString
+@SQLDelete(sql = "UPDATE credit_cards SET deleted_at = EXTRACT(EPOCH FROM NOW()) * 1000 WHERE id = ?")
+@Where(clause = "deleted_at IS NULL")
 public class CreditCard {
     @Id
     private UUID id;

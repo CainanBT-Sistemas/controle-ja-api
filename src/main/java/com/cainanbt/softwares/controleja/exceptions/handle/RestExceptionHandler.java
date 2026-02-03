@@ -3,6 +3,8 @@ package com.cainanbt.softwares.controleja.exceptions.handle;
 
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestExceptionDetails;
+import com.cainanbt.softwares.controleja.exceptions.models.EntityNotFoundException;
+import com.cainanbt.softwares.controleja.exceptions.models.EntityNotFoundExceptionDetails;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
@@ -33,5 +35,14 @@ public class RestExceptionHandler {
                 .title("Erro de Validação")
                 .message(errors)
                 .build(), HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler(EntityNotFoundException.class)
+    public ResponseEntity<EntityNotFoundExceptionDetails> handlerEntityNotFoundException(EntityNotFoundException ex) {
+        return new ResponseEntity<>(EntityNotFoundExceptionDetails.builder()
+                .code(ex.getCode())
+                .title(ex.getTitle())
+                .message(ex.getMessage())
+                .build(), HttpStatus.NOT_FOUND);
     }
 }
