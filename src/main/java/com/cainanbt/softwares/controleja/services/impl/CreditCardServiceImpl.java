@@ -76,6 +76,12 @@ public class CreditCardServiceImpl implements CreditCardService {
             // Atualizar campos
             card.setName(dto.getName());
             card.setTotalLimit(dto.getLimit());
+            
+            // Ajustar limite atual se necessário para manter consistência
+            if (card.getCurrentLimit().compareTo(dto.getLimit()) > 0) {
+                card.setCurrentLimit(dto.getLimit());
+            }
+            
             card.setCloseDay(dto.getCloseDay());
             card.setBestDay(dto.getBestDay());
 

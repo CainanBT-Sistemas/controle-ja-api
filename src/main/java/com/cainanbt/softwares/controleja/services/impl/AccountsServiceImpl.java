@@ -80,7 +80,7 @@ public class AccountsServiceImpl implements AccountsService {
             // Atualizar apenas campos permitidos
             account.setName(dto.getName());
             account.setType(dto.getType());
-            account.setInstitution(dto.getInstitution() != null ? dto.getInstitution() : account.getInstitution());
+            account.setInstitution(dto.getInstitution() != null ? dto.getInstitution() : "N/A");
 
             return accountsRepository.save(account);
         } catch (BadRequestException e) {
