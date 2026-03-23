@@ -20,6 +20,7 @@ import com.cainanbt.softwares.controleja.services.VehicleService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +33,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+@RequiredArgsConstructor
 @Service
 public class TransactionServiceImpl implements TransactionService {
 
@@ -41,13 +43,6 @@ public class TransactionServiceImpl implements TransactionService {
     private final CreditCardService creditCardService;
     private final VehicleService vehicleService;
 
-    public TransactionServiceImpl(TransactionRepository transactionRepository, AccountsService accountsService, CategoryService categoryService, CreditCardService creditCardService, VehicleService vehicleService) {
-        this.repository = transactionRepository;
-        this.accountsService = accountsService;
-        this.categoryService = categoryService;
-        this.creditCardService = creditCardService;
-        this.vehicleService = vehicleService;
-    }
 
     @Override
     @Transactional

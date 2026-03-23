@@ -10,20 +10,19 @@ import com.cainanbt.softwares.controleja.services.CategoryService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+@RequiredArgsConstructor
 @Service
 public class CategoryServiceImpl implements CategoryService {
 
     private final CategoryRepository repository;
 
-    public CategoryServiceImpl(CategoryRepository categoryRepository) {
-        this.repository = categoryRepository;
-    }
 
     @Override
     public Category createCategory(CategoryDTO dto) {
@@ -119,18 +118,15 @@ public class CategoryServiceImpl implements CategoryService {
     public void softDelete(UUID id) {
         Category category = findByIdOrThrow(id);
         Users currentUser = SecurityContextUtils.getCurrentUser();
-        
-        // Verify ownership
+
         if (!category.getUser().getId().equals(currentUser.getId())) {
             throw new BadRequestException("Acesso negado", "Você não tem permissão para excluir esta categoria");
         }
-        
-        // Check if already deleted
+
         if (category.getDeletedAt() != null) {
             throw new BadRequestException("Erro", ConstsMessages.ENTITY_ALREADY_DELETED);
         }
-        
-        // Soft delete
+
         category.setDeletedAt(System.currentTimeMillis());
         repository.save(category);
     }

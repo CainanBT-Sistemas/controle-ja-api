@@ -10,20 +10,19 @@ import com.cainanbt.softwares.controleja.services.AccountsService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+@RequiredArgsConstructor
 @Service
 public class AccountsServiceImpl implements AccountsService {
 
     private final AccountsRepository repository;
 
-    public AccountsServiceImpl(AccountsRepository accountsRepository) {
-        this.repository = accountsRepository;
-    }
 
     @Override
     public Accounts createAccount(AccountDTO dto) {

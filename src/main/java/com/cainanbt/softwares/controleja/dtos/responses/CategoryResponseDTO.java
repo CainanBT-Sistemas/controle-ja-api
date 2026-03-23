@@ -14,6 +14,7 @@ public class CategoryResponseDTO {
     private String parentName;
     private String icon;
     private String color;
+    private boolean isDefault;
 
     public static CategoryResponseDTO toDTO(Category entity) {
         CategoryResponseDTO dto = new CategoryResponseDTO();
@@ -23,6 +24,7 @@ public class CategoryResponseDTO {
         dto.setIsSubCategory(entity.getIsSubCategory());
         dto.setIcon(entity.getIcon());
         dto.setColor(entity.getColor());
+        dto.setDefault(entity.isDefault());
 
         if (entity.getSubCategory() != null) {
             dto.setParentName(entity.getSubCategory().getName());

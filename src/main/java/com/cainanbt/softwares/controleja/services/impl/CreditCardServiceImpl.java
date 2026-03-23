@@ -13,6 +13,7 @@ import com.cainanbt.softwares.controleja.services.CreditCardService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,16 +22,13 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+@RequiredArgsConstructor
 @Service
 public class CreditCardServiceImpl implements CreditCardService {
 
     private final CreditCardRepository creditCardRepository;
     private final AccountsRepository accountsRepository;
 
-    public CreditCardServiceImpl(CreditCardRepository creditCardRepository, AccountsRepository accountsRepository) {
-        this.creditCardRepository = creditCardRepository;
-        this.accountsRepository = accountsRepository;
-    }
 
     @Override
     @Transactional

@@ -19,6 +19,7 @@ import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -30,6 +31,7 @@ import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
 
+@RequiredArgsConstructor
 @Service
 @Slf4j
 public class UserServiceImpl implements UsersService {
@@ -38,13 +40,6 @@ public class UserServiceImpl implements UsersService {
     private final PasswordEncoder passwordEncoder;
     private final CategoryService categoryService;
     private final AccountsService accountsService;
-
-    public UserServiceImpl(UsersRepository userRepository, PasswordEncoder passwordEncoder, CategoryService categoryService, AccountsService accountsService) {
-        this.userRepository = userRepository;
-        this.passwordEncoder = passwordEncoder;
-        this.categoryService = categoryService;
-        this.accountsService = accountsService;
-    }
 
     @Override
     public Optional<Users> getUserByEmailAndId(String email, UUID id) {

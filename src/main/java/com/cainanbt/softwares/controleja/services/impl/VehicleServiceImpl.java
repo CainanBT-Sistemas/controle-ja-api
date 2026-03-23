@@ -11,19 +11,18 @@ import com.cainanbt.softwares.controleja.services.VehicleService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
+@RequiredArgsConstructor
 @Service
 public class VehicleServiceImpl implements VehicleService {
     private final VehicleRepository repository;
 
-    public VehicleServiceImpl(VehicleRepository repository) {
-        this.repository = repository;
-    }
 
     @Override
     public Vehicle createVehicle(VehicleDTO dto) {
