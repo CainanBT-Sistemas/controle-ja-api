@@ -15,6 +15,7 @@ import com.cainanbt.softwares.controleja.services.UsersService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.ID;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -22,6 +23,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.Optional;
 
+@RequiredArgsConstructor
 @Service
 public class AuthServiceImp implements AuthService {
 
@@ -32,13 +34,6 @@ public class AuthServiceImp implements AuthService {
     private final AuthenticationManager authenticationManager;
 
     private final JwtServiceImp jwtService;
-
-    public AuthServiceImp(UsersService UserService, PasswordEncoder passwordEncoder, AuthenticationManager authenticationManager, JwtServiceImp jwtService) {
-        this.usersService = UserService;
-        this.passwordEncoder = passwordEncoder;
-        this.authenticationManager = authenticationManager;
-        this.jwtService = jwtService;
-    }
 
     @Override
     public UserResponseDTO login(UserLoginDTO loginAdapter, HttpServletRequest request) {

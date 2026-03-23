@@ -10,14 +10,17 @@ import com.cainanbt.softwares.controleja.entities.Vehicle;
 import com.cainanbt.softwares.controleja.enums.AccountType;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
+import com.cainanbt.softwares.controleja.exceptions.models.EntityNotFoundException;
 import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.services.AccountsService;
 import com.cainanbt.softwares.controleja.services.CategoryService;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
 import com.cainanbt.softwares.controleja.services.TransactionService;
 import com.cainanbt.softwares.controleja.services.VehicleService;
+import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,7 +30,10 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
+@RequiredArgsConstructor
 @Service
 public class TransactionServiceImpl implements TransactionService {
 
@@ -37,13 +43,6 @@ public class TransactionServiceImpl implements TransactionService {
     private final CreditCardService creditCardService;
     private final VehicleService vehicleService;
 
-    public TransactionServiceImpl(TransactionRepository transactionRepository, AccountsService accountsService, CategoryService categoryService, CreditCardService creditCardService, VehicleService vehicleService) {
-        this.repository = transactionRepository;
-        this.accountsService = accountsService;
-        this.categoryService = categoryService;
-        this.creditCardService = creditCardService;
-        this.vehicleService = vehicleService;
-    }
 
     @Override
     @Transactional
@@ -189,5 +188,80 @@ public class TransactionServiceImpl implements TransactionService {
     public List<Transactions> listLastTransactions() {
         Users user = SecurityContextUtils.getCurrentUser();
         return repository.findByUserIdOrderByDateDesc(user.getId());
+    }
+    
+    @Override
+    public Optional<Transactions> findById(UUID id) {
+        return repository.findByIdAndNotDeleted(id);
+    }
+    
+    @Override
+    public Transactions findByIdOrThrow(UUID id) {
+        return findById(id)
+                .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.TRANSACTION_NOT_FOUND,
+                    "Transação com ID " + id + " não encontrada ou já foi excluída"));
+    }
+    
+    @Override
+    public Transactions updateTransaction(UUID id, TransactionDTO dto) {
+        Transactions transaction = findByIdOrThrow(id);
+        Users currentUser = SecurityContextUtils.getCurrentUser();
+        
+        if (!transaction.getUser().getId().equals(currentUser.getId())) {
+            throw new BadRequestException("Acesso negado", "Você não tem permissão para alterar esta transação");
+        }
+        
+        if (dto.getName() != null) {
+            transaction.setName(dto.getName());
+        }
+        if (dto.getDescription() != null) {
+            transaction.setDescription(dto.getDescription());
+        }
+        if (dto.getType() != null) {
+            transaction.setType(dto.getType());
+        }
+        if (dto.getAmount() != null) {
+            transaction.setAmount(dto.getAmount());
+        }
+        if (dto.getDate() != null) {
+            transaction.setDate(dto.getDate());
+        }
+        if (dto.getPaid() != null) {
+            transaction.setPaid(dto.getPaid());
+        }
+        if (dto.getAccountId() != null) {
+            Accounts account = accountsService.findById(dto.getAccountId())
+                    .orElseThrow(() -> new BadRequestException("Erro", "Conta não encontrada"));
+            if (!account.getUser().getId().equals(currentUser.getId())) {
+                throw new BadRequestException("Erro", "Conta inválida");
+            }
+            transaction.setAccount(account);
+        }
+        if (dto.getCategoryId() != null) {
+            Category category = categoryService.findById(dto.getCategoryId())
+                    .orElseThrow(() -> new BadRequestException("Erro", "Categoria não encontrada"));
+            transaction.setCategory(category);
+        }
+        
+        transaction.setUpdatedAt(System.currentTimeMillis());
+        
+        return repository.save(transaction);
+    }
+    
+    @Override
+    public void softDelete(UUID id) {
+        Transactions transaction = findByIdOrThrow(id);
+        Users currentUser = SecurityContextUtils.getCurrentUser();
+        
+        if (!transaction.getUser().getId().equals(currentUser.getId())) {
+            throw new BadRequestException("Acesso negado", "Você não tem permissão para excluir esta transação");
+        }
+        
+        if (transaction.getDeletedAt() != null) {
+            throw new BadRequestException("Erro", ConstsMessages.ENTITY_ALREADY_DELETED);
+        }
+        
+        transaction.setDeletedAt(System.currentTimeMillis());
+        repository.save(transaction);
     }
 }

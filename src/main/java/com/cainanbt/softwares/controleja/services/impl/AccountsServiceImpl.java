@@ -4,24 +4,25 @@ import com.cainanbt.softwares.controleja.dtos.AccountDTO;
 import com.cainanbt.softwares.controleja.entities.Accounts;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
+import com.cainanbt.softwares.controleja.exceptions.models.EntityNotFoundException;
 import com.cainanbt.softwares.controleja.repositories.AccountsRepository;
 import com.cainanbt.softwares.controleja.services.AccountsService;
+import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+@RequiredArgsConstructor
 @Service
 public class AccountsServiceImpl implements AccountsService {
 
     private final AccountsRepository repository;
 
-    public AccountsServiceImpl(AccountsRepository accountsRepository) {
-        this.repository = accountsRepository;
-    }
 
     @Override
     public Accounts createAccount(AccountDTO dto) {
@@ -46,7 +47,14 @@ public class AccountsServiceImpl implements AccountsService {
 
     @Override
     public Optional<Accounts> findById(UUID id) {
-        return repository.findById(id);
+        return repository.findByIdAndNotDeleted(id);
+    }
+    
+    @Override
+    public Accounts findByIdOrThrow(UUID id) {
+        return findById(id)
+                .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.ACCOUNT_NOT_FOUND, 
+                    "Conta com ID " + id + " não encontrada ou já foi excluída"));
     }
 
     @Override
@@ -54,6 +62,52 @@ public class AccountsServiceImpl implements AccountsService {
         Users user = SecurityContextUtils.getCurrentUser();
 
         return repository.findByUserId(user.getId());
+    }
+    
+    @Override
+    public Accounts updateAccount(UUID id, AccountDTO dto) {
+        Accounts account = findByIdOrThrow(id);
+        Users currentUser = SecurityContextUtils.getCurrentUser();
+        
+        // Verify ownership
+        if (!account.getUser().getId().equals(currentUser.getId())) {
+            throw new BadRequestException("Acesso negado", "Você não tem permissão para alterar esta conta");
+        }
+        
+        // Update fields
+        if (dto.getName() != null) {
+            account.setName(dto.getName());
+        }
+        if (dto.getType() != null) {
+            account.setType(dto.getType());
+        }
+        if (dto.getInstitution() != null) {
+            account.setInstitution(dto.getInstitution());
+        }
+        
+        account.setUpdatedAt(System.currentTimeMillis());
+        
+        return repository.save(account);
+    }
+    
+    @Override
+    public void softDelete(UUID id) {
+        Accounts account = findByIdOrThrow(id);
+        Users currentUser = SecurityContextUtils.getCurrentUser();
+        
+        // Verify ownership
+        if (!account.getUser().getId().equals(currentUser.getId())) {
+            throw new BadRequestException("Acesso negado", "Você não tem permissão para excluir esta conta");
+        }
+        
+        // Check if already deleted
+        if (account.getDeletedAt() != null) {
+            throw new BadRequestException("Erro", ConstsMessages.ENTITY_ALREADY_DELETED);
+        }
+        
+        // Soft delete
+        account.setDeletedAt(System.currentTimeMillis());
+        repository.save(account);
     }
 
     @Override

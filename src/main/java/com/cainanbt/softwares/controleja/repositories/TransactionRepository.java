@@ -9,10 +9,12 @@ import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Repository
 public interface TransactionRepository extends JpaRepository<Transactions, UUID> {
+    @Query("SELECT t FROM Transactions t WHERE t.user.id = :userId AND t.deletedAt IS NULL ORDER BY t.date DESC")
     List<Transactions> findByUserIdOrderByDateDesc(UUID userId);
 
     @Query("SELECT c.name AS label, SUM(t.amount) AS value " +
@@ -20,6 +22,7 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
             "WHERE t.user.id = :userId " +
             "AND t.type = :type " +
             "AND t.date BETWEEN :start AND :end " +
+            "AND t.deletedAt IS NULL " +
             "GROUP BY c.name " +
             "ORDER BY value DESC")
     List<ChartDataDTO> getExpensesByCategory(UUID userId, Long start, Long end, TransactionType type);
@@ -31,6 +34,7 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
             "AND t.vehicle IS NOT NULL " +
             "AND t.fuelType IS NOT NULL " +
             "AND t.date BETWEEN :start AND :end " +
+            "AND t.deletedAt IS NULL " +
             "GROUP BY t.fuelType " +
             "ORDER BY value DESC")
     List<ChartDataDTO> getExpensesByFuelType(UUID userId, Long start, Long end);
@@ -38,7 +42,8 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
     @Query("SELECT SUM(t.amount) FROM Transactions t " +
             "WHERE t.user.id = :userId " +
             "AND t.type = :type " +
-            "AND t.date BETWEEN :start AND :end")
+            "AND t.date BETWEEN :start AND :end " +
+            "AND t.deletedAt IS NULL")
     BigDecimal getTotalByType(UUID userId, TransactionType type, Long start, Long end);
 
     @Query("SELECT CAST(t.date AS string) AS label, t.amount AS value " +
@@ -47,6 +52,10 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
             "AND t.type = 'DESPESA' " +
             "AND (:categoryId IS NULL OR t.category.id = :categoryId) " +
             "AND t.date BETWEEN :start AND :end " +
+            "AND t.deletedAt IS NULL " +
             "ORDER BY t.date ASC")
     List<ChartDataDTO> getEvolutionRawData(UUID userId, Long start, Long end, UUID categoryId);
+    
+    @Query("SELECT t FROM Transactions t WHERE t.id = :id AND t.deletedAt IS NULL")
+    Optional<Transactions> findByIdAndNotDeleted(UUID id);
 }
