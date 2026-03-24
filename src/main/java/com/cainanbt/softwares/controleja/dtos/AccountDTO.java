@@ -21,5 +21,7 @@ public class AccountDTO {
     @NotNull(message = "O saldo inicial é obrigatório")
     private BigDecimal initialBalance;
 
-
+    private String icon;
+    private String color;
+    private Boolean isDefault;
 }

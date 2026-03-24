@@ -16,6 +16,10 @@ public class AccountResponseDTO {
     private BigDecimal currentBalance;
     private Boolean enabled;
 
+    private String icon;
+    private String color;
+    private Boolean isDefault;
+
     public static AccountResponseDTO toDTO(Accounts entity) {
         AccountResponseDTO dto = new AccountResponseDTO();
         dto.setId(entity.getId());
@@ -24,6 +28,9 @@ public class AccountResponseDTO {
         dto.setInstitution(entity.getInstitution());
         dto.setCurrentBalance(entity.getCurrentBalance());
         dto.setEnabled(entity.getEnabled());
+        dto.setIcon(entity.getIcon());
+        dto.setColor(entity.getColor());
+        dto.setIsDefault(entity.getIsDefault());
         return dto;
     }
 }

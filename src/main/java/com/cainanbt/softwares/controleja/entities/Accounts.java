@@ -51,6 +51,12 @@ public class Accounts {
     private Boolean calculateBalance;
     @Column(nullable = false)
     private BigDecimal initialBalance;
+    @Column(name = "icon")
+    private String icon;
+    @Column(name = "color")
+    private String color;
+    @Column(name = "is_default")
+    private Boolean isDefault;
     @Column(nullable = false)
     private Boolean enabled;
     @Column(nullable = false)
