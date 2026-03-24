@@ -51,7 +51,7 @@ public class Category {
     @Column(nullable = true)
     private String color;
     @Column(nullable = false)
-    private boolean isDefault;
+    private Boolean isDefault;
     @Column(nullable = true)
     private Long updatedAt;
     @Column(nullable = true)

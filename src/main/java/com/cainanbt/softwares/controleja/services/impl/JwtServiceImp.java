@@ -7,15 +7,16 @@ import com.cainanbt.softwares.controleja.services.JwtService;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
-import lombok.RequiredArgsConstructor;
+import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
 import java.security.Key;
 import java.util.Date;
 import java.util.UUID;
 import java.util.function.Function;
 
-@RequiredArgsConstructor
 @Service
 public class JwtServiceImp implements JwtService {
     private final Key secret;
@@ -23,6 +24,16 @@ public class JwtServiceImp implements JwtService {
     private final long refreshExpiration;
     private final String issueToken;
 
+    public JwtServiceImp(
+            @Value("${app.config.jwt.secret}") String secret,
+            @Value("${app.config.jwt.expiration-ms}") long expiration,
+            @Value("${app.config.jwt.refresh-expiration-ms}") long refreshExpiration,
+            @Value("${app.config.token.issue}") String issueToken) {
+        this.secret = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+        this.expiration = expiration;
+        this.refreshExpiration = refreshExpiration;
+        this.issueToken = issueToken;
+    }
 
     @Override
     public String generateAccessToken(UserAuthenticateDTO userAuthenticate) {

@@ -22,4 +22,5 @@ public interface UsersService extends UserDetailsService {
     
     public void changePassword(PasswordChangeDTO passwordChangeDTO);
 
+
 }

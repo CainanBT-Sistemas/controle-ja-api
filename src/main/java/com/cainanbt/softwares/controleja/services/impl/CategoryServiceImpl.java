@@ -46,6 +46,7 @@ public class CategoryServiceImpl implements CategoryService {
                 .color(dto.getColor())
                 .enabled(true)
                 .isSubCategory(parent != null)
+                .isDefault(false)
                 .subCategory(parent)
                 .user(user)
                 .createdAt(System.currentTimeMillis())
@@ -76,13 +77,9 @@ public class CategoryServiceImpl implements CategoryService {
     public Category updateCategory(UUID id, CategoryDTO dto) {
         Category category = findByIdOrThrow(id);
         Users currentUser = SecurityContextUtils.getCurrentUser();
-        
-        // Verify ownership
         if (!category.getUser().getId().equals(currentUser.getId())) {
             throw new BadRequestException("Acesso negado", "Você não tem permissão para alterar esta categoria");
         }
-        
-        // Update fields
         if (dto.getName() != null) {
             category.setName(dto.getName());
         }
@@ -95,8 +92,6 @@ public class CategoryServiceImpl implements CategoryService {
         if (dto.getColor() != null) {
             category.setColor(dto.getColor());
         }
-        
-        // Update parent category if provided
         if (dto.getParentId() != null) {
             Category parent = repository.findByIdAndNotDeleted(dto.getParentId())
                     .orElseThrow(() -> new BadRequestException("Erro", "Categoria pai não encontrada"));
@@ -108,7 +103,6 @@ public class CategoryServiceImpl implements CategoryService {
             category.setSubCategory(parent);
             category.setIsSubCategory(true);
         }
-        
         category.setUpdatedAt(System.currentTimeMillis());
         
         return repository.save(category);
@@ -126,13 +120,12 @@ public class CategoryServiceImpl implements CategoryService {
         if (category.getDeletedAt() != null) {
             throw new BadRequestException("Erro", ConstsMessages.ENTITY_ALREADY_DELETED);
         }
-
         category.setDeletedAt(System.currentTimeMillis());
         repository.save(category);
     }
-
     @Override
     public void save(Category category) {
         repository.save(category);
     }
+
 }

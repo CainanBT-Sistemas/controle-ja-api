@@ -65,7 +65,7 @@ public class UserServiceImpl implements UsersService {
         if (userRepository.findByEmailIgnoreCase(userDTO.getEmail()).isPresent()) {
             throw new BadRequestException("Erro de Cadastro", "Este email já está em uso.");
         }
-        try{
+        try {
             Users newUser = Users.builder()
                     .id(ID.generate())
                     .username(userDTO.getUsername())
@@ -82,7 +82,7 @@ public class UserServiceImpl implements UsersService {
             Users saved = userRepository.save(newUser);
             setupNewUser(saved);
             return saved;
-        }catch (Exception e){
+        } catch (Exception e) {
             log.error("Erro ao salvar usuário: ", e);
             throw new BadRequestException("Falha crítica", "Erro ao processar o cadastro no banco de dados.");
         }
@@ -93,25 +93,25 @@ public class UserServiceImpl implements UsersService {
     @Override
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
         Optional<Users> usersOptional = userRepository.findByEmailIgnoreCase(email);
-        if(usersOptional.isEmpty()){
-            throw new BadRequestException("Falha de Login","Email ou senha incorretos. Tente novamente");
+        if (usersOptional.isEmpty()) {
+            throw new BadRequestException("Falha de Login", "Email ou senha incorretos. Tente novamente");
         }
         Users user = usersOptional.get();
-        if(!user.getEnabled() || !user.getAccountNonLocked()){
-            throw new BadRequestException("Acesso negado","Usuário bloqueado");
+        if (!user.getEnabled() || !user.getAccountNonLocked()) {
+            throw new BadRequestException("Acesso negado", "Usuário bloqueado");
         }
         return new UserAuthenticateDTO(user);
     }
-    
+
     @Override
     public void changePassword(PasswordChangeDTO passwordChangeDTO) {
         Users currentUser = SecurityContextUtils.getCurrentUser();
-        
+
         // Verify current password
         if (!passwordEncoder.matches(passwordChangeDTO.getCurrentPassword(), currentUser.getPassword())) {
             throw new BadRequestException("Erro de autenticação", ConstsMessages.INVALID_CURRENT_PASSWORD);
         }
-        
+
         // Update password
         currentUser.setPassword(passwordEncoder.encode(passwordChangeDTO.getNewPassword()));
         currentUser.setUpdatedAt(System.currentTimeMillis());
@@ -135,16 +135,23 @@ public class UserServiceImpl implements UsersService {
                 .build();
         Accounts accountSaved = accountsService.save(wallet);
 
+        // --- DESPESAS ---
         createDefaultCategory(user, "Alimentação", "DESPESA", "restaurant", "#FFCA28", now);
         createDefaultCategory(user, "Moradia", "DESPESA", "home", "#FF5252", now);
         createDefaultCategory(user, "Transporte", "DESPESA", "directions_car", "#42A5F5", now);
         createDefaultCategory(user, "Saúde", "DESPESA", "medical_services", "#66BB6A", now);
         createDefaultCategory(user, "Lazer", "DESPESA", "sports_esports", "#AB47BC", now);
         createDefaultCategory(user, "Educação", "DESPESA", "school", "#EC407A", now);
-
+        // Novas Despesas Essenciais:
+        createDefaultCategory(user, "Mercado", "DESPESA", "shopping_cart", "#FFA726", now); // Laranja
+        createDefaultCategory(user, "Contas Fixas", "DESPESA", "receipt_long", "#8D6E63", now); // Marrom
+        createDefaultCategory(user, "Vestuário", "DESPESA", "checkroom", "#26A69A", now); // Verde Água (Cabide)
+        createDefaultCategory(user, "Pets", "DESPESA", "pets", "#795548", now); // Marrom Escuro (Patinha)
+        // --- RECEITAS ---
         createDefaultCategory(user, "Salário", "RECEITA", "attach_money", "#00E676", now);
         createDefaultCategory(user, "Investimentos", "RECEITA", "trending_up", "#2979FF", now);
-        createDefaultCategory(user, "Outros", "RECEITA", "add_circle", "#BDBDBD", now);
+        //--- OUTROS ---
+        createDefaultCategory(user, "Outros", "RECEITA", "category", "#BDBDBD", now);
 
     }
 
@@ -155,8 +162,9 @@ public class UserServiceImpl implements UsersService {
                 .categoryType(type)
                 .enabled(true)
                 .isSubCategory(false)
-                .icon(icon)   // Novo Campo
-                .color(color) // Novo Campo
+                .isDefault(true)
+                .icon(icon)
+                .color(color)
                 .user(user)
                 .createdAt(now)
                 .build());
