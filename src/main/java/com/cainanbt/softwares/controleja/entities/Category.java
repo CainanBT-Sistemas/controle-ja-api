@@ -50,7 +50,7 @@ public class Category {
     private String icon;
     @Column(nullable = true)
     private String color;
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "boolean default false")
     private Boolean isDefault;
     @Column(nullable = true)
     private Long updatedAt;

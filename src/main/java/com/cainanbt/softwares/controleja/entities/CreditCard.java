@@ -47,6 +47,10 @@ public class CreditCard {
     private int closeDay;
     @Column(nullable = false)
     private int bestDay;
+    @Column(name = "icon")
+    private String icon;
+    @Column(name = "color")
+    private String color;
     @Column(nullable = false)
     private Boolean enabled;
     @Column(nullable = false)

@@ -25,4 +25,7 @@ public class CreditCardDTO {
     @Min(value = 1, message = "Dia de vencimento inválido")
     @Max(value = 31, message = "Dia de vencimento inválido")
     private int bestDay; // Dia que a fatura vence
+
+    private String icon;
+    private String color;
 }

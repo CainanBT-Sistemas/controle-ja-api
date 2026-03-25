@@ -55,7 +55,7 @@ public class Accounts {
     private String icon;
     @Column(name = "color")
     private String color;
-    @Column(name = "is_default")
+    @Column(name = "is_default", columnDefinition = "boolean default false")
     private Boolean isDefault;
     @Column(nullable = false)
     private Boolean enabled;
