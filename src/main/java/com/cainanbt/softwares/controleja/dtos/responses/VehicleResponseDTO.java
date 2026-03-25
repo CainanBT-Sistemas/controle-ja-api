@@ -15,6 +15,8 @@ public class VehicleResponseDTO {
     private BigDecimal currentOdometer;
     private Double avgGasoline;
     private Double avgEthanol;
+    private Integer year;
+    private String plate;
 
     public static VehicleResponseDTO toDTO(Vehicle entity) {
         VehicleResponseDTO dto = new VehicleResponseDTO();
@@ -25,6 +27,8 @@ public class VehicleResponseDTO {
         dto.setCurrentOdometer(entity.getCurrentOdometer());
         dto.setAvgGasoline(entity.getAvgKmPerLiterGasoline());
         dto.setAvgEthanol(entity.getAvgKmPerLiterEthanol());
+        dto.setPlate(entity.getPlate());
+        dto.setYear(entity.getYear());
         return dto;
     }
 }
