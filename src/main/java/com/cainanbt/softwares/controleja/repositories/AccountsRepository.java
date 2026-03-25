@@ -11,7 +11,7 @@ import java.util.UUID;
 
 @Repository
 public interface AccountsRepository extends JpaRepository<Accounts, UUID> {
-    @Query("SELECT a FROM Accounts a WHERE a.user.id = :userId AND a.deletedAt IS NULL")
+    @Query("SELECT a FROM Accounts a WHERE a.user.id = :userId AND a.deletedAt IS NULL AND a.type <> com.cainanbt.softwares.controleja.enums.AccountType.CREDIT_CARD")
     List<Accounts> findByUserId(UUID userId);
     
     @Query("SELECT a FROM Accounts a WHERE a.id = :id AND a.deletedAt IS NULL")

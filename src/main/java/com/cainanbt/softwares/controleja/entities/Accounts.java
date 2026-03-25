@@ -15,6 +15,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
+import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.SQLDelete;
 import org.hibernate.annotations.Where;
@@ -55,8 +56,12 @@ public class Accounts {
     private String icon;
     @Column(name = "color")
     private String color;
-    @Column(name = "is_default", columnDefinition = "boolean default false")
-    private Boolean isDefault;
+
+    @Builder.Default
+    @ColumnDefault("false")
+    @Column(name = "is_default", nullable = false)
+    private Boolean isDefault = false;
+
     @Column(nullable = false)
     private Boolean enabled;
     @Column(nullable = false)

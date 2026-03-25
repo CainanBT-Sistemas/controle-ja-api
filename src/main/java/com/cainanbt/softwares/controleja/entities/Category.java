@@ -50,8 +50,11 @@ public class Category {
     private String icon;
     @Column(nullable = true)
     private String color;
-    @Column(nullable = false, columnDefinition = "boolean default false")
-    private Boolean isDefault;
+
+    @Builder.Default
+    @Column(name = "is_default", columnDefinition = "boolean default false not null")
+    private Boolean isDefault = false;
+
     @Column(nullable = true)
     private Long updatedAt;
     @Column(nullable = true)
