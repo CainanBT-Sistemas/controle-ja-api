@@ -23,7 +23,6 @@ public class CategoryServiceImpl implements CategoryService {
 
     private final CategoryRepository repository;
 
-
     @Override
     public Category createCategory(CategoryDTO dto) {
         Users user = SecurityContextUtils.getCurrentUser();
@@ -31,10 +30,10 @@ public class CategoryServiceImpl implements CategoryService {
         Category parent = null;
         if (dto.getParentId() != null) {
             parent = repository.findByIdAndNotDeleted(dto.getParentId())
-                    .orElseThrow(() -> new BadRequestException("Erro", "Categoria pai não encontrada"));
+                    .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.PARENT_CATEGORY_NOT_FOUND));
 
             if (!parent.getUser().getId().equals(user.getId())) {
-                throw new BadRequestException("Erro", "Categoria pai inválida");
+                throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_CATEGORY);
             }
         }
 
@@ -65,67 +64,61 @@ public class CategoryServiceImpl implements CategoryService {
     public Optional<Category> findById(UUID id) {
         return repository.findByIdAndNotDeleted(id);
     }
-    
+
     @Override
     public Category findByIdOrThrow(UUID id) {
         return findById(id)
-                .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.CATEGORY_NOT_FOUND,
-                    "Categoria com ID " + id + " não encontrada ou já foi excluída"));
+                .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.ERROR_TITLE, ConstsMessages.CATEGORY_NOT_FOUND));
     }
-    
+
     @Override
     public Category updateCategory(UUID id, CategoryDTO dto) {
         Category category = findByIdOrThrow(id);
         Users currentUser = SecurityContextUtils.getCurrentUser();
+
         if (!category.getUser().getId().equals(currentUser.getId())) {
-            throw new BadRequestException("Acesso negado", "Você não tem permissão para alterar esta categoria");
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_CATEGORY);
         }
-        if (dto.getName() != null) {
-            category.setName(dto.getName());
-        }
-        if (dto.getCategoryType() != null) {
-            category.setCategoryType(dto.getCategoryType());
-        }
-        if (dto.getIcon() != null) {
-            category.setIcon(dto.getIcon());
-        }
-        if (dto.getColor() != null) {
-            category.setColor(dto.getColor());
-        }
+
+        if (dto.getName() != null) category.setName(dto.getName());
+        if (dto.getCategoryType() != null) category.setCategoryType(dto.getCategoryType());
+        if (dto.getIcon() != null) category.setIcon(dto.getIcon());
+        if (dto.getColor() != null) category.setColor(dto.getColor());
+
         if (dto.getParentId() != null) {
             Category parent = repository.findByIdAndNotDeleted(dto.getParentId())
-                    .orElseThrow(() -> new BadRequestException("Erro", "Categoria pai não encontrada"));
-            
+                    .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.PARENT_CATEGORY_NOT_FOUND));
+
             if (!parent.getUser().getId().equals(currentUser.getId())) {
-                throw new BadRequestException("Erro", "Categoria pai inválida");
+                throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_CATEGORY);
             }
-            
+
             category.setSubCategory(parent);
             category.setIsSubCategory(true);
         }
         category.setUpdatedAt(System.currentTimeMillis());
-        
+
         return repository.save(category);
     }
-    
+
     @Override
     public void softDelete(UUID id) {
         Category category = findByIdOrThrow(id);
         Users currentUser = SecurityContextUtils.getCurrentUser();
 
         if (!category.getUser().getId().equals(currentUser.getId())) {
-            throw new BadRequestException("Acesso negado", "Você não tem permissão para excluir esta categoria");
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_CATEGORY);
         }
 
         if (category.getDeletedAt() != null) {
-            throw new BadRequestException("Erro", ConstsMessages.ENTITY_ALREADY_DELETED);
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.ENTITY_ALREADY_DELETED);
         }
         category.setDeletedAt(System.currentTimeMillis());
         repository.save(category);
     }
+
     @Override
     public void save(Category category) {
         repository.save(category);
     }
-
 }

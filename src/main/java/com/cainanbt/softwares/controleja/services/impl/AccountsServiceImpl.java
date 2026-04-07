@@ -23,7 +23,6 @@ public class AccountsServiceImpl implements AccountsService {
 
     private final AccountsRepository repository;
 
-
     @Override
     public Accounts createAccount(AccountDTO dto) {
         Users user = SecurityContextUtils.getCurrentUser();
@@ -56,18 +55,16 @@ public class AccountsServiceImpl implements AccountsService {
     public Optional<Accounts> findById(UUID id) {
         return repository.findByIdAndNotDeleted(id);
     }
-    
+
     @Override
     public Accounts findByIdOrThrow(UUID id) {
         return findById(id)
-                .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.ACCOUNT_NOT_FOUND, 
-                    "Conta com ID " + id + " não encontrada ou já foi excluída"));
+                .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.ERROR_TITLE, ConstsMessages.ACCOUNT_NOT_FOUND));
     }
 
     @Override
-    public List<Accounts> listMyAccounts() {
+    public List<Accounts> listMyAccountsExceptCrediCard() {
         Users user = SecurityContextUtils.getCurrentUser();
-
         return repository.findByUserId(user.getId());
     }
 
@@ -77,7 +74,11 @@ public class AccountsServiceImpl implements AccountsService {
         Users currentUser = SecurityContextUtils.getCurrentUser();
 
         if (!account.getUser().getId().equals(currentUser.getId())) {
-            throw new BadRequestException("Acesso negado", "Você não tem permissão para alterar esta conta");
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_ACCOUNT);
+        }
+
+        if (repository.findByUserIdAndNameAndType(account.getUser().getId(), dto.getName(), dto.getType()).isPresent()) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.ACCOUNT_NAME_ALREADY_EXIST);
         }
 
         if (dto.getName() != null) account.setName(dto.getName());
@@ -93,26 +94,24 @@ public class AccountsServiceImpl implements AccountsService {
         account.setUpdatedAt(System.currentTimeMillis());
         return repository.save(account);
     }
-    
+
     @Override
     public void softDelete(UUID id) {
         Accounts account = findByIdOrThrow(id);
         Users currentUser = SecurityContextUtils.getCurrentUser();
+
         if (account.getIsDefault()) {
-            throw new BadRequestException("Acesso negado", "Você não pode remover a conta principal");
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.CANT_DELETE_MAIN_ACCOUNT);
         }
 
-        // Verify ownership
         if (!account.getUser().getId().equals(currentUser.getId())) {
-            throw new BadRequestException("Acesso negado", "Você não tem permissão para excluir esta conta");
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_ACCOUNT);
         }
-        
-        // Check if already deleted
+
         if (account.getDeletedAt() != null) {
-            throw new BadRequestException("Erro", ConstsMessages.ENTITY_ALREADY_DELETED);
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.ENTITY_ALREADY_DELETED);
         }
-        
-        // Soft delete
+
         account.setDeletedAt(System.currentTimeMillis());
         repository.save(account);
     }
@@ -120,7 +119,7 @@ public class AccountsServiceImpl implements AccountsService {
     @Override
     public Accounts update(Accounts accounts) {
         if (accounts.getId() == null) {
-            throw new BadRequestException("Erro", "IMpossivel atualizar conta sem ID");
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.CANT_UPDATE_ACCOUNT_NO_ID);
         }
         return repository.save(accounts);
     }

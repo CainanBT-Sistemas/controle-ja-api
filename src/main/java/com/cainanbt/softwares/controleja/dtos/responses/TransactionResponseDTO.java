@@ -16,13 +16,16 @@ public class TransactionResponseDTO {
     private BigDecimal amount;
     private Long date;
     private Boolean paid;
+    private UUID categoryId;
     private String categoryName;
+    private UUID accountId;
     private String accountName;
     private Double efficiency;
     private String vehicleName;
     private Double liters;
     private BigDecimal currentOdometer;
     private FuelType fuelType;
+    private UUID recurrenceRuleId;
 
     public static TransactionResponseDTO toDTO(Transactions entity) {
         TransactionResponseDTO dto = new TransactionResponseDTO();
@@ -35,9 +38,11 @@ public class TransactionResponseDTO {
 
         if (entity.getCategory() != null) {
             dto.setCategoryName(entity.getCategory().getName());
+            dto.setCategoryId(entity.getCategory().getId());
         }
         if (entity.getAccount() != null) {
             dto.setAccountName(entity.getAccount().getName());
+            dto.setAccountId(entity.getAccount().getId());
         }
         if (entity.getVehicle() != null) {
             dto.setVehicleName(entity.getVehicle().getName());
@@ -45,6 +50,9 @@ public class TransactionResponseDTO {
             dto.setLiters(entity.getLiters());
             dto.setCurrentOdometer(entity.getCurrentOdometer());
             dto.setFuelType(entity.getFuelType());
+        }
+        if (entity.getRecurrenceRule() != null) {
+            dto.setRecurrenceRuleId(entity.getRecurrenceRule().getId());
         }
 
         return dto;

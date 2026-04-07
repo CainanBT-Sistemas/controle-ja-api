@@ -23,7 +23,6 @@ import java.util.UUID;
 public class VehicleServiceImpl implements VehicleService {
     private final VehicleRepository repository;
 
-
     @Override
     public Vehicle createVehicle(VehicleDTO dto) {
         Users user = SecurityContextUtils.getCurrentUser();
@@ -50,7 +49,7 @@ public class VehicleServiceImpl implements VehicleService {
     @Override
     public Vehicle findById(UUID id) {
         return repository.findByIdAndNotDeleted(id)
-                .orElseThrow(() -> new BadRequestException("Erro", "Veículo não encontrado"));
+                .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.VEHICLE_NOT_FOUND));
     }
 
     @Override
@@ -92,60 +91,46 @@ public class VehicleServiceImpl implements VehicleService {
         }
         return (currentAverage + newConsumption) / 2;
     }
-    
+
     @Override
     public Vehicle findByIdOrThrow(UUID id) {
         return repository.findByIdAndNotDeleted(id)
-                .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.VEHICLE_NOT_FOUND,
-                    "Veículo com ID " + id + " não encontrado ou já foi excluído"));
+                .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.ERROR_TITLE, ConstsMessages.VEHICLE_NOT_FOUND));
     }
-    
+
     @Override
     public Vehicle updateVehicle(UUID id, VehicleDTO dto) {
         Vehicle vehicle = findByIdOrThrow(id);
         Users currentUser = SecurityContextUtils.getCurrentUser();
-        
+
         if (!vehicle.getUser().getId().equals(currentUser.getId())) {
-            throw new BadRequestException("Acesso negado", "Você não tem permissão para alterar este veículo");
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_VEHICLE);
         }
-        
-        if (dto.getName() != null) {
-            vehicle.setName(dto.getName());
-        }
-        if (dto.getBrand() != null) {
-            vehicle.setBrand(dto.getBrand());
-        }
-        if (dto.getModel() != null) {
-            vehicle.setModel(dto.getModel());
-        }
-        if (dto.getYear() != null) {
-            vehicle.setYear(dto.getYear());
-        }
-        if (dto.getPlate() != null) {
-            vehicle.setPlate(dto.getPlate());
-        }
-        if (dto.getCurrentOdometer() != null) {
-            vehicle.setCurrentOdometer(dto.getCurrentOdometer());
-        }
-        
+
+        if (dto.getName() != null) vehicle.setName(dto.getName());
+        if (dto.getBrand() != null) vehicle.setBrand(dto.getBrand());
+        if (dto.getModel() != null) vehicle.setModel(dto.getModel());
+        if (dto.getYear() != null) vehicle.setYear(dto.getYear());
+        if (dto.getPlate() != null) vehicle.setPlate(dto.getPlate());
+        if (dto.getCurrentOdometer() != null) vehicle.setCurrentOdometer(dto.getCurrentOdometer());
+
         vehicle.setUpdatedAt(System.currentTimeMillis());
-        
         return repository.save(vehicle);
     }
-    
+
     @Override
     public void softDelete(UUID id) {
         Vehicle vehicle = findByIdOrThrow(id);
         Users currentUser = SecurityContextUtils.getCurrentUser();
-        
+
         if (!vehicle.getUser().getId().equals(currentUser.getId())) {
-            throw new BadRequestException("Acesso negado", "Você não tem permissão para excluir este veículo");
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_VEHICLE);
         }
-        
+
         if (vehicle.getDeletedAt() != null) {
-            throw new BadRequestException("Erro", ConstsMessages.ENTITY_ALREADY_DELETED);
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.ENTITY_ALREADY_DELETED);
         }
-        
+
         vehicle.setDeletedAt(System.currentTimeMillis());
         repository.save(vehicle);
     }

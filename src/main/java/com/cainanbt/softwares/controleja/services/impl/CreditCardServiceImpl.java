@@ -36,10 +36,9 @@ public class CreditCardServiceImpl implements CreditCardService {
 
         long totalCards = creditCardRepository.countByUserId(user.getId());
         if (totalCards >= 2) {
-            throw new BadRequestException("Limite Atingido", "Usuários Free só podem ter 2 cartões de crédito. Assine o Premium!");
+            throw new BadRequestException(ConstsMessages.LIMIT_REACHED_TITLE, ConstsMessages.LIMIT_REACHED_CARDS);
         }
 
-        // 1. Cria a Conta atrelada à Fatura do Cartão
         Accounts cardAccount = Accounts.builder()
                 .id(ID.generate())
                 .name(dto.getName() + " (Fatura)")
@@ -52,14 +51,12 @@ public class CreditCardServiceImpl implements CreditCardService {
                 .enabled(true)
                 .user(user)
                 .createdAt(System.currentTimeMillis())
-                // Espelhando o ícone e cor na conta
                 .icon(dto.getIcon() != null ? dto.getIcon() : "credit_card")
                 .color(dto.getColor() != null ? dto.getColor() : "#9C27B0")
                 .build();
 
         Accounts savedAccount = accountsRepository.save(cardAccount);
 
-        // 2. Cria o Cartão de Crédito
         CreditCard card = CreditCard.builder()
                 .id(ID.generate())
                 .name(dto.getName())
@@ -71,7 +68,6 @@ public class CreditCardServiceImpl implements CreditCardService {
                 .accounts(savedAccount)
                 .enabled(true)
                 .createdAt(System.currentTimeMillis())
-                // Salvando o ícone e cor no cartão
                 .icon(dto.getIcon() != null ? dto.getIcon() : "credit_card")
                 .color(dto.getColor() != null ? dto.getColor() : "#9C27B0")
                 .build();
@@ -88,7 +84,7 @@ public class CreditCardServiceImpl implements CreditCardService {
     @Override
     public CreditCard findByAccountId(UUID accountId) {
         return creditCardRepository.findByAccountsId(accountId)
-                .orElseThrow(() -> new BadRequestException("Erro", "Cartão não encontrado para esta conta"));
+                .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.CARD_ACCOUNT_NOT_FOUND));
     }
 
     @Override
@@ -104,21 +100,19 @@ public class CreditCardServiceImpl implements CreditCardService {
     @Override
     public CreditCard findByIdOrThrow(UUID id) {
         return findById(id)
-                .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.CREDIT_CARD_NOT_FOUND,
-                        "Cartão de crédito com ID " + id + " não encontrado ou já foi excluído"));
+                .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.ERROR_TITLE, ConstsMessages.CREDIT_CARD_NOT_FOUND));
     }
 
     @Override
-    @Transactional // Adicionado transacional pois vamos atualizar também a conta atrelada
+    @Transactional
     public CreditCard updateCard(UUID id, CreditCardDTO dto) {
         CreditCard card = findByIdOrThrow(id);
         Users currentUser = SecurityContextUtils.getCurrentUser();
 
         if (!card.getUser().getId().equals(currentUser.getId())) {
-            throw new BadRequestException("Acesso negado", "Você não tem permissão para alterar este cartão");
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_CARD);
         }
 
-        // Atualiza a Conta espelho da fatura
         if (card.getAccounts() != null) {
             Accounts account = card.getAccounts();
             if (dto.getName() != null) {
@@ -130,7 +124,6 @@ public class CreditCardServiceImpl implements CreditCardService {
             accountsRepository.save(account);
         }
 
-        // Atualiza o Cartão
         if (dto.getName() != null) card.setName(dto.getName());
 
         if (dto.getLimit() != null) {
@@ -156,14 +149,13 @@ public class CreditCardServiceImpl implements CreditCardService {
         Users currentUser = SecurityContextUtils.getCurrentUser();
 
         if (!card.getUser().getId().equals(currentUser.getId())) {
-            throw new BadRequestException("Acesso negado", "Você não tem permissão para excluir este cartão");
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_CARD);
         }
 
         if (card.getDeletedAt() != null) {
-            throw new BadRequestException("Erro", ConstsMessages.ENTITY_ALREADY_DELETED);
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.ENTITY_ALREADY_DELETED);
         }
 
-        // Desativa a conta vinculada também
         if (card.getAccounts() != null) {
             Accounts account = card.getAccounts();
             account.setDeletedAt(System.currentTimeMillis());

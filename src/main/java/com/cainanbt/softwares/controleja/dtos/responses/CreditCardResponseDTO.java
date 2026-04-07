@@ -9,6 +9,7 @@ import java.util.UUID;
 @Data
 public class CreditCardResponseDTO {
     private UUID id;
+    private UUID accountId;
     private String name;
     private BigDecimal currentLimit;
     private BigDecimal totalLimit;
@@ -21,6 +22,7 @@ public class CreditCardResponseDTO {
     public static CreditCardResponseDTO toDTO(CreditCard entity) {
         CreditCardResponseDTO dto = new CreditCardResponseDTO();
         dto.setId(entity.getId());
+        dto.setAccountId(entity.getAccounts().getId());
         dto.setName(entity.getName());
         dto.setTotalLimit(entity.getTotalLimit());
         dto.setCurrentLimit(entity.getCurrentLimit());

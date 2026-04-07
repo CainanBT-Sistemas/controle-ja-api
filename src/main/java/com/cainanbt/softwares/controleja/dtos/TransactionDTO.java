@@ -1,6 +1,7 @@
 package com.cainanbt.softwares.controleja.dtos;
 
 import com.cainanbt.softwares.controleja.enums.FuelType;
+import com.cainanbt.softwares.controleja.enums.RecurrenceFrequency;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
@@ -14,8 +15,9 @@ import java.util.UUID;
 @Data
 public class TransactionDTO {
 
-    @NotBlank(message = "A descrição/nome é obrigatória")
+    @NotBlank(message = "o Nome é obrigatóro")
     private String name;
+
     private String description;
 
     @NotNull(message = "O tipo é obrigatório (RECEITA, DESPESA)")
@@ -31,8 +33,6 @@ public class TransactionDTO {
     @NotNull(message = "A conta de origem é obrigatória")
     private UUID accountId;
 
-    private UUID targetAccountId;
-
     @NotNull(message = "A categoria é obrigatória")
     private UUID categoryId;
 
@@ -42,12 +42,21 @@ public class TransactionDTO {
     @NotNull(message = "Deve ser informado se a transação foi paga ou não")
     private Boolean paid;
 
-    @NotNull(message = "Deve ser informado se a transação é recorrente ou não")
-    private Boolean isRecurring;
+    //TRANSFERENCIA
+    private UUID targetAccountId;
 
-    private UUID vehicleId;
-
+    //CARTÃO DE CREDITO OU FINANCIAMENTOS/PARCELAMENTOS
     private UUID creditCardId;
+    private UUID targetInvoiceId;
+    @NotNull(message = "Deve ser informado se a transação é fixa ou não")
+    @NotNull
+    private Boolean isFixed;
+    @NotNull(message = "Deve ser informado se a transação é recorrente ou não")
+    private RecurrenceFrequency recurrenceFrequency;
+    private Long recurrenceEndDate;
+
+    //VEICULOS
+    private UUID vehicleId;
     private BigDecimal currentOdometer;
     private Double liters;
     private FuelType fuelType;

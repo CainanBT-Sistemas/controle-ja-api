@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.HashMap;
@@ -36,8 +37,8 @@ public class TransactionController {
     }
 
     @GetMapping
-    public ResponseEntity<List<TransactionResponseDTO>> listAll() {
-        var list = transactionService.listLastTransactions();
+    public ResponseEntity<List<TransactionResponseDTO>> listAll(@RequestParam Long start, @RequestParam Long end) {
+        var list = transactionService.listLastTransactions(start, end);
         return ResponseEntity.ok(list.stream().map(TransactionResponseDTO::toDTO).toList());
     }
     

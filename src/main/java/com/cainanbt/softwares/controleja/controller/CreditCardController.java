@@ -30,7 +30,7 @@ public class CreditCardController {
     }
 
     @PostMapping
-    public ResponseEntity<?> createCard(@RequestBody @Valid CreditCardDTO dto) {
+    public ResponseEntity<CreditCardResponseDTO> createCard(@RequestBody @Valid CreditCardDTO dto) {
         return ResponseEntity.ok(CreditCardResponseDTO.toDTO(creditCardService.createCard(dto)));
     }
 
@@ -40,12 +40,12 @@ public class CreditCardController {
     }
     
     @GetMapping("/{id}")
-    public ResponseEntity<?> getById(@PathVariable UUID id) {
+    public ResponseEntity<CreditCardResponseDTO> getById(@PathVariable UUID id) {
         return ResponseEntity.ok(CreditCardResponseDTO.toDTO(creditCardService.findByIdOrThrow(id)));
     }
     
     @PutMapping("/{id}")
-    public ResponseEntity<?> update(@PathVariable UUID id, @RequestBody @Valid CreditCardDTO dto) {
+    public ResponseEntity<CreditCardResponseDTO> update(@PathVariable UUID id, @RequestBody @Valid CreditCardDTO dto) {
         return ResponseEntity.ok(CreditCardResponseDTO.toDTO(creditCardService.updateCard(id, dto)));
     }
     

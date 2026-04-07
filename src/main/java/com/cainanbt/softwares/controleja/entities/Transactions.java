@@ -6,6 +6,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
@@ -52,6 +53,9 @@ public class Transactions {
     private Boolean fixed;
     @Column(nullable = false)
     private Boolean paid;
+    @ManyToOne
+    @JoinColumn(name = "parent_transaction_id", nullable = true)
+    private Transactions parentTransaction;
     @Column(nullable = false)
     private Boolean enabled;
     @Column(nullable = false)
@@ -60,6 +64,9 @@ public class Transactions {
     private Long updatedAt;
     @Column(nullable = true)
     private Long deletedAt;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "recurrence_rule_id", nullable = true)
+    private RecurrenceRule recurrenceRule;
     @ManyToOne
     @JoinColumn(name = "account_id",nullable = false)
     private Accounts account;
@@ -69,7 +76,7 @@ public class Transactions {
     @ManyToOne
     @JoinColumn(name = "user_id",nullable = false)
     private Users user;
-
+    //VEHICLE
     @ManyToOne
     @JoinColumn(name = "vehicle_id", nullable = true)
     private Vehicle vehicle;

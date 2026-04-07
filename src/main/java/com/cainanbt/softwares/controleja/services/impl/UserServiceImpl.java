@@ -2,6 +2,7 @@ package com.cainanbt.softwares.controleja.services.impl;
 
 import com.cainanbt.softwares.controleja.dtos.InsertUpdateUserDTO;
 import com.cainanbt.softwares.controleja.dtos.PasswordChangeDTO;
+import com.cainanbt.softwares.controleja.dtos.UpdateProfileDTO;
 import com.cainanbt.softwares.controleja.dtos.UserAuthenticateDTO;
 import com.cainanbt.softwares.controleja.dtos.UserUpdateTokenDTO;
 import com.cainanbt.softwares.controleja.entities.Accounts;
@@ -9,11 +10,15 @@ import com.cainanbt.softwares.controleja.entities.Category;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.enums.AccountType;
 import com.cainanbt.softwares.controleja.enums.RoleEnum;
+import com.cainanbt.softwares.controleja.enums.TransactionType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.repositories.UsersRepository;
 import com.cainanbt.softwares.controleja.services.AccountsService;
 import com.cainanbt.softwares.controleja.services.CategoryService;
+import com.cainanbt.softwares.controleja.services.CreditCardService;
+import com.cainanbt.softwares.controleja.services.TransactionService;
 import com.cainanbt.softwares.controleja.services.UsersService;
+import com.cainanbt.softwares.controleja.services.VehicleService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
@@ -25,6 +30,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -40,6 +46,9 @@ public class UserServiceImpl implements UsersService {
     private final PasswordEncoder passwordEncoder;
     private final CategoryService categoryService;
     private final AccountsService accountsService;
+    private final CreditCardService creditCardService;
+    private final TransactionService transactionService;
+    private final VehicleService vehicleService;
 
     @Override
     public Optional<Users> getUserByEmailAndId(String email, UUID id) {
@@ -57,13 +66,13 @@ public class UserServiceImpl implements UsersService {
             user.setRefreshToken(adapter.getRefreshToken());
             user.setRefreshTokenExpiry(adapter.getRefreshExpiration());
             return userRepository.save(user);
-        }).orElseThrow(() -> new BadRequestException("OOPS", "Parece que houve um erro critico no sistema informe o desenvolvedor"));
+        }).orElseThrow(() -> new BadRequestException(ConstsMessages.OOPS_TITLE, ConstsMessages.SYSTEM_CRITICAL_ERROR));
     }
 
     @Override
     public Users createNewUser(InsertUpdateUserDTO userDTO, HttpServletRequest request) {
         if (userRepository.findByEmailIgnoreCase(userDTO.getEmail()).isPresent()) {
-            throw new BadRequestException("Erro de Cadastro", "Este email já está em uso.");
+            throw new BadRequestException(ConstsMessages.REGISTRATION_ERROR_TITLE, ConstsMessages.EMAIL_IN_USE);
         }
         try {
             Users newUser = Users.builder()
@@ -84,21 +93,19 @@ public class UserServiceImpl implements UsersService {
             return saved;
         } catch (Exception e) {
             log.error("Erro ao salvar usuário: ", e);
-            throw new BadRequestException("Falha crítica", "Erro ao processar o cadastro no banco de dados.");
+            throw new BadRequestException(ConstsMessages.CRITICAL_ERROR_TITLE, ConstsMessages.DATABASE_SAVE_ERROR);
         }
-
     }
-
 
     @Override
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
         Optional<Users> usersOptional = userRepository.findByEmailIgnoreCase(email);
         if (usersOptional.isEmpty()) {
-            throw new BadRequestException("Falha de Login", "Email ou senha incorretos. Tente novamente");
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.WRONG_LOGIN_CREDENTIALS);
         }
         Users user = usersOptional.get();
         if (!user.getEnabled() || !user.getAccountNonLocked()) {
-            throw new BadRequestException("Acesso negado", "Usuário bloqueado");
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.BLOCKED_USER);
         }
         return new UserAuthenticateDTO(user);
     }
@@ -107,15 +114,67 @@ public class UserServiceImpl implements UsersService {
     public void changePassword(PasswordChangeDTO passwordChangeDTO) {
         Users currentUser = SecurityContextUtils.getCurrentUser();
 
-        // Verify current password
         if (!passwordEncoder.matches(passwordChangeDTO.getCurrentPassword(), currentUser.getPassword())) {
-            throw new BadRequestException("Erro de autenticação", ConstsMessages.INVALID_CURRENT_PASSWORD);
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.INVALID_CURRENT_PASSWORD);
         }
 
-        // Update password
         currentUser.setPassword(passwordEncoder.encode(passwordChangeDTO.getNewPassword()));
         currentUser.setUpdatedAt(System.currentTimeMillis());
         userRepository.save(currentUser);
+    }
+
+    @Override
+    public Users updateProfile(UpdateProfileDTO dto) {
+        Users currentUser = SecurityContextUtils.getCurrentUser();
+        currentUser.setUsername(dto.getUsername());
+        currentUser.setUpdatedAt(System.currentTimeMillis());
+
+        return userRepository.save(currentUser);
+    }
+
+    @Override
+    @Transactional
+    public boolean deleteUser(UUID id) {
+        Users currentUser = SecurityContextUtils.getCurrentUser();
+        if (!currentUser.getId().equals(id)) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.ACCESS_DENIED);
+        }
+        Optional<Users> userOpt = userRepository.findById(id);
+        if (userOpt.isPresent()) {
+            Users u = userOpt.get();
+            u.setDeletedAt(DateUtils.localDateTimeToEpoch(LocalDateTime.now()));
+            u.setEnabled(false);
+            u.setAccountNonLocked(false);
+            u.setRefreshToken(null);
+            userRepository.save(u);
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    @Transactional
+    public Users resetUser(UUID uuid) {
+        Users currentUser = SecurityContextUtils.getCurrentUser();
+        if (!currentUser.getId().equals(uuid)) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.ACCESS_DENIED);
+        }
+        Optional<Users> userOpt = userRepository.findById(uuid);
+        if (userOpt.isPresent()) {
+            Users u = userOpt.get();
+            UUID userId = u.getId();
+            userRepository.deleteInstallmentsByUserId(userId);
+            userRepository.deleteInvoicesByUserId(userId);
+            userRepository.deleteTransactionsByUserId(userId);
+            userRepository.deleteCreditCardsByUserId(userId);
+            userRepository.deleteVehiclesByUserId(userId);
+            userRepository.deleteSubCategoriesByUserId(userId);
+            userRepository.deleteCategoriesByUserId(userId);
+            userRepository.deleteAccountsByUserId(userId);
+            setupNewUser(u);
+            return u;
+        }
+        throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.FAILURE_TO_FIND_USER);
     }
 
     private void setupNewUser(Users user) {
@@ -136,26 +195,27 @@ public class UserServiceImpl implements UsersService {
                 .user(user)
                 .createdAt(now)
                 .build();
-        Accounts accountSaved = accountsService.save(wallet);
+        accountsService.save(wallet);
 
         // --- DESPESAS ---
-        createDefaultCategory(user, "Alimentação", "DESPESA", "restaurant", "#FFCA28", now);
-        createDefaultCategory(user, "Moradia", "DESPESA", "home", "#FF5252", now);
-        createDefaultCategory(user, "Transporte", "DESPESA", "directions_car", "#42A5F5", now);
-        createDefaultCategory(user, "Saúde", "DESPESA", "medical_services", "#66BB6A", now);
-        createDefaultCategory(user, "Lazer", "DESPESA", "sports_esports", "#AB47BC", now);
-        createDefaultCategory(user, "Educação", "DESPESA", "school", "#EC407A", now);
-        // Novas Despesas Essenciais:
-        createDefaultCategory(user, "Mercado", "DESPESA", "shopping_cart", "#FFA726", now); // Laranja
-        createDefaultCategory(user, "Contas Fixas", "DESPESA", "receipt_long", "#8D6E63", now); // Marrom
-        createDefaultCategory(user, "Vestuário", "DESPESA", "checkroom", "#26A69A", now); // Verde Água (Cabide)
-        createDefaultCategory(user, "Pets", "DESPESA", "pets", "#795548", now); // Marrom Escuro (Patinha)
-        // --- RECEITAS ---
-        createDefaultCategory(user, "Salário", "RECEITA", "attach_money", "#00E676", now);
-        createDefaultCategory(user, "Investimentos", "RECEITA", "trending_up", "#2979FF", now);
-        //--- OUTROS ---
-        createDefaultCategory(user, "Outros", "RECEITA", "category", "#BDBDBD", now);
+        createDefaultCategory(user, "Alimentação", TransactionType.DESPESA.name(), "restaurant", "#FFCA28", now);
+        createDefaultCategory(user, "Moradia", TransactionType.DESPESA.name(), "home", "#FF5252", now);
+        createDefaultCategory(user, "Transporte", TransactionType.DESPESA.name(), "directions_car", "#42A5F5", now);
+        createDefaultCategory(user, "Saúde", TransactionType.DESPESA.name(), "medical_services", "#66BB6A", now);
+        createDefaultCategory(user, "Lazer", TransactionType.DESPESA.name(), "sports_esports", "#AB47BC", now);
+        createDefaultCategory(user, "Educação", TransactionType.DESPESA.name(), "school", "#EC407A", now);
+        createDefaultCategory(user, "Mercado", TransactionType.DESPESA.name(), "shopping_cart", "#FFA726", now);
+        createDefaultCategory(user, "Contas Fixas", TransactionType.DESPESA.name(), "receipt_long", "#8D6E63", now);
+        createDefaultCategory(user, "Vestuário", TransactionType.DESPESA.name(), "checkroom", "#26A69A", now);
+        createDefaultCategory(user, "Pets", TransactionType.DESPESA.name(), "pets", "#795548", now);
+        createDefaultCategory(user, "Transferência", TransactionType.TRANSFERENCIA.name(), "swap_horiz", "#3B82F6", now);
 
+        // --- RECEITAS ---
+        createDefaultCategory(user, "Salário", TransactionType.RECEITA.name(), "attach_money", "#00E676", now);
+        createDefaultCategory(user, "Investimentos", TransactionType.RECEITA.name(), "trending_up", "#2979FF", now);
+
+        //--- OUTROS ---
+        createDefaultCategory(user, "Outros", TransactionType.RECEITA.name(), "category", "#BDBDBD", now);
     }
 
     private void createDefaultCategory(Users user, String name, String type, String icon, String color, long now) {

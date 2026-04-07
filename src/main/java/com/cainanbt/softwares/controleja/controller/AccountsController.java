@@ -35,7 +35,7 @@ public class AccountsController {
 
     @GetMapping
     public ResponseEntity<?> listAll() {
-        return ResponseEntity.ok(accountsService.listMyAccounts().stream().map(AccountResponseDTO::toDTO).toList());
+        return ResponseEntity.ok(accountsService.listMyAccountsExceptCrediCard().stream().map(AccountResponseDTO::toDTO).toList());
     }
     
     @GetMapping("/{id}")

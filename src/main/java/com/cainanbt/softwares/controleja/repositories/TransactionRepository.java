@@ -5,6 +5,7 @@ import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
@@ -58,4 +59,9 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
     
     @Query("SELECT t FROM Transactions t WHERE t.id = :id AND t.deletedAt IS NULL")
     Optional<Transactions> findByIdAndNotDeleted(UUID id);
+
+    @Query("SELECT t FROM Transactions t WHERE t.user.id = :userId " +
+            "AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
+            "ORDER BY t.date DESC")
+    List<Transactions> findTransactionsByMonth(@Param("userId") UUID userId, @Param("start") Long start, @Param("end") Long end);
 }

@@ -10,7 +10,7 @@ import java.util.UUID;
 public interface TransactionService {
     Transactions createTransaction(TransactionDTO dto);
 
-    List<Transactions> listLastTransactions();
+    List<Transactions> listLastTransactions(Long start, Long end);
     
     Optional<Transactions> findById(UUID id);
     

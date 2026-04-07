@@ -28,22 +28,19 @@ import java.util.Optional;
 public class AuthServiceImp implements AuthService {
 
     private final UsersService usersService;
-
     private final PasswordEncoder passwordEncoder;
-
     private final AuthenticationManager authenticationManager;
-
     private final JwtServiceImp jwtService;
 
     @Override
     public UserResponseDTO login(UserLoginDTO loginAdapter, HttpServletRequest request) {
         Optional<Users> userOptional = usersService.getUserByEmail(loginAdapter.getEmail());
         if (userOptional.isEmpty() || !passwordEncoder.matches(loginAdapter.getPassword(), userOptional.get().getPassword())) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, ConstsMessages.WRONG_LOGIN_CREDENTIALS);
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.WRONG_LOGIN_CREDENTIALS);
         }
         Users user = userOptional.get();
         if (!user.getEnabled() || !user.getAccountNonLocked()) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, ConstsMessages.BLOCKED_USER);
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.BLOCKED_USER);
         }
 
         var authenticate = new UsernamePasswordAuthenticationToken(loginAdapter.getEmail(), loginAdapter.getPassword());
@@ -56,7 +53,6 @@ public class AuthServiceImp implements AuthService {
         AuthResponseDTO authResponse = new AuthResponseDTO(accessToken, refreshToken);
         usersService.updateTokens(new UserUpdateTokenDTO(user.getId(), authResponse.getRefreshToken(), jwtService.getRefreshExpiration()));
         return new UserResponseDTO(ID.toString(user.getId()), user.getUsername(), user.getEmail(), user.getCreatedAt(), authResponse);
-
     }
 
     @Override
@@ -81,7 +77,7 @@ public class AuthServiceImp implements AuthService {
             user.setOauth2ProviderId(dto.getGoogleId());
         }
         if (!user.getEnabled() || !user.getAccountNonLocked()) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, ConstsMessages.BLOCKED_USER);
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.BLOCKED_USER);
         }
         UserAuthenticateDTO userAuthDTO = new UserAuthenticateDTO(user);
         String refreshToken = jwtService.generateRefreshToken(userAuthDTO);
@@ -96,34 +92,34 @@ public class AuthServiceImp implements AuthService {
     public UserResponseDTO loginAuto(TokenLoginDTO tokenLoginDTO, HttpServletRequest request) {
         String refreshToken = tokenLoginDTO.getToken();
         if (refreshToken == null || refreshToken.isBlank()) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, ConstsMessages.INVALID_TOKEN);
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.INVALID_TOKEN);
         }
 
         if (!jwtService.isValidTokenToLogin(refreshToken)) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, ConstsMessages.INVALID_TOKEN);
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.INVALID_TOKEN);
         }
 
         UserAuthenticateDTO userAuthDTO = jwtService.getUserAuthenticateFromRefreshToken(refreshToken);
         if (userAuthDTO == null) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, ConstsMessages.INVALID_TOKEN);
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.INVALID_TOKEN);
         }
 
         Optional<Users> userOptional = usersService.getUserByEmail(userAuthDTO.getUser().getEmail());
         if (userOptional.isEmpty()) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, "Usuário não encontrado");
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.FAILURE_TO_FIND_USER);
         }
 
         Users user = userOptional.get();
         if (!user.getEnabled() || !user.getAccountNonLocked()) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, ConstsMessages.BLOCKED_USER);
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.BLOCKED_USER);
         }
 
         if (!user.getRefreshToken().equals(refreshToken)) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, ConstsMessages.INVALID_TOKEN);
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.INVALID_TOKEN);
         }
 
         if (!user.getId().equals(userAuthDTO.getUser().getId())) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED, ConstsMessages.INVALID_TOKEN);
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.INVALID_TOKEN);
         }
 
         String accessToken = jwtService.generateAccessToken(userAuthDTO);

@@ -4,5 +4,7 @@ public enum TransactionType {
     RECEITA,
     DESPESA,
     TRANSFERENCIA,
+    TRANSFERENCIA_ENTRADA,
+    TRANSFERENCIA_SAIDA,
     PAGAMENTO_FATURA;
 }

@@ -51,7 +51,7 @@ public class Invoices {
     @JoinColumn(name = "credit_card_id", nullable = false)
     private CreditCard creditCard;
     @ManyToOne
-    @JoinColumn(name = "transaction_id", nullable = false)
+    @JoinColumn(name = "transaction_id", nullable = true)
     private Transactions transaction;
     @ManyToOne
     @JoinColumn(name = "user_id",nullable = false)

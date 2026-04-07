@@ -13,8 +13,8 @@ public interface AccountsService {
     Optional<Accounts> findById(UUID id);
     
     Accounts findByIdOrThrow(UUID id);
-    
-    List<Accounts> listMyAccounts();
+
+    List<Accounts> listMyAccountsExceptCrediCard();
 
     Accounts update(Accounts accounts);
     

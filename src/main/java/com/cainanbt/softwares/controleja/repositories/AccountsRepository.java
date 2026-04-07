@@ -1,6 +1,7 @@
 package com.cainanbt.softwares.controleja.repositories;
 
 import com.cainanbt.softwares.controleja.entities.Accounts;
+import com.cainanbt.softwares.controleja.enums.AccountType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
@@ -16,4 +17,7 @@ public interface AccountsRepository extends JpaRepository<Accounts, UUID> {
     
     @Query("SELECT a FROM Accounts a WHERE a.id = :id AND a.deletedAt IS NULL")
     Optional<Accounts> findByIdAndNotDeleted(UUID id);
+
+    @Query("SELECT a FROM Accounts a WHERE a.user.id = :userId AND a.name = :name AND a.type = :type AND a.deletedAt IS NULL")
+    Optional<Accounts> findByUserIdAndNameAndType(UUID userId, String name, AccountType type);
 }
