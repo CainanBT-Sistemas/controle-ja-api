@@ -8,6 +8,7 @@ import com.cainanbt.softwares.controleja.exceptions.models.EntityNotFoundExcepti
 import com.cainanbt.softwares.controleja.repositories.CategoryRepository;
 import com.cainanbt.softwares.controleja.services.CategoryService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
+import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
@@ -48,7 +49,7 @@ public class CategoryServiceImpl implements CategoryService {
                 .isDefault(false)
                 .subCategory(parent)
                 .user(user)
-                .createdAt(System.currentTimeMillis())
+                .createdAt(DateUtils.getEpochNow())
                 .build();
 
         return repository.save(category);
@@ -96,7 +97,7 @@ public class CategoryServiceImpl implements CategoryService {
             category.setSubCategory(parent);
             category.setIsSubCategory(true);
         }
-        category.setUpdatedAt(System.currentTimeMillis());
+        category.setUpdatedAt(DateUtils.getEpochNow());
 
         return repository.save(category);
     }
@@ -113,7 +114,7 @@ public class CategoryServiceImpl implements CategoryService {
         if (category.getDeletedAt() != null) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.ENTITY_ALREADY_DELETED);
         }
-        category.setDeletedAt(System.currentTimeMillis());
+        category.setDeletedAt(DateUtils.getEpochNow());
         repository.save(category);
     }
 

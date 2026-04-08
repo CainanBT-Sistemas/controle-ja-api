@@ -17,4 +17,5 @@ public interface InstallmentPlanService {
 
     List<InstallmentPlan> findByInvoiceId(UUID invoiceId);
 
+    List<InstallmentPlan> findByPurchaseId(UUID purchaseId);
 }

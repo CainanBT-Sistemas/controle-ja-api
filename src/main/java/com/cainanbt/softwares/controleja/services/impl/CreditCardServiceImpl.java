@@ -11,6 +11,7 @@ import com.cainanbt.softwares.controleja.repositories.AccountsRepository;
 import com.cainanbt.softwares.controleja.repositories.CreditCardRepository;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
+import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +34,7 @@ public class CreditCardServiceImpl implements CreditCardService {
     @Transactional
     public CreditCard createCard(CreditCardDTO dto) {
         Users user = SecurityContextUtils.getCurrentUser();
+        long now = DateUtils.getEpochNow();
 
         long totalCards = creditCardRepository.countByUserId(user.getId());
         if (totalCards >= 2) {
@@ -50,7 +52,7 @@ public class CreditCardServiceImpl implements CreditCardService {
                 .calculateBalance(false)
                 .enabled(true)
                 .user(user)
-                .createdAt(System.currentTimeMillis())
+                .createdAt(now)
                 .icon(dto.getIcon() != null ? dto.getIcon() : "credit_card")
                 .color(dto.getColor() != null ? dto.getColor() : "#9C27B0")
                 .build();
@@ -67,7 +69,7 @@ public class CreditCardServiceImpl implements CreditCardService {
                 .user(user)
                 .accounts(savedAccount)
                 .enabled(true)
-                .createdAt(System.currentTimeMillis())
+                .createdAt(now)
                 .icon(dto.getIcon() != null ? dto.getIcon() : "credit_card")
                 .color(dto.getColor() != null ? dto.getColor() : "#9C27B0")
                 .build();
@@ -125,7 +127,6 @@ public class CreditCardServiceImpl implements CreditCardService {
         }
 
         if (dto.getName() != null) card.setName(dto.getName());
-
         if (dto.getLimit() != null) {
             BigDecimal difference = dto.getLimit().subtract(card.getTotalLimit());
             card.setTotalLimit(dto.getLimit());
@@ -134,11 +135,10 @@ public class CreditCardServiceImpl implements CreditCardService {
 
         if (dto.getCloseDay() > 0) card.setCloseDay(dto.getCloseDay());
         if (dto.getBestDay() > 0) card.setBestDay(dto.getBestDay());
-
         if (dto.getIcon() != null) card.setIcon(dto.getIcon());
         if (dto.getColor() != null) card.setColor(dto.getColor());
 
-        card.setUpdatedAt(System.currentTimeMillis());
+        card.setUpdatedAt(DateUtils.getEpochNow());
 
         return creditCardRepository.save(card);
     }
@@ -158,11 +158,11 @@ public class CreditCardServiceImpl implements CreditCardService {
 
         if (card.getAccounts() != null) {
             Accounts account = card.getAccounts();
-            account.setDeletedAt(System.currentTimeMillis());
+            account.setDeletedAt(DateUtils.getEpochNow());
             accountsRepository.save(account);
         }
 
-        card.setDeletedAt(System.currentTimeMillis());
+        card.setDeletedAt(DateUtils.getEpochNow());
         creditCardRepository.save(card);
     }
 }

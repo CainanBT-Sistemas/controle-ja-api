@@ -24,6 +24,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("controle_ja_api/v1/transactions")
 public class TransactionController {
+
     private final TransactionService transactionService;
 
     public TransactionController(TransactionService transactionService) {
@@ -41,22 +42,33 @@ public class TransactionController {
         var list = transactionService.listLastTransactions(start, end);
         return ResponseEntity.ok(list.stream().map(TransactionResponseDTO::toDTO).toList());
     }
-    
+
     @GetMapping("/{id}")
     public ResponseEntity<TransactionResponseDTO> getById(@PathVariable UUID id) {
         return ResponseEntity.ok(TransactionResponseDTO.toDTO(transactionService.findByIdOrThrow(id)));
     }
-    
+
+    // NOVO: Recebe o parâmetro updateFuture
     @PutMapping("/{id}")
-    public ResponseEntity<TransactionResponseDTO> update(@PathVariable UUID id, @RequestBody @Valid TransactionDTO dto) {
-        return ResponseEntity.ok(TransactionResponseDTO.toDTO(transactionService.updateTransaction(id, dto)));
+    public ResponseEntity<TransactionResponseDTO> update(
+            @PathVariable UUID id,
+            @RequestBody @Valid TransactionDTO dto,
+            @RequestParam(defaultValue = "false") Boolean updateFuture) {
+
+        var entity = transactionService.updateTransaction(id, dto, updateFuture);
+        return ResponseEntity.ok(TransactionResponseDTO.toDTO(entity));
     }
-    
+
+    // NOVO: Recebe o parâmetro cancelFuture
     @DeleteMapping("/{id}")
-    public ResponseEntity<?> delete(@PathVariable UUID id) {
-        transactionService.softDelete(id);
+    public ResponseEntity<?> delete(
+            @PathVariable UUID id,
+            @RequestParam(defaultValue = "false") Boolean cancelFuture) {
+
+        transactionService.softDelete(id, cancelFuture);
+
         Map<String, String> response = new HashMap<>();
-        response.put("message", ConstsMessages.DELETE_SUCCESS);
+        response.put("message", cancelFuture ? "Assinatura cancelada e transações futuras removidas." : ConstsMessages.DELETE_SUCCESS);
         return ResponseEntity.ok(response);
     }
 }

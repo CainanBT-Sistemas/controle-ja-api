@@ -41,4 +41,9 @@ public class RecurrenceRuleServiceImpl implements RecurrenceRuleService {
     public List<RecurrenceRule> findActiveRulesByUser(UUID userId) {
         return repository.findByUserIdAndStatusAndDeletedAtIsNull(userId, RuleStatus.ACTIVE);
     }
+
+    @Override
+    public List<RecurrenceRule> findAllActiveRules() {
+        return repository.findByStatusAndDeletedAtIsNull(RuleStatus.ACTIVE);
+    }
 }

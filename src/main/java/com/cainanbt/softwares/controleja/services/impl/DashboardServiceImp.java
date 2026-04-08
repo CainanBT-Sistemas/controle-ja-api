@@ -36,8 +36,11 @@ public class DashboardServiceImp implements DashboardService {
 
     @Override
     public List<ChartDataDTO> getEvolution(Long start, Long end, UUID categoryId) {
-        // Retorna os dados ordenados por data. O front agrupa por dia/semana se precisar.
-        return repository.getEvolutionRawData(getUser(), start, end, categoryId);
+        if (categoryId == null) {
+            return repository.getEvolutionRawDataAll(getUser(), start, end);
+        } else {
+            return repository.getEvolutionRawDataByCategory(getUser(), start, end, categoryId);
+        }
     }
 
     @Override

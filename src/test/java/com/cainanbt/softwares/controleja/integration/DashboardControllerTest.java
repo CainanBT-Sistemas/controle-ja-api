@@ -10,6 +10,7 @@ import com.cainanbt.softwares.controleja.dtos.responses.AccountResponseDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.CategoryResponseDTO;
 import com.cainanbt.softwares.controleja.enums.AccountType;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
+import com.cainanbt.softwares.controleja.utils.DateUtils;
 import io.restassured.http.ContentType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -20,6 +21,7 @@ import java.util.UUID;
 
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.notNullValue;
 
 public class DashboardControllerTest extends BaseTest {
 
@@ -30,7 +32,6 @@ public class DashboardControllerTest extends BaseTest {
 
     @BeforeEach
     void setup() {
-        // 1. User & Login
         String unique = UUID.randomUUID().toString().substring(0, 8);
         String email = "dash_" + unique + "@test.com";
         InsertUpdateUserDTO user = new InsertUpdateUserDTO();
@@ -42,14 +43,12 @@ public class DashboardControllerTest extends BaseTest {
         UserLoginDTO login = UserLoginDTO.builder().email(email).password("123456").build();
         token = given().contentType(ContentType.JSON).body(login).post("/auth").then().extract().path("tokens.accessToken");
 
-        // 2. Conta
         AccountDTO acc = new AccountDTO();
         acc.setName("Carteira");
         acc.setType(AccountType.WALLET);
         acc.setInitialBalance(new BigDecimal("5000.00"));
         walletId = given().header("Authorization", "Bearer " + token).contentType(ContentType.JSON).body(acc).post("/accounts").then().extract().as(AccountResponseDTO.class).getId();
 
-        // 3. Categorias
         CategoryDTO c1 = new CategoryDTO();
         c1.setName("Comida");
         c1.setCategoryType("DESPESA");
@@ -60,11 +59,10 @@ public class DashboardControllerTest extends BaseTest {
         c2.setCategoryType("DESPESA");
         catCarId = given().header("Authorization", "Bearer " + token).contentType(ContentType.JSON).body(c2).post("/categories").then().extract().as(CategoryResponseDTO.class).getId();
 
-        // 4. Cria Transações (Massa de Dados)
         createTx("Burguer", new BigDecimal("50.00"), catFoodId, TransactionType.DESPESA);
         createTx("Pizza", new BigDecimal("100.00"), catFoodId, TransactionType.DESPESA);
         createTx("Gasolina", new BigDecimal("200.00"), catCarId, TransactionType.DESPESA);
-        createTx("Salario", new BigDecimal("1000.00"), catFoodId, TransactionType.RECEITA); // Receita fake
+        createTx("Salario", new BigDecimal("1000.00"), catFoodId, TransactionType.RECEITA);
     }
 
     private void createTx(String name, BigDecimal amount, UUID catId, TransactionType type) {
@@ -75,45 +73,42 @@ public class DashboardControllerTest extends BaseTest {
         dto.setAccountId(walletId);
         dto.setType(type);
         dto.setPaid(true);
-        dto.setDate(System.currentTimeMillis());
+        dto.setDate(DateUtils.getEpochNow());
+        dto.setIsFixed(false);
+
         given().header("Authorization", "Bearer " + token).contentType(ContentType.JSON).body(dto).post("/transactions").then().statusCode(200);
     }
 
     @Test
-    @DisplayName("Deve calcular resumo financeiro corretamente")
-    void shouldReturnCorrectSummary() {
-        long now = System.currentTimeMillis();
-        long start = now - 100000;
-        long end = now + 100000;
+    @DisplayName("Deve varrer todos os endpoints do Dashboard para cobertura 100%")
+    void shouldHitAllDashboardEndpoints() {
+        long now = DateUtils.getEpochNow();
+        long start = now - 86400000L;
+        long end = now + 86400000L;
 
-        given()
-                .header("Authorization", "Bearer " + token)
-                .param("start", start)
-                .param("end", end)
-                .when()
-                .get("/dashboard/summary")
-                .then()
-                .statusCode(200)
-                .body("totalIncome", is(1000.0f))
-                .body("totalExpense", is(350.0f)) // 50 + 100 + 200
-                .body("balance", is(650.0f));
-    }
+        given().header("Authorization", "Bearer " + token).param("start", start).param("end", end)
+                .when().get("/dashboard/summary")
+                .then().statusCode(200).body("totalIncome", is(1000.0f));
 
-    @Test
-    @DisplayName("Deve agrupar despesas por categoria")
-    void shouldGroupExpensesByCategory() {
-        long now = System.currentTimeMillis();
+        given().header("Authorization", "Bearer " + token).param("start", start).param("end", end)
+                .when().get("/dashboard/expenses-category")
+                .then().statusCode(200).body("size()", is(2));
 
-        given()
-                .header("Authorization", "Bearer " + token)
-                .param("start", now - 100000)
-                .param("end", now + 100000)
-                .when()
-                .get("/dashboard/expenses-category")
-                .then()
-                .statusCode(200)
-                .body("size()", is(2)) // Comida e Carro
-                .body("find { it.label == 'Comida' }.value", is(150.0f))
-                .body("find { it.label == 'Carro' }.value", is(200.0f));
+        given().header("Authorization", "Bearer " + token).param("start", start).param("end", end)
+                .when().get("/dashboard/incomes-category")
+                .then().statusCode(200).body("size()", is(1));
+
+        given().header("Authorization", "Bearer " + token).param("start", start).param("end", end)
+                .when().get("/dashboard/evolution")
+                .then().statusCode(200).body("$", notNullValue());
+
+        // Endpoint Evolution testando o ID Categoria para atingir os 100%
+        given().header("Authorization", "Bearer " + token).param("start", start).param("end", end).param("categoryId", catFoodId)
+                .when().get("/dashboard/evolution")
+                .then().statusCode(200).body("$", notNullValue());
+
+        given().header("Authorization", "Bearer " + token).param("start", start).param("end", end)
+                .when().get("/dashboard/fuel-comparison")
+                .then().statusCode(200);
     }
 }

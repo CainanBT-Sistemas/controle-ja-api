@@ -49,9 +49,7 @@ public class TransactionDTO {
     private UUID creditCardId;
     private UUID targetInvoiceId;
     @NotNull(message = "Deve ser informado se a transação é fixa ou não")
-    @NotNull
     private Boolean isFixed;
-    @NotNull(message = "Deve ser informado se a transação é recorrente ou não")
     private RecurrenceFrequency recurrenceFrequency;
     private Long recurrenceEndDate;
 

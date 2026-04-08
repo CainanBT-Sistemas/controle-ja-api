@@ -1,8 +1,10 @@
 package com.cainanbt.softwares.controleja.services;
 
 import com.cainanbt.softwares.controleja.dtos.TransactionDTO;
+import com.cainanbt.softwares.controleja.entities.RecurrenceRule;
 import com.cainanbt.softwares.controleja.entities.Transactions;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -15,8 +17,13 @@ public interface TransactionService {
     Optional<Transactions> findById(UUID id);
     
     Transactions findByIdOrThrow(UUID id);
-    
-    Transactions updateTransaction(UUID id, TransactionDTO dto);
-    
-    void softDelete(UUID id);
+
+    Transactions updateTransaction(UUID id, TransactionDTO dto, Boolean updateFuture);
+
+    void softDelete(UUID id, Boolean cancelFuture);
+
+    void cascadeRuleUpdate(UUID ruleId, BigDecimal newAmount);
+
+    void generateProjectionsForRule(RecurrenceRule rule, java.time.LocalDate limitDate);
+
 }

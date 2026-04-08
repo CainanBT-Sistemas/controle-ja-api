@@ -9,6 +9,7 @@ import com.cainanbt.softwares.controleja.exceptions.models.EntityNotFoundExcepti
 import com.cainanbt.softwares.controleja.repositories.VehicleRepository;
 import com.cainanbt.softwares.controleja.services.VehicleService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
+import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +27,7 @@ public class VehicleServiceImpl implements VehicleService {
     @Override
     public Vehicle createVehicle(VehicleDTO dto) {
         Users user = SecurityContextUtils.getCurrentUser();
+
         Vehicle vehicle = Vehicle.builder()
                 .id(ID.generate())
                 .name(dto.getName())
@@ -35,8 +37,9 @@ public class VehicleServiceImpl implements VehicleService {
                 .plate(dto.getPlate())
                 .currentOdometer(dto.getCurrentOdometer())
                 .user(user)
-                .createdAt(System.currentTimeMillis())
+                .createdAt(DateUtils.getEpochNow())
                 .build();
+
         return repository.save(vehicle);
     }
 
@@ -63,10 +66,10 @@ public class VehicleServiceImpl implements VehicleService {
     @Override
     public Double processRefuel(Vehicle vehicle, BigDecimal newOdometer, Double liters, FuelType fuelType) {
         if (newOdometer == null || newOdometer.compareTo(vehicle.getCurrentOdometer()) <= 0) {
-            return null; // Não dá pra calcular
+            return null;
         }
         if (liters == null || liters <= 0) {
-            vehicle.setCurrentOdometer(newOdometer); // Só atualiza KM
+            vehicle.setCurrentOdometer(newOdometer);
             repository.save(vehicle);
             return null;
         }
@@ -114,7 +117,7 @@ public class VehicleServiceImpl implements VehicleService {
         if (dto.getPlate() != null) vehicle.setPlate(dto.getPlate());
         if (dto.getCurrentOdometer() != null) vehicle.setCurrentOdometer(dto.getCurrentOdometer());
 
-        vehicle.setUpdatedAt(System.currentTimeMillis());
+        vehicle.setUpdatedAt(DateUtils.getEpochNow());
         return repository.save(vehicle);
     }
 
@@ -131,7 +134,7 @@ public class VehicleServiceImpl implements VehicleService {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.ENTITY_ALREADY_DELETED);
         }
 
-        vehicle.setDeletedAt(System.currentTimeMillis());
+        vehicle.setDeletedAt(DateUtils.getEpochNow());
         repository.save(vehicle);
     }
 }

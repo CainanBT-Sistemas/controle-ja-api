@@ -33,7 +33,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -86,8 +85,9 @@ public class UserServiceImpl implements UsersService {
                     .credentialsNonExpired(true)
                     .role(RoleEnum.ROLE_USER.getValue())
                     .oauth2User(false)
-                    .createdAt(DateUtils.localDateTimeToEpoch(LocalDateTime.now()))
+                    .createdAt(DateUtils.getEpochNow())
                     .build();
+
             Users saved = userRepository.save(newUser);
             setupNewUser(saved);
             return saved;
@@ -113,13 +113,12 @@ public class UserServiceImpl implements UsersService {
     @Override
     public void changePassword(PasswordChangeDTO passwordChangeDTO) {
         Users currentUser = SecurityContextUtils.getCurrentUser();
-
         if (!passwordEncoder.matches(passwordChangeDTO.getCurrentPassword(), currentUser.getPassword())) {
             throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.INVALID_CURRENT_PASSWORD);
         }
 
         currentUser.setPassword(passwordEncoder.encode(passwordChangeDTO.getNewPassword()));
-        currentUser.setUpdatedAt(System.currentTimeMillis());
+        currentUser.setUpdatedAt(DateUtils.getEpochNow());
         userRepository.save(currentUser);
     }
 
@@ -127,7 +126,7 @@ public class UserServiceImpl implements UsersService {
     public Users updateProfile(UpdateProfileDTO dto) {
         Users currentUser = SecurityContextUtils.getCurrentUser();
         currentUser.setUsername(dto.getUsername());
-        currentUser.setUpdatedAt(System.currentTimeMillis());
+        currentUser.setUpdatedAt(DateUtils.getEpochNow());
 
         return userRepository.save(currentUser);
     }
@@ -142,7 +141,7 @@ public class UserServiceImpl implements UsersService {
         Optional<Users> userOpt = userRepository.findById(id);
         if (userOpt.isPresent()) {
             Users u = userOpt.get();
-            u.setDeletedAt(DateUtils.localDateTimeToEpoch(LocalDateTime.now()));
+            u.setDeletedAt(DateUtils.getEpochNow());
             u.setEnabled(false);
             u.setAccountNonLocked(false);
             u.setRefreshToken(null);
@@ -178,7 +177,8 @@ public class UserServiceImpl implements UsersService {
     }
 
     private void setupNewUser(Users user) {
-        long now = System.currentTimeMillis();
+        long now = DateUtils.getEpochNow();
+
         Accounts wallet = Accounts.builder()
                 .id(ID.generate())
                 .name("Minha Carteira")
@@ -197,7 +197,6 @@ public class UserServiceImpl implements UsersService {
                 .build();
         accountsService.save(wallet);
 
-        // --- DESPESAS ---
         createDefaultCategory(user, "Alimentação", TransactionType.DESPESA.name(), "restaurant", "#FFCA28", now);
         createDefaultCategory(user, "Moradia", TransactionType.DESPESA.name(), "home", "#FF5252", now);
         createDefaultCategory(user, "Transporte", TransactionType.DESPESA.name(), "directions_car", "#42A5F5", now);
@@ -210,11 +209,9 @@ public class UserServiceImpl implements UsersService {
         createDefaultCategory(user, "Pets", TransactionType.DESPESA.name(), "pets", "#795548", now);
         createDefaultCategory(user, "Transferência", TransactionType.TRANSFERENCIA.name(), "swap_horiz", "#3B82F6", now);
 
-        // --- RECEITAS ---
         createDefaultCategory(user, "Salário", TransactionType.RECEITA.name(), "attach_money", "#00E676", now);
         createDefaultCategory(user, "Investimentos", TransactionType.RECEITA.name(), "trending_up", "#2979FF", now);
 
-        //--- OUTROS ---
         createDefaultCategory(user, "Outros", TransactionType.RECEITA.name(), "category", "#BDBDBD", now);
     }
 

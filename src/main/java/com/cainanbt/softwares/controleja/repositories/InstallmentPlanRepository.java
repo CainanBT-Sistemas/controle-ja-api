@@ -10,4 +10,6 @@ import java.util.UUID;
 @Repository
 public interface InstallmentPlanRepository extends JpaRepository<InstallmentPlan, UUID> {
     List<InstallmentPlan> findByInvoicesId(UUID invoiceId);
+
+    List<InstallmentPlan> findByPurchaseId(UUID purchaseId);
 }

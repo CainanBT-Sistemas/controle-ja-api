@@ -8,6 +8,7 @@ import com.cainanbt.softwares.controleja.exceptions.models.EntityNotFoundExcepti
 import com.cainanbt.softwares.controleja.repositories.AccountsRepository;
 import com.cainanbt.softwares.controleja.services.AccountsService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
+import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
@@ -42,7 +43,7 @@ public class AccountsServiceImpl implements AccountsService {
                 .calculateBalance(true)
                 .enabled(true)
                 .user(user)
-                .createdAt(System.currentTimeMillis())
+                .createdAt(DateUtils.getEpochNow())
                 .icon(dto.getIcon() != null ? dto.getIcon() : "account_balance")
                 .color(dto.getColor() != null ? dto.getColor() : "#42A5F5")
                 .isDefault(dto.getIsDefault() != null ? dto.getIsDefault() : false)
@@ -91,7 +92,7 @@ public class AccountsServiceImpl implements AccountsService {
         if (dto.getColor() != null) account.setColor(dto.getColor());
         if (dto.getIsDefault() != null) account.setIsDefault(dto.getIsDefault());
 
-        account.setUpdatedAt(System.currentTimeMillis());
+        account.setUpdatedAt(DateUtils.getEpochNow());
         return repository.save(account);
     }
 
@@ -112,7 +113,7 @@ public class AccountsServiceImpl implements AccountsService {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.ENTITY_ALREADY_DELETED);
         }
 
-        account.setDeletedAt(System.currentTimeMillis());
+        account.setDeletedAt(DateUtils.getEpochNow());
         repository.save(account);
     }
 

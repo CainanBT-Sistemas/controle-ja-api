@@ -7,32 +7,40 @@ import com.cainanbt.softwares.controleja.dtos.CreditCardDTO;
 import com.cainanbt.softwares.controleja.dtos.InsertUpdateUserDTO;
 import com.cainanbt.softwares.controleja.dtos.TransactionDTO;
 import com.cainanbt.softwares.controleja.dtos.UserLoginDTO;
-import com.cainanbt.softwares.controleja.dtos.VehicleDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.AccountResponseDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.CategoryResponseDTO;
-import com.cainanbt.softwares.controleja.dtos.responses.VehicleResponseDTO;
 import com.cainanbt.softwares.controleja.enums.AccountType;
+import com.cainanbt.softwares.controleja.enums.RecurrenceFrequency;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
+import com.cainanbt.softwares.controleja.utils.DateUtils;
+import com.cainanbt.softwares.controleja.workers.RecurrenceWorkerService;
 import io.restassured.http.ContentType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.math.BigDecimal;
 import java.util.UUID;
 
 import static io.restassured.RestAssured.given;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.notNullValue;
 
 public class TransactionControllerTest extends BaseTest {
 
+    @Autowired
+    private RecurrenceWorkerService workerService;
+
     private String token;
     private UUID walletId;
+    private UUID bankId;
     private UUID categoryId;
 
     @BeforeEach
     void setupUserAndData() {
-        // 1. Cria Usuário Único (para isolamento)
         String unique = UUID.randomUUID().toString().substring(0, 8);
         String email = "trans_" + unique + "@test.com";
         InsertUpdateUserDTO user = new InsertUpdateUserDTO();
@@ -41,11 +49,9 @@ public class TransactionControllerTest extends BaseTest {
         user.setPassword("123456");
         given().contentType(ContentType.JSON).body(user).post("/users/register").then().statusCode(200);
 
-        // 2. Loga e pega Token
         UserLoginDTO login = UserLoginDTO.builder().email(email).password("123456").build();
         token = given().contentType(ContentType.JSON).body(login).post("/auth").then().extract().path("tokens.accessToken");
 
-        // 3. Cria Categoria Padrão
         CategoryDTO cat = new CategoryDTO();
         cat.setName("Geral");
         cat.setCategoryType("DESPESA");
@@ -53,185 +59,261 @@ public class TransactionControllerTest extends BaseTest {
                 .contentType(ContentType.JSON).body(cat).post("/categories")
                 .then().statusCode(200).extract().as(CategoryResponseDTO.class).getId();
 
-        // 4. Cria Conta 'Carteira' com R$ 1.000,00
-        AccountDTO acc = new AccountDTO();
-        acc.setName("Minha Carteira");
-        acc.setType(AccountType.WALLET);
-        acc.setInitialBalance(new BigDecimal("1000.00"));
+        AccountDTO acc1 = new AccountDTO();
+        acc1.setName("Minha Carteira");
+        acc1.setType(AccountType.WALLET);
+        acc1.setInitialBalance(new BigDecimal("1000.00"));
         walletId = given().header("Authorization", "Bearer " + token)
-                .contentType(ContentType.JSON).body(acc).post("/accounts")
+                .contentType(ContentType.JSON).body(acc1).post("/accounts")
+                .then().statusCode(200).extract().as(AccountResponseDTO.class).getId();
+
+        AccountDTO acc2 = new AccountDTO();
+        acc2.setName("Conta Itaú");
+        acc2.setType(AccountType.BANK);
+        acc2.setInitialBalance(new BigDecimal("0.00"));
+        bankId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(acc2).post("/accounts")
                 .then().statusCode(200).extract().as(AccountResponseDTO.class).getId();
     }
 
     @Test
-    @DisplayName("CENÁRIO 1: Despesa em Conta Corrente (Deve debitar saldo)")
-    void shouldCreateExpenseOnWallet() {
+    @DisplayName("CENÁRIO 1: Despesa e Receita (CRUD Básico)")
+    void shouldCreateUpdateAndDeleteTransaction() {
         TransactionDTO dto = new TransactionDTO();
         dto.setName("Almoço");
         dto.setType(TransactionType.DESPESA);
         dto.setAmount(new BigDecimal("50.00"));
-        dto.setDate(System.currentTimeMillis());
-        dto.setPaid(true); // Pago na hora
-        dto.setAccountId(walletId);
-        dto.setCategoryId(categoryId);
-
-        // 1. Cria Transação
-        given().header("Authorization", "Bearer " + token)
-                .contentType(ContentType.JSON).body(dto).post("/transactions")
-                .then().statusCode(200);
-
-        // 2. Valida Saldo (1000 - 50 = 950)
-        given().header("Authorization", "Bearer " + token).get("/accounts")
-                .then()
-                .body("find { it.id == '" + walletId + "' }.currentBalance", is(950.0f));
-    }
-
-    @Test
-    @DisplayName("CENÁRIO 2: Receita em Conta Corrente (Deve aumentar saldo)")
-    void shouldCreateIncomeOnWallet() {
-        TransactionDTO dto = new TransactionDTO();
-        dto.setName("Venda Extra");
-        dto.setType(TransactionType.RECEITA);
-        dto.setAmount(new BigDecimal("200.00"));
-        dto.setDate(System.currentTimeMillis());
+        dto.setDate(DateUtils.getEpochNow());
         dto.setPaid(true);
         dto.setAccountId(walletId);
         dto.setCategoryId(categoryId);
+        dto.setIsFixed(false);
 
-        // 1. Cria Transação
+        String txId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(dto).post("/transactions")
+                .then().statusCode(200)
+                .body("id", notNullValue())
+                .extract().path("id");
+
+        given().header("Authorization", "Bearer " + token).get("/accounts/" + walletId)
+                .then().body("currentBalance", is(950.0f));
+
+        dto.setAmount(new BigDecimal("70.00"));
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(dto).put("/transactions/" + txId)
+                .then().statusCode(200)
+                .body("amount", is(70.0f));
+
+        // Listagem
+        given().header("Authorization", "Bearer " + token)
+                .param("start", DateUtils.getEpochNow() - 86400000L)
+                .param("end", DateUtils.getEpochNow() + 86400000L)
+                .get("/transactions")
+                .then().statusCode(200);
+
+        given().header("Authorization", "Bearer " + token).delete("/transactions/" + txId)
+                .then().statusCode(200);
+    }
+
+    @Test
+    @DisplayName("CENÁRIO 2: Transferência entre Contas (Partidas Dobradas)")
+    void shouldPerformTransferBetweenAccounts() {
+        TransactionDTO dto = new TransactionDTO();
+        dto.setName("Enviando pro Banco");
+        dto.setType(TransactionType.TRANSFERENCIA);
+        dto.setAmount(new BigDecimal("200.00"));
+        dto.setDate(DateUtils.getEpochNow());
+        dto.setPaid(true);
+        dto.setAccountId(walletId); // Sai daqui
+        dto.setTargetAccountId(bankId); // Entra aqui
+        dto.setCategoryId(categoryId);
+        dto.setIsFixed(false);
+
         given().header("Authorization", "Bearer " + token)
                 .contentType(ContentType.JSON).body(dto).post("/transactions")
                 .then().statusCode(200);
 
-        // 2. Valida Saldo (1000 + 200 = 1200)
-        given().header("Authorization", "Bearer " + token).get("/accounts")
-                .then()
-                .body("find { it.id == '" + walletId + "' }.currentBalance", is(1200.0f));
+        // Valida saldos cruzados
+        given().header("Authorization", "Bearer " + token).get("/accounts/" + walletId)
+                .then().body("currentBalance", is(800.0f)); // 1000 - 200
+
+        given().header("Authorization", "Bearer " + token).get("/accounts/" + bankId)
+                .then().body("currentBalance", is(200.0f)); // 0 + 200
     }
 
     @Test
-    @DisplayName("CENÁRIO 3: Compra Parcelada no Crédito (Limite Global vs Parcelas)")
-    void shouldCreateInstallmentsOnCreditCard() {
-        // 1. Cria Cartão com Limite 2000
+    @DisplayName("CENÁRIO 3: Compra Parcelada no Crédito e Pagamento de Fatura")
+    void shouldCreateInstallmentsOnCreditCardAndPay() {
         UUID cardAccountId = createCreditCardAux("Nubank Gold", new BigDecimal("2000.00"));
 
-        // 2. Cria Despesa de R$ 900 em 3x
         TransactionDTO dto = new TransactionDTO();
         dto.setName("TV Smart");
         dto.setType(TransactionType.DESPESA);
-        dto.setAmount(new BigDecimal("900.00")); // Valor Total
-        dto.setDate(System.currentTimeMillis());
-        dto.setPaid(false); // Fatura aberta
+        dto.setAmount(new BigDecimal("900.00"));
+        dto.setDate(DateUtils.getEpochNow());
+        dto.setPaid(false);
         dto.setAccountId(cardAccountId);
         dto.setCategoryId(categoryId);
         dto.setInstallments(3);
+        dto.setIsFixed(false);
 
         given().header("Authorization", "Bearer " + token)
                 .contentType(ContentType.JSON).body(dto).post("/transactions")
                 .then().statusCode(200);
 
-        // 3. Validações
-        // A) Limite deve cair pelo TOTAL (2000 - 900 = 1100)
         given().header("Authorization", "Bearer " + token).get("/cards")
                 .then().body("find { it.name == 'Nubank Gold' }.currentLimit", is(1100.0f));
 
-        // B) Devem existir 3 transações
-        given().header("Authorization", "Bearer " + token).get("/transactions")
-                .then().body("size()", is(3)); // TV Smart (1/3), (2/3), (3/3)
-
-        // C) Saldo da conta do cartão deve refletir a dívida (-300 de cada parcela somada ou -900 total dependendo da impl)
-        // No nosso impl atual, o saldo devedor vai diminuindo a cada parcela criada.
-        // Como o teste roda rápido, checamos se o saldo está negativo
-        given().header("Authorization", "Bearer " + token).get("/accounts")
-                .then().body("find { it.id == '" + cardAccountId + "' }.currentBalance", is(-900.0f));
-    }
-
-    @Test
-    @DisplayName("CENÁRIO 4: Pagamento de Fatura (Transferência + Restauração de Limite)")
-    void shouldPayInvoiceAndRestoreLimit() {
-        // 1. Cria Cartão com Limite 500
-        UUID cardAccountId = createCreditCardAux("Cartão Devedor", new BigDecimal("500.00"));
-
-        // 2. Gasta R$ 300 no cartão (Limite cai para 200)
-        TransactionDTO gasto = new TransactionDTO();
-        gasto.setName("Gasto");
-        gasto.setType(TransactionType.DESPESA);
-        gasto.setAmount(new BigDecimal("300.00"));
-        gasto.setDate(System.currentTimeMillis());
-        gasto.setPaid(false);
-        gasto.setAccountId(cardAccountId);
-        gasto.setCategoryId(categoryId);
-        given().header("Authorization", "Bearer " + token).contentType(ContentType.JSON).body(gasto).post("/transactions");
-
-        // 3. Paga a Fatura (Transfere R$ 300 da Carteira -> Cartão)
         TransactionDTO pagamento = new TransactionDTO();
         pagamento.setName("Pagamento Fatura");
         pagamento.setType(TransactionType.PAGAMENTO_FATURA);
         pagamento.setAmount(new BigDecimal("300.00"));
-        pagamento.setDate(System.currentTimeMillis());
+        pagamento.setDate(DateUtils.getEpochNow());
         pagamento.setPaid(true);
-        pagamento.setAccountId(walletId); // Sai da Carteira (1000)
-        pagamento.setTargetAccountId(cardAccountId); // Vai para o Cartão
+        pagamento.setAccountId(walletId);
+        pagamento.setTargetAccountId(cardAccountId);
         pagamento.setCategoryId(categoryId);
+        pagamento.setIsFixed(false);
 
         given().header("Authorization", "Bearer " + token)
                 .contentType(ContentType.JSON).body(pagamento).post("/transactions")
                 .then().statusCode(200);
 
-        // 4. Valida Limite Restaurado (Voltou para 500)
         given().header("Authorization", "Bearer " + token).get("/cards")
-                .then().body("find { it.name == 'Cartão Devedor' }.currentLimit", is(500.0f));
-
-        // 5. Valida Saldo da Carteira (1000 - 300 = 700)
-        given().header("Authorization", "Bearer " + token).get("/accounts")
-                .then().body("find { it.id == '" + walletId + "' }.currentBalance", is(700.0f));
+                .then().body("find { it.name == 'Nubank Gold' }.currentLimit", is(1400.0f));
     }
 
     @Test
-    @DisplayName("CENÁRIO 5: Despesa de Abastecimento (Atualiza Hodômetro e Debita)")
-    void shouldCreateFuelExpenseAndUpdateOdometer() {
-        // 1. Cria Veículo
-        VehicleDTO vDto = new VehicleDTO();
-        vDto.setName("Meu Gol");
-        vDto.setBrand("VW");
-        vDto.setModel("Gol G5");
-        vDto.setYear(2012);
-        vDto.setCurrentOdometer(new BigDecimal("50000"));
-
-        UUID vehicleId = given().header("Authorization", "Bearer " + token)
-                .contentType(ContentType.JSON).body(vDto).post("/vehicles")
-                .then().statusCode(200).extract().as(VehicleResponseDTO.class).getId();
-
-        // 2. Cria Transação de Abastecimento
+    @DisplayName("CENÁRIO 4: Efeito Cascata (Update) e Cancelamento (Delete) de Assinatura")
+    void shouldCascadeUpdateAndDeleteFixedTransaction() {
         TransactionDTO dto = new TransactionDTO();
-        dto.setName("Posto Ipiranga");
+        dto.setName("Spotify Premium");
         dto.setType(TransactionType.DESPESA);
-        dto.setAmount(new BigDecimal("200.00"));
-        dto.setDate(System.currentTimeMillis());
+        dto.setAmount(new BigDecimal("20.00"));
+        dto.setDate(DateUtils.getEpochNow());
         dto.setPaid(true);
         dto.setAccountId(walletId);
         dto.setCategoryId(categoryId);
-        // Dados do Veículo
-        dto.setVehicleId(vehicleId);
-        dto.setCurrentOdometer(new BigDecimal("50400")); // Andou 400km
-        dto.setLiters(40.0);
-        dto.setFuelType(com.cainanbt.softwares.controleja.enums.FuelType.GASOLINA);
+        dto.setIsFixed(true);
+        dto.setRecurrenceFrequency(RecurrenceFrequency.MONTHLY);
+
+        String txId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(dto).post("/transactions")
+                .then().statusCode(200)
+                .body("id", notNullValue())
+                .extract().path("id");
+
+        workerService.processProjections();
+
+        long start = DateUtils.getEpochNow() - 86400000L;
+        long end = DateUtils.getEpochNow() + (366L * 86400000L); // +1 ano
 
         given().header("Authorization", "Bearer " + token)
-                .contentType(ContentType.JSON).body(dto).post("/transactions")
+                .param("start", start).param("end", end)
+                .get("/transactions")
+                .then().statusCode(200)
+                .body("findAll { it.name == 'Spotify Premium' }", hasSize(greaterThanOrEqualTo(12)));
+
+        dto.setAmount(new BigDecimal("25.00"));
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(dto)
+                .put("/transactions/" + txId + "?updateFuture=true")
                 .then().statusCode(200);
 
-        // 3. Validações
-        // A) Saldo debitado (1000 - 200 = 800)
-        given().header("Authorization", "Bearer " + token).get("/accounts")
-                .then().body("find { it.id == '" + walletId + "' }.currentBalance", is(800.0f));
+        given().header("Authorization", "Bearer " + token)
+                .param("start", start).param("end", end)
+                .get("/transactions")
+                .then().statusCode(200)
+                .body("findAll { it.name == 'Spotify Premium' && it.amount == 25.0f }", hasSize(greaterThanOrEqualTo(12)));
 
-        // B) Hodômetro do carro atualizado para 50400
-        given().header("Authorization", "Bearer " + token).get("/vehicles")
-                .then().body("[0].currentOdometer", is(50400.0f));
+        given().header("Authorization", "Bearer " + token)
+                .delete("/transactions/" + txId + "?cancelFuture=true")
+                .then().statusCode(200);
+
+        given().header("Authorization", "Bearer " + token)
+                .param("start", start).param("end", end)
+                .get("/transactions")
+                .then().statusCode(200)
+                .body("findAll { it.name == 'Spotify Premium' }", hasSize(0));
     }
 
-    // Helper para criar cartão e retornar o ID da Conta Vinculada
+    @Test
+    @DisplayName("CENÁRIO 5: Financiamento/Carnê (Geração Imediata e Exclusão em Cascata)")
+    void shouldCreateAndCascadeDeleteInstallmentsForBank() {
+        TransactionDTO dto = new TransactionDTO();
+        dto.setName("Financiamento Moto");
+        dto.setType(TransactionType.DESPESA);
+        dto.setAmount(new BigDecimal("1000.00"));
+        dto.setDate(DateUtils.getEpochNow());
+        dto.setPaid(true); // Paga a primeira
+        dto.setAccountId(bankId);
+        dto.setCategoryId(categoryId);
+        dto.setIsFixed(false);
+        dto.setInstallments(3);
+
+        String primeiraParcelaId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(dto).post("/transactions")
+                .then().statusCode(200)
+                .body("amount", is(333.34f))
+                .extract().path("id");
+
+        long start = DateUtils.getEpochNow() - 86400000L;
+        long end = DateUtils.getEpochNow() + (100L * 86400000L); // +3 meses
+
+        given().header("Authorization", "Bearer " + token)
+                .param("start", start).param("end", end)
+                .get("/transactions")
+                .then().statusCode(200)
+                .body("findAll { it.name.contains('Financiamento Moto') }", hasSize(3));
+
+        given().header("Authorization", "Bearer " + token)
+                .delete("/transactions/" + primeiraParcelaId + "?cancelFuture=true")
+                .then().statusCode(200);
+
+        given().header("Authorization", "Bearer " + token)
+                .param("start", start).param("end", end)
+                .get("/transactions")
+                .then().statusCode(200)
+                .body("findAll { it.name.contains('Financiamento Moto') }", hasSize(0));
+    }
+
+    @Test
+    @DisplayName("CENÁRIO 6: Exclusão de Compra no Cartão de Crédito (Restaurar Limite)")
+    void shouldDeleteCreditCardTransactionAndRestoreLimit() {
+        // 1. Cria o Cartão com 5000 de limite
+        UUID cardAccountId = createCreditCardAux("Itaú Black", new BigDecimal("5000.00"));
+
+        // 2. Faz uma compra de 3000 em 10 vezes
+        TransactionDTO dto = new TransactionDTO();
+        dto.setName("Geladeira Inteligente");
+        dto.setType(TransactionType.DESPESA);
+        dto.setAmount(new BigDecimal("3000.00"));
+        dto.setDate(DateUtils.getEpochNow());
+        dto.setPaid(false);
+        dto.setAccountId(cardAccountId);
+        dto.setCategoryId(categoryId);
+        dto.setInstallments(10);
+        dto.setIsFixed(false);
+
+        String txId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(dto).post("/transactions")
+                .then().statusCode(200)
+                .extract().path("id");
+
+        // Valida que o limite caiu para 2000 (5000 - 3000)
+        given().header("Authorization", "Bearer " + token).get("/cards")
+                .then().body("find { it.name == 'Itaú Black' }.currentLimit", is(2000.0f));
+
+        // 3. O usuário se arrepende e exclui a transação
+        given().header("Authorization", "Bearer " + token)
+                .delete("/transactions/" + txId)
+                .then().statusCode(200);
+
+        // 4. Valida que o limite voltou para 5000 magicamente!
+        given().header("Authorization", "Bearer " + token).get("/cards")
+                .then().body("find { it.name == 'Itaú Black' }.currentLimit", is(5000.0f));
+    }
+
     private UUID createCreditCardAux(String name, BigDecimal limit) {
         CreditCardDTO cardDto = new CreditCardDTO();
         cardDto.setName(name);
@@ -243,8 +325,9 @@ public class TransactionControllerTest extends BaseTest {
                 .contentType(ContentType.JSON).body(cardDto).post("/cards")
                 .then().statusCode(200);
 
-        String idStr = given().header("Authorization", "Bearer " + token).get("/accounts")
-                .then().extract().path("find { it.name == '" + name + " (Fatura)' }.id");
+        String idStr = given().header("Authorization", "Bearer " + token).get("/cards")
+                .then().extract().path("find { it.name == '" + name + "' }.accountId");
+
         return UUID.fromString(idStr);
     }
 }

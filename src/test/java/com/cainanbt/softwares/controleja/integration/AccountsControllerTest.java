@@ -26,7 +26,7 @@ public class AccountsControllerTest extends BaseTest {
 
     @BeforeEach
     void setupUser() {
-        log.info("Stating AccountsControllerTest");
+        log.info("Starting AccountsControllerTest");
         InsertUpdateUserDTO user = new InsertUpdateUserDTO();
         user.setUsername("account_owner");
         user.setEmail("owner@bank.com");
@@ -35,48 +35,49 @@ public class AccountsControllerTest extends BaseTest {
 
         UserLoginDTO login = UserLoginDTO.builder().email("owner@bank.com").password("123456").build();
         token = given().contentType(ContentType.JSON).body(login).post("/auth").then().extract().path("tokens.accessToken");
-
     }
 
     @Test
-    @DisplayName("Deve criar uma conta (Wallet) com sucesso")
-    void shouldCreateAccountSuccessfully() {
+    @DisplayName("Deve fazer o CRUD completo de Conta (Wallet) com sucesso")
+    void shouldPerformFullAccountCRUD() {
+        // 1. CREATE
         AccountDTO account = new AccountDTO();
         account.setName("Carteira Principal");
-        account.setType(AccountType.WALLET); // <--- MUDOU AQUI (Era String)
+        account.setType(AccountType.WALLET);
         account.setInitialBalance(new BigDecimal("150.00"));
         account.setInstitution("N/A");
 
-        given()
-                .header("Authorization", "Bearer " + token)
-                .contentType(ContentType.JSON)
-                .body(account)
-                .when()
-                .post("/accounts")
-                .then()
-                .statusCode(200)
+        String accountId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(account)
+                .when().post("/accounts")
+                .then().statusCode(200)
                 .body("id", notNullValue())
-                .body("currentBalance", is(150.0f));
-    }
+                .extract().path("id");
 
-    @Test
-    @DisplayName("Deve listar as contas do usuário")
-    void shouldListAccounts() {
-        AccountDTO account = new AccountDTO();
-        account.setName("Conta Teste List");
-        account.setType(AccountType.BANK); // <--- MUDOU AQUI
-        account.setInitialBalance(BigDecimal.ZERO);
-        account.setInstitution("Nubank");
+        // 2. READ (List)
+        given().header("Authorization", "Bearer " + token)
+                .when().get("/accounts")
+                .then().statusCode(200)
+                .body("$", hasSize(greaterThanOrEqualTo(1)));
 
-        given().header("Authorization", "Bearer " + token).contentType(ContentType.JSON).body(account).post("/accounts");
+        // 3. READ (By ID)
+        given().header("Authorization", "Bearer " + token)
+                .when().get("/accounts/" + accountId)
+                .then().statusCode(200)
+                .body("name", is("Carteira Principal"));
 
-        given()
-                .header("Authorization", "Bearer " + token)
-                .when()
-                .get("/accounts")
-                .then()
-                .statusCode(200)
-                .body("$", hasSize(greaterThanOrEqualTo(1)))
-                .body("[0].name", notNullValue());
+        // 4. UPDATE
+        account.setName("Carteira Alterada");
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(account)
+                .when().put("/accounts/" + accountId)
+                .then().statusCode(200)
+                .body("name", is("Carteira Alterada"));
+
+        // 5. DELETE
+        given().header("Authorization", "Bearer " + token)
+                .when().delete("/accounts/" + accountId)
+                .then().statusCode(200)
+                .body("message", is("Registro excluído com sucesso."));
     }
 }

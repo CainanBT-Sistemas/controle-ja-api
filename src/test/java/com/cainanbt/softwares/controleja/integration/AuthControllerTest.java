@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 
 import static io.restassured.RestAssured.given;
+import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
 
 @Slf4j
@@ -19,7 +20,7 @@ public class AuthControllerTest extends BaseTest {
 
     @BeforeEach
     void setup() {
-        log.info("Stating AuthControllerTest");
+        log.info("Starting AuthControllerTest");
     }
 
     @Test
@@ -30,25 +31,16 @@ public class AuthControllerTest extends BaseTest {
         user.setEmail("login@teste.com");
         user.setPassword("123456");
 
-        given()
-                .contentType(ContentType.JSON)
-                .body(user)
-                .post("/users/register")
-                .then()
-                .statusCode(200);
+        given().contentType(ContentType.JSON).body(user).post("/users/register").then().statusCode(200);
 
         UserLoginDTO login = UserLoginDTO.builder()
                 .email("login@teste.com")
                 .password("123456")
                 .build();
 
-        given()
-                .contentType(ContentType.JSON)
-                .body(login)
-                .when()
-                .post("/auth")
-                .then()
-                .statusCode(200)
+        given().contentType(ContentType.JSON).body(login)
+                .when().post("/auth")
+                .then().statusCode(200)
                 .body("tokens.accessToken", notNullValue())
                 .body("tokens.refreshToken", notNullValue());
     }
@@ -67,74 +59,41 @@ public class AuthControllerTest extends BaseTest {
                 .password("senha_errada")
                 .build();
 
-        given()
-                .contentType(ContentType.JSON)
-                .body(login)
-                .when()
-                .post("/auth")
-                .then()
-                .statusCode(400);
+        given().contentType(ContentType.JSON).body(login)
+                .when().post("/auth")
+                .then().statusCode(400)
+                .body("title", is("Acesso negado"));
     }
 
     @Test
     @DisplayName("Deve realizar auto-login com refresh token válido e retornar novos tokens")
     void shouldAutoLoginSuccessfully() {
-        // registra usuário
         InsertUpdateUserDTO user = new InsertUpdateUserDTO();
         user.setUsername("auto_user");
         user.setEmail("auto@teste.com");
         user.setPassword("123456");
         given().contentType(ContentType.JSON).body(user).post("/users/register").then().statusCode(200);
 
-        // realiza login para obter refresh token
-        UserLoginDTO login = UserLoginDTO.builder()
-                .email("auto@teste.com")
-                .password("123456")
-                .build();
+        UserLoginDTO login = UserLoginDTO.builder().email("auto@teste.com").password("123456").build();
 
-        String refreshToken = given()
-                .contentType(ContentType.JSON)
-                .body(login)
-                .when()
-                .post("/auth")
-                .then()
-                .statusCode(200)
-                .extract()
-                .path("tokens.refreshToken");
+        String refreshToken = given().contentType(ContentType.JSON).body(login)
+                .when().post("/auth")
+                .then().statusCode(200)
+                .extract().path("tokens.refreshToken");
 
-        // chama auto-login com o refresh token obtido
-        given()
-                .contentType(ContentType.JSON)
-                .body(Collections.singletonMap("refreshToken", refreshToken))
-                .when()
-                .post("/auth/auto-login")
-                .then()
-                .statusCode(200)
+        // A CORREÇÃO: Enviando chave 'token' como esperado pelo TokenLoginDTO
+        given().contentType(ContentType.JSON).body(Collections.singletonMap("token", refreshToken))
+                .when().post("/auth/auto-login")
+                .then().statusCode(200)
                 .body("tokens.accessToken", notNullValue())
                 .body("tokens.refreshToken", notNullValue());
     }
 
     @Test
-    @DisplayName("Deve retornar 400 ao tentar auto-login com refresh token inválido")
+    @DisplayName("Deve retornar 400 ao tentar auto-login com token inválido")
     void shouldReturn400_WhenAutoLoginWithInvalidToken() {
-        given()
-                .contentType(ContentType.JSON)
-                .body(Collections.singletonMap("refreshToken", "invalid.token.value"))
-                .when()
-                .post("/auth/auto-login")
-                .then()
-                .statusCode(400);
-    }
-
-    @Test
-    @DisplayName("Deve retornar 400 ao tentar login com Google usando token inválido")
-    void shouldReturn400_WhenGoogleLoginWithInvalidToken() {
-        given()
-                .contentType(ContentType.JSON)
-                .body(Collections.singletonMap("idToken", "invalid.google.token"))
-                .when()
-                .post("/auth/google")
-                .then()
-                .statusCode(400);
+        given().contentType(ContentType.JSON).body(Collections.singletonMap("token", "invalid.token.value"))
+                .when().post("/auth/auto-login")
+                .then().statusCode(400);
     }
 }

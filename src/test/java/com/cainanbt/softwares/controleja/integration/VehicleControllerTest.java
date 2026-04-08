@@ -9,10 +9,10 @@ import com.cainanbt.softwares.controleja.dtos.UserLoginDTO;
 import com.cainanbt.softwares.controleja.dtos.VehicleDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.AccountResponseDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.CategoryResponseDTO;
-import com.cainanbt.softwares.controleja.dtos.responses.VehicleResponseDTO;
 import com.cainanbt.softwares.controleja.enums.AccountType;
 import com.cainanbt.softwares.controleja.enums.FuelType;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
+import com.cainanbt.softwares.controleja.utils.DateUtils;
 import io.restassured.http.ContentType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -35,7 +35,6 @@ public class VehicleControllerTest extends BaseTest {
 
     @BeforeEach
     void setup() {
-        // 1. Cria Usuário Único para o teste
         String unique = UUID.randomUUID().toString().substring(0, 8);
         String email = "driver_" + unique + "@test.com";
         InsertUpdateUserDTO user = new InsertUpdateUserDTO();
@@ -44,155 +43,110 @@ public class VehicleControllerTest extends BaseTest {
         user.setPassword("123456");
         given().contentType(ContentType.JSON).body(user).post("/users/register").then().statusCode(200);
 
-        // 2. Login
         UserLoginDTO login = UserLoginDTO.builder().email(email).password("123456").build();
         token = given().contentType(ContentType.JSON).body(login).post("/auth").then().extract().path("tokens.accessToken");
 
-        // 3. Cria Conta (Carteira) para pagar os abastecimentos
         AccountDTO acc = new AccountDTO();
         acc.setName("Carteira Motorista");
         acc.setType(AccountType.WALLET);
         acc.setInitialBalance(new BigDecimal("1000.00"));
         walletId = given().header("Authorization", "Bearer " + token)
-                .contentType(ContentType.JSON).body(acc).post("/accounts")
-                .then().statusCode(200).extract().as(AccountResponseDTO.class).getId();
+                .contentType(ContentType.JSON).body(acc).post("/accounts").then().extract().as(AccountResponseDTO.class).getId();
 
-        // 4. Cria Categoria "Combustível"
         CategoryDTO cat = new CategoryDTO();
         cat.setName("Combustível");
         cat.setCategoryType("DESPESA");
         categoryId = given().header("Authorization", "Bearer " + token)
-                .contentType(ContentType.JSON).body(cat).post("/categories")
-                .then().statusCode(200).extract().as(CategoryResponseDTO.class).getId();
+                .contentType(ContentType.JSON).body(cat).post("/categories").then().extract().as(CategoryResponseDTO.class).getId();
     }
 
     @Test
-    @DisplayName("Deve criar um veículo com sucesso")
-    void shouldCreateVehicle() {
-        VehicleDTO dto = new VehicleDTO();
-        dto.setName("Meu Fusca");
-        dto.setBrand("VW");
-        dto.setModel("Fusca 1600");
-        dto.setYear(1980);
-        dto.setPlate("ABC-1234");
-        dto.setCurrentOdometer(new BigDecimal("100000.00"));
-
-        given()
-                .header("Authorization", "Bearer " + token)
-                .contentType(ContentType.JSON)
-                .body(dto)
-                .when()
-                .post("/vehicles")
-                .then()
-                .statusCode(200)
-                .body("id", notNullValue())
-                .body("name", is("Meu Fusca"))
-                .body("currentOdometer", is(100000.0f));
-    }
-
-    @Test
-    @DisplayName("Deve listar veículos do usuário")
-    void shouldListVehicles() {
-        // Cria um veículo primeiro
-        shouldCreateVehicle();
-
-        given()
-                .header("Authorization", "Bearer " + token)
-                .when()
-                .get("/vehicles")
-                .then()
-                .statusCode(200)
-                .body("$", hasSize(greaterThanOrEqualTo(1)))
-                .body("[0].brand", notNullValue());
-    }
-
-    @Test
-    @DisplayName("INTEGRAÇÃO: Abastecimento deve atualizar Hodômetro e calcular Média (Km/L)")
-    void shouldUpdateOdometerAndCalculateEfficiency() {
-        // 1. Cadastra Carro com 10.000 KM
+    @DisplayName("Deve fazer CRUD de Veículo e Abastecimento")
+    void shouldPerformVehicleAndFuelCRUD() {
         VehicleDTO vDto = new VehicleDTO();
-        vDto.setName("Carro Teste");
-        vDto.setBrand("Honda");
-        vDto.setModel("Civic");
-        vDto.setYear(2020);
-        vDto.setCurrentOdometer(new BigDecimal("10000.00"));
+        vDto.setName("Meu Gol");
+        vDto.setBrand("VW");
+        vDto.setModel("Gol G5");
+        vDto.setYear(2012);
+        vDto.setPlate("ABC-1234");
+        vDto.setCurrentOdometer(new BigDecimal("50000.00"));
 
-        UUID vehicleId = given().header("Authorization", "Bearer " + token)
+        String vehicleId = given().header("Authorization", "Bearer " + token)
                 .contentType(ContentType.JSON).body(vDto).post("/vehicles")
-                .then().extract().as(VehicleResponseDTO.class).getId();
+                .then().statusCode(200)
+                .body("id", notNullValue())
+                .extract().path("id");
 
-        // 2. Lança Transação: Rodou 400 KM (foi para 10.400) e gastou 40 Litros
-        // Cálculo esperado: 400 km / 40 L = 10 km/L
+        given().header("Authorization", "Bearer " + token).get("/vehicles")
+                .then().statusCode(200).body("$", hasSize(greaterThanOrEqualTo(1)));
+
         TransactionDTO tDto = new TransactionDTO();
         tDto.setName("Posto Shell");
         tDto.setType(TransactionType.DESPESA);
         tDto.setAmount(new BigDecimal("200.00"));
-        tDto.setDate(System.currentTimeMillis());
+        tDto.setDate(DateUtils.getEpochNow());
         tDto.setPaid(true);
         tDto.setAccountId(walletId);
         tDto.setCategoryId(categoryId);
-
-        // Dados de Veículo e Abastecimento
-        tDto.setVehicleId(vehicleId);
-        tDto.setCurrentOdometer(new BigDecimal("10400.00")); // Novo KM
-        tDto.setLiters(40.0); // Litros abastecidos
+        tDto.setIsFixed(false);
+        tDto.setVehicleId(UUID.fromString(vehicleId));
+        tDto.setCurrentOdometer(new BigDecimal("50400.00"));
+        tDto.setLiters(40.0);
         tDto.setFuelType(FuelType.GASOLINA);
 
-        given()
-                .header("Authorization", "Bearer " + token)
-                .contentType(ContentType.JSON)
-                .body(tDto)
-                .when()
-                .post("/transactions")
-                .then()
-                .statusCode(200);
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(tDto).post("/transactions")
+                .then().statusCode(200);
 
-        // 3. Validações no Veículo
-        given()
-                .header("Authorization", "Bearer " + token)
-                .when()
-                .get("/vehicles")
-                .then()
-                .statusCode(200)
-                // Verifica se atualizou o KM
-                .body("find { it.id == '" + vehicleId + "' }.currentOdometer", is(10400.0f))
-                // Verifica se calculou a média de Gasolina (10.0)
-                .body("find { it.id == '" + vehicleId + "' }.avgGasoline", is(10.0f));
+        given().header("Authorization", "Bearer " + token).get("/vehicles/" + vehicleId)
+                .then().statusCode(200)
+                .body("currentOdometer", is(50400.0f))
+                .body("avgGasoline", is(10.0f));
+
+        vDto.setName("Golzera");
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(vDto).put("/vehicles/" + vehicleId)
+                .then().statusCode(200)
+                .body("name", is("Golzera"));
+
+        given().header("Authorization", "Bearer " + token).delete("/vehicles/" + vehicleId)
+                .then().statusCode(200);
     }
 
     @Test
-    @DisplayName("Não deve atualizar hodômetro se a quilometragem for menor que a atual")
+    @DisplayName("Não deve atualizar o odômetro se for menor que o atual (Ignorar Fraude)")
     void shouldNotUpdateOdometerIfLower() {
-        // 1. Carro com 20.000
+        // 1. Cria com 20.000 KM
         VehicleDTO vDto = new VehicleDTO();
-        vDto.setName("Erro Teste");
-        vDto.setBrand("Fiat");
-        vDto.setModel("Uno");
-        vDto.setYear(2010);
+        vDto.setName("Caminhonete");
+        vDto.setBrand("Ford");
+        vDto.setModel("Ranger");
+        vDto.setYear(2020);
         vDto.setCurrentOdometer(new BigDecimal("20000.00"));
 
-        UUID vehicleId = given().header("Authorization", "Bearer " + token)
+        String vehicleId = given().header("Authorization", "Bearer " + token)
                 .contentType(ContentType.JSON).body(vDto).post("/vehicles")
-                .then().extract().as(VehicleResponseDTO.class).getId();
+                .then().statusCode(200).extract().path("id");
 
-        // 2. Tenta lançar com 19.000 (Erro do usuário)
+        // 2. Abastece com 19.000 KM
         TransactionDTO tDto = new TransactionDTO();
         tDto.setName("Abastecimento Errado");
         tDto.setType(TransactionType.DESPESA);
         tDto.setAmount(new BigDecimal("100.00"));
-        tDto.setDate(System.currentTimeMillis());
+        tDto.setDate(DateUtils.getEpochNow());
         tDto.setPaid(true);
         tDto.setAccountId(walletId);
         tDto.setCategoryId(categoryId);
-        tDto.setVehicleId(vehicleId);
+        tDto.setVehicleId(UUID.fromString(vehicleId));
         tDto.setCurrentOdometer(new BigDecimal("19000.00")); // <--- MENOR
+        tDto.setIsFixed(false);
 
         given().header("Authorization", "Bearer " + token)
                 .contentType(ContentType.JSON).body(tDto).post("/transactions")
-                .then().statusCode(200); // A transação passa, mas o odômetro não deve mudar
+                .then().statusCode(200);
 
-        // 3. Valida que manteve 20.000 (Proteção)
-        given().header("Authorization", "Bearer " + token).get("/vehicles")
-                .then().body("find { it.id == '" + vehicleId + "' }.currentOdometer", is(20000.0f));
+        // 3. Valida que o veículo manteve 20.000 (Proteção)
+        given().header("Authorization", "Bearer " + token).get("/vehicles/" + vehicleId)
+                .then().body("currentOdometer", is(20000.0f));
     }
 }

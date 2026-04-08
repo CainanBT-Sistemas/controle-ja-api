@@ -14,4 +14,6 @@ public interface RecurrenceRuleService {
     RecurrenceRule findByIdOrThrow(UUID id);
 
     List<RecurrenceRule> findActiveRulesByUser(UUID userId);
+
+    List<RecurrenceRule> findAllActiveRules();
 }

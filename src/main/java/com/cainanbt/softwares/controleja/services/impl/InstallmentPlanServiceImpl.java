@@ -44,4 +44,9 @@ public class InstallmentPlanServiceImpl implements InstallmentPlanService {
     public List<InstallmentPlan> findByInvoiceId(UUID invoiceId) {
         return repository.findByInvoicesId(invoiceId);
     }
+
+    @Override
+    public List<InstallmentPlan> findByPurchaseId(UUID purchaseId) {
+        return repository.findByPurchaseId(purchaseId);
+    }
 }
