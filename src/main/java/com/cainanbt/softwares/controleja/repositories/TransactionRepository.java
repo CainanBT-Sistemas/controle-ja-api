@@ -4,6 +4,7 @@ import com.cainanbt.softwares.controleja.dtos.dashboard.ChartDataDTO;
 import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -84,5 +85,9 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
 
     @Query("SELECT t FROM Transactions t WHERE t.parentTransaction.id = :parentId AND t.deletedAt IS NULL")
     List<Transactions> findByParentTransactionId(@Param("parentId") UUID parentId);
+
+    @Modifying
+    @Query("UPDATE Transactions t SET t.deletedAt = :dateNow WHERE t.parentTransaction.id = :parentId AND t.deletedAt IS NULL")
+    void deleteByParentId(@Param("parentId") UUID parentId, @Param("dateNow") long dateNow);
 
 }

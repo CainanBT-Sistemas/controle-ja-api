@@ -8,6 +8,7 @@ import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -21,6 +22,11 @@ public class InvoicesServiceImpl implements InvoicesService {
     @Override
     public Invoices save(Invoices invoice) {
         return repository.save(invoice);
+    }
+
+    @Override
+    public List<Invoices> saveAll(List<Invoices> invoices) {
+        return repository.saveAll(invoices);
     }
 
     @Override

@@ -9,7 +9,6 @@ import com.cainanbt.softwares.controleja.entities.Invoices;
 import com.cainanbt.softwares.controleja.entities.RecurrenceRule;
 import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.entities.Users;
-import com.cainanbt.softwares.controleja.entities.Vehicle;
 import com.cainanbt.softwares.controleja.enums.AccountType;
 import com.cainanbt.softwares.controleja.enums.RecurrenceFrequency;
 import com.cainanbt.softwares.controleja.enums.RuleStatus;
@@ -24,7 +23,9 @@ import com.cainanbt.softwares.controleja.services.InstallmentPlanService;
 import com.cainanbt.softwares.controleja.services.InvoicesService;
 import com.cainanbt.softwares.controleja.services.RecurrenceRuleService;
 import com.cainanbt.softwares.controleja.services.TransactionService;
-import com.cainanbt.softwares.controleja.services.VehicleService;
+import com.cainanbt.softwares.controleja.services.processors.TransactionHelper;
+import com.cainanbt.softwares.controleja.services.processors.TransactionProcessor;
+import com.cainanbt.softwares.controleja.services.processors.TransactionProcessorFactory;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
@@ -34,11 +35,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -50,10 +52,12 @@ public class TransactionServiceImpl implements TransactionService {
     private final AccountsService accountsService;
     private final CategoryService categoryService;
     private final CreditCardService creditCardService;
-    private final VehicleService vehicleService;
     private final InvoicesService invoicesService;
     private final InstallmentPlanService installmentPlanService;
     private final RecurrenceRuleService recurrenceRuleService;
+
+    private final TransactionProcessorFactory processorFactory;
+    private final TransactionHelper helper;
 
     @Override
     @Transactional
@@ -70,19 +74,8 @@ public class TransactionServiceImpl implements TransactionService {
         Category category = categoryService.findById(dto.getCategoryId())
                 .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.CATEGORY_NOT_FOUND));
 
-        if (dto.getType() == TransactionType.TRANSFERENCIA) {
-            return processTransfer(dto, account, category, user);
-        }
-
-        if (dto.getType() == TransactionType.PAGAMENTO_FATURA) {
-            return processInvoicePayment(dto, account, category, user);
-        }
-
-        if (account.getType() == AccountType.CREDIT_CARD) {
-            return processCreditCardExpense(dto, account, category, user);
-        }
-
-        return processNormalTransaction(dto, account, category, user);
+        TransactionProcessor processor = processorFactory.getProcessor(dto, account);
+        return processor.process(dto, account, category, user);
     }
 
     @Override
@@ -120,16 +113,12 @@ public class TransactionServiceImpl implements TransactionService {
         if (dto.getDescription() != null) transaction.setDescription(dto.getDescription());
         if (dto.getType() != null) transaction.setType(dto.getType());
 
-        // --- INÍCIO DA LÓGICA DE CASCATA ---
         if (dto.getAmount() != null) {
             transaction.setAmount(dto.getAmount());
-
-            // Se o usuário pediu para atualizar o futuro e essa transação pertence a uma Regra
             if (Boolean.TRUE.equals(updateFuture) && transaction.getRecurrenceRule() != null) {
                 cascadeRuleUpdate(transaction.getRecurrenceRule().getId(), dto.getAmount());
             }
         }
-        // --- FIM DA LÓGICA DE CASCATA ---
 
         if (dto.getDate() != null) transaction.setDate(dto.getDate());
         if (dto.getPaid() != null) transaction.setPaid(dto.getPaid());
@@ -167,12 +156,9 @@ public class TransactionServiceImpl implements TransactionService {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.ENTITY_ALREADY_DELETED);
         }
 
-        // --- LÓGICA 1 E 2: ASSINATURAS E CARNÊS (Quando cancelFuture = true) ---
         if (Boolean.TRUE.equals(cancelFuture)) {
-            // LÓGICA 1: ASSINATURA FIXA (Netflix)
             if (transaction.getRecurrenceRule() != null) {
                 RecurrenceRule rule = transaction.getRecurrenceRule();
-
                 rule.setStatus(RuleStatus.CANCELED);
                 rule.setUpdatedAt(dateNow);
                 recurrenceRuleService.save(rule);
@@ -180,124 +166,110 @@ public class TransactionServiceImpl implements TransactionService {
                 List<Transactions> futureUnpaidTx = repository.findFutureUnpaidByRuleId(rule.getId(), dateNow);
                 for (Transactions tx : futureUnpaidTx) {
                     tx.setDeletedAt(dateNow);
-                    // Se a assinatura era no cartão, limpa da fatura também
                     if (tx.getAccount().getType() == AccountType.CREDIT_CARD) {
                         deleteInstallmentsAndRestoreInvoice(tx.getId(), dateNow);
                     }
                 }
                 repository.saveAll(futureUnpaidTx);
-            }
-            // LÓGICA 2: CARNÊ/FINANCIAMENTO (Mãe e Filhas no Banco)
-            else {
-                List<Transactions> parcelas = repository.findByParentTransactionId(transaction.getId());
-                for (Transactions parcela : parcelas) {
-                    parcela.setDeletedAt(dateNow);
-                }
-                repository.saveAll(parcelas);
+            } else {
+                repository.deleteByParentId(transaction.getId(), dateNow);
             }
         }
 
-        // --- LÓGICA 3: COMPRAS NORMAIS NO CARTÃO DE CRÉDITO ---
-        // Se a transação normal sendo apagada é do Cartão, devolvemos o limite e apagamos as parcelas das faturas
         if (transaction.getAccount().getType() == AccountType.CREDIT_CARD) {
-            // 1. Apaga os InstallmentPlans e ajusta o valor das Invoices
             deleteInstallmentsAndRestoreInvoice(transaction.getId(), dateNow);
 
-            // 2. Devolve o limite total ao Cartão de Crédito
             CreditCard card = creditCardService.findByAccountId(transaction.getAccount().getId());
             card.restoreLimit(transaction.getAmount());
             creditCardService.updateLimit(card);
         }
 
-        // Finalmente, apaga a transação principal
         transaction.setDeletedAt(dateNow);
         repository.save(transaction);
     }
 
-    // --- MOTOR DE RECORRÊNCIA E PROJEÇÃO ---
-
-    /**
-     * O "Efeito Cascata" - Atualiza a regra e reflete nas projeções futuras
-     */
     @Override
     @Transactional
     public void cascadeRuleUpdate(UUID ruleId, BigDecimal newAmount) {
         RecurrenceRule rule = recurrenceRuleService.findByIdOrThrow(ruleId);
-
         BigDecimal oldAmount = rule.getBaseAmount();
-        BigDecimal difference = newAmount.subtract(oldAmount); // Calcula diferença (Ex: + R$5,00 ou - R$10,00)
+        BigDecimal difference = newAmount.subtract(oldAmount);
 
-        // 1. Atualiza a "Fôrma"
         rule.setBaseAmount(newAmount);
         rule.setUpdatedAt(DateUtils.getEpochNow());
         recurrenceRuleService.save(rule);
 
-        // 2. Busca todas as transações geradas por essa regra que estão no futuro e NÃO foram pagas
         List<Transactions> futureUnpaidTx = repository.findFutureUnpaidByRuleId(ruleId, DateUtils.getEpochNow());
+        Map<UUID, Invoices> invoicesToUpdate = new HashMap<>();
 
-        // 3. Aplica o novo valor em massa
         for (Transactions tx : futureUnpaidTx) {
             tx.setAmount(newAmount);
             tx.setUpdatedAt(DateUtils.getEpochNow());
 
-            // 4. Mágica do Cartão de Crédito: Atualiza a parcela correspondente e o saldo total da Fatura daquele mês!
             if (tx.getAccount().getType() == AccountType.CREDIT_CARD) {
                 List<InstallmentPlan> installments = installmentPlanService.findByPurchaseId(tx.getId());
                 for (InstallmentPlan inst : installments) {
                     inst.setAmount(newAmount);
                     inst.setUpdatedAt(DateUtils.getEpochNow());
 
-                    // Aplica a diferença matemática exata na fatura geral do mês
-                    Invoices invoice = inst.getInvoices();
+                    Invoices invoice = invoicesToUpdate.getOrDefault(inst.getInvoices().getId(), inst.getInvoices());
                     invoice.setAmount(invoice.getAmount().add(difference));
-                    invoicesService.save(invoice);
+                    invoicesToUpdate.put(invoice.getId(), invoice);
                 }
                 installmentPlanService.saveAll(installments);
             }
         }
         repository.saveAll(futureUnpaidTx);
+
+        if (!invoicesToUpdate.isEmpty()) {
+            invoicesService.saveAll(invoicesToUpdate.values().stream().toList());
+        }
     }
 
-    /**
-     * Gera transações futuras para uma regra até a data limite (Ex: +1 ano)
-     */
     @Override
     @Transactional
     public void generateProjectionsForRule(RecurrenceRule rule, LocalDate limitDate) {
         Long maxDateEpoch = repository.findMaxDateByRuleId(rule.getId());
-
-        LocalDate nextDate;
-        if (maxDateEpoch != null) {
-            nextDate = calculateNextDate(DateUtils.epochToLocalDate(maxDateEpoch), rule.getFrequency());
-        } else {
-            nextDate = DateUtils.epochToLocalDate(rule.getStartDate());
-        }
-
+        LocalDate nextDate = (maxDateEpoch != null) ? calculateNextDate(DateUtils.epochToLocalDate(maxDateEpoch), rule.getFrequency()) : DateUtils.epochToLocalDate(rule.getStartDate());
         long endDateEpoch = rule.getEndDate() != null ? rule.getEndDate() : Long.MAX_VALUE;
 
         while (!nextDate.isAfter(limitDate) && DateUtils.localDateToEpoch(nextDate) <= endDateEpoch) {
             long epochNextDate = DateUtils.localDateToEpoch(nextDate);
 
-            // Se for Transferência, aplica Partidas Dobradas
             if (rule.getType() == TransactionType.TRANSFERENCIA) {
                 Transactions transferOut = createTransactionFromRule(rule, TransactionType.TRANSFERENCIA_SAIDA, epochNextDate, rule.getAccount());
                 Transactions transferIn = createTransactionFromRule(rule, TransactionType.TRANSFERENCIA_ENTRADA, epochNextDate, rule.getTargetAccount());
                 transferIn.setParentTransaction(transferOut);
                 repository.saveAll(List.of(transferOut, transferIn));
             } else if (rule.getAccount().getType() == AccountType.CREDIT_CARD) {
-                // Assinaturas de cartão de crédito caem aqui!
                 createProjectedCreditCardExpense(rule, epochNextDate);
             } else {
-                // Despesa ou Receita normal
                 Transactions tx = createTransactionFromRule(rule, rule.getType(), epochNextDate, rule.getAccount());
                 repository.save(tx);
             }
-
             nextDate = calculateNextDate(nextDate, rule.getFrequency());
         }
     }
 
-    // --- PRIVATES DE TRANSAÇÕES E MOTOR ---
+    private void deleteInstallmentsAndRestoreInvoice(UUID purchaseId, long dateNow) {
+        List<InstallmentPlan> installments = installmentPlanService.findByPurchaseId(purchaseId);
+        Map<UUID, Invoices> invoicesToUpdate = new HashMap<>();
+
+        for (InstallmentPlan inst : installments) {
+            if (inst.getDeletedAt() == null) {
+                inst.setDeletedAt(dateNow);
+
+                Invoices invoice = invoicesToUpdate.getOrDefault(inst.getInvoices().getId(), inst.getInvoices());
+                invoice.setAmount(invoice.getAmount().subtract(inst.getAmount()));
+                invoicesToUpdate.put(invoice.getId(), invoice);
+            }
+        }
+        installmentPlanService.saveAll(installments);
+
+        if (!invoicesToUpdate.isEmpty()) {
+            invoicesService.saveAll(invoicesToUpdate.values().stream().toList());
+        }
+    }
 
     private void createProjectedCreditCardExpense(RecurrenceRule rule, long epochNextDate) {
         CreditCard card = creditCardService.findByAccountId(rule.getAccount().getId());
@@ -306,395 +278,32 @@ public class TransactionServiceImpl implements TransactionService {
         purchaseTransaction = repository.save(purchaseTransaction);
 
         LocalDateTime dataCompra = DateUtils.epochToLocalDateTime(epochNextDate);
-        LocalDateTime dataVencimentoFatura = calculateInvoiceDate(dataCompra, card.getCloseDay(), card.getBestDay());
+        LocalDateTime dataVencimentoFatura = helper.calculateInvoiceDate(dataCompra, card.getCloseDay(), card.getBestDay());
 
         int invMonth = dataVencimentoFatura.getMonthValue();
         int invYear = dataVencimentoFatura.getYear();
 
         Invoices invoice = invoicesService.findByCreditCardIdAndMonthAndYear(card.getId(), invMonth, invYear)
                 .orElseGet(() -> invoicesService.save(Invoices.builder()
-                        .id(ID.generate())
-                        .month(invMonth)
-                        .year(invYear)
-                        .amount(BigDecimal.ZERO)
-                        .expirationDate(DateUtils.localDateTimeToEpoch(dataVencimentoFatura))
-                        .paid(false)
-                        .enabled(true)
-                        .createdAt(DateUtils.getEpochNow())
-                        .creditCard(card)
-                        .user(rule.getUser())
-                        .build()));
+                        .id(ID.generate()).month(invMonth).year(invYear).amount(BigDecimal.ZERO)
+                        .expirationDate(DateUtils.localDateTimeToEpoch(dataVencimentoFatura)).paid(false).enabled(true)
+                        .createdAt(DateUtils.getEpochNow()).creditCard(card).user(rule.getUser()).build()));
 
         invoice.setAmount(invoice.getAmount().add(rule.getBaseAmount()));
         invoicesService.save(invoice);
 
         InstallmentPlan installment = InstallmentPlan.builder()
-                .id(ID.generate())
-                .name(rule.getName())
-                .type(TransactionType.DESPESA.name())
-                .amount(rule.getBaseAmount())
-                .totalInstallmentsPlan(1)
-                .currentInstallment(1)
-                .fixed(true)
-                .paid(false)
-                .purchaseId(purchaseTransaction.getId())
-                .enabled(true)
-                .createdAt(DateUtils.getEpochNow())
-                .date(invoice.getExpirationDate())
-                .invoices(invoice)
-                .user(rule.getUser())
-                .build();
+                .id(ID.generate()).name(rule.getName()).type(TransactionType.DESPESA.name()).amount(rule.getBaseAmount())
+                .totalInstallmentsPlan(1).currentInstallment(1).fixed(true).paid(false).purchaseId(purchaseTransaction.getId())
+                .enabled(true).createdAt(DateUtils.getEpochNow()).date(invoice.getExpirationDate()).invoices(invoice).user(rule.getUser()).build();
 
         installmentPlanService.save(installment);
     }
 
-    private Transactions processTransfer(TransactionDTO dto, Accounts accountOrigin, Category category, Users user) {
-        if (dto.getTargetAccountId() == null) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.TRANSFER_MISSING_TARGET);
-        }
-        Accounts accountDest = accountsService.findByIdOrThrow(dto.getTargetAccountId());
-
-        if (accountDest.getType() != AccountType.BANK && accountDest.getType() != AccountType.WALLET) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.TRANSFER_TARGET_NOT_VALID_ACCOUNT);
-        }
-
-        long dateNow = DateUtils.getEpochNow();
-        RecurrenceRule rule = null;
-
-        if (Boolean.TRUE.equals(dto.getIsFixed()) && dto.getRecurrenceFrequency() != null) {
-            rule = createRecurrenceRule(dto, TransactionType.TRANSFERENCIA, dateNow, user, accountOrigin, accountDest, category);
-        }
-
-        Transactions transferOut = createTransfer(dto, accountOrigin, user, category, TransactionType.TRANSFERENCIA_SAIDA, dateNow, rule);
-        Transactions transferIn = createTransfer(dto, accountDest, user, category, TransactionType.TRANSFERENCIA_ENTRADA, dateNow, rule);
-
-        transferIn.setParentTransaction(transferOut);
-        repository.saveAll(List.of(transferOut, transferIn));
-
-        if (Boolean.TRUE.equals(dto.getPaid())) {
-            accountOrigin.debit(dto.getAmount());
-            accountDest.credit(dto.getAmount());
-            accountsService.update(accountOrigin);
-            accountsService.update(accountDest);
-        }
-
-        return transferOut;
-    }
-
-    private RecurrenceRule createRecurrenceRule(TransactionDTO dto, TransactionType transactionType, long dateNow, Users user, Accounts accountOrigin, Accounts accountDest, Category category) {
-        RecurrenceRule rule = RecurrenceRule.builder()
-                .id(ID.generate())
-                .name(dto.getName())
-                .description(dto.getDescription())
-                .baseAmount(dto.getAmount())
-                .type(transactionType)
-                .frequency(dto.getRecurrenceFrequency())
-                .startDate(dto.getDate())
-                .endDate(dto.getRecurrenceEndDate())
-                .status(RuleStatus.ACTIVE)
-                .createdAt(dateNow)
-                .user(user)
-                .category(category)
-                .account(accountOrigin)
-                .targetAccount(accountDest)
-                .build();
-
-        return recurrenceRuleService.save(rule);
-    }
-
-    private Transactions createTransfer(TransactionDTO dto, Accounts accounts, Users user, Category category, TransactionType transactionType, long dateNow, RecurrenceRule rule) {
-        return Transactions.builder()
-                .id(ID.generate())
-                .name(dto.getName())
-                .description(dto.getDescription())
-                .type(transactionType)
-                .amount(dto.getAmount())
-                .fixed(dto.getIsFixed() != null ? dto.getIsFixed() : false)
-                .paid(dto.getPaid())
-                .enabled(true)
-                .createdAt(dateNow)
-                .date(dto.getDate())
-                .account(accounts)
-                .category(category)
-                .user(user)
-                .recurrenceRule(rule)
-                .build();
-    }
-
-    private Transactions processInvoicePayment(TransactionDTO dto, Accounts sourceAccount, Category category, Users user) {
-        if (dto.getTargetAccountId() == null) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.INVOICE_MISSING_TARGET);
-        }
-        Accounts cardAccount = accountsService.findById(dto.getTargetAccountId())
-                .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.CARD_ACCOUNT_NOT_FOUND));
-
-        if (cardAccount.getType() != AccountType.CREDIT_CARD) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.INVOICE_TARGET_NOT_CARD);
-        }
-
-        long dateNow = DateUtils.getEpochNow();
-
-        Transactions paymentOut = Transactions.builder()
-                .id(ID.generate())
-                .name(dto.getName())
-                .description(dto.getDescription())
-                .type(TransactionType.PAGAMENTO_FATURA)
-                .amount(dto.getAmount())
-                .fixed(false)
-                .paid(dto.getPaid())
-                .enabled(true)
-                .createdAt(dateNow)
-                .date(dto.getDate())
-                .account(sourceAccount)
-                .category(category)
-                .user(user)
-                .build();
-
-        Transactions paymentIn = Transactions.builder()
-                .id(ID.generate())
-                .name("Recebimento de Fatura")
-                .description(dto.getDescription())
-                .type(TransactionType.TRANSFERENCIA_ENTRADA)
-                .amount(dto.getAmount())
-                .fixed(false)
-                .paid(dto.getPaid())
-                .enabled(true)
-                .createdAt(dateNow)
-                .date(dto.getDate())
-                .account(cardAccount)
-                .category(category)
-                .user(user)
-                .parentTransaction(paymentOut)
-                .build();
-
-        repository.saveAll(List.of(paymentOut, paymentIn));
-
-        if (Boolean.TRUE.equals(dto.getPaid())) {
-            sourceAccount.debit(dto.getAmount());
-            accountsService.update(sourceAccount);
-            cardAccount.credit(dto.getAmount());
-            accountsService.update(cardAccount);
-
-            CreditCard card = creditCardService.findByAccountId(cardAccount.getId());
-            card.restoreLimit(dto.getAmount());
-            creditCardService.updateLimit(card);
-
-            if (dto.getTargetInvoiceId() != null) {
-                Invoices invoiceToPay = invoicesService.findByIdOrThrow(dto.getTargetInvoiceId());
-                invoiceToPay.setPaid(true);
-                invoiceToPay.setTransaction(paymentOut);
-                invoicesService.save(invoiceToPay);
-
-                List<InstallmentPlan> installmentPlans = installmentPlanService.findByInvoiceId(invoiceToPay.getId());
-                installmentPlans.forEach(inst -> inst.setPaid(true));
-                installmentPlanService.saveAll(installmentPlans);
-            }
-        }
-        return paymentOut;
-    }
-
-    private Transactions processNormalTransaction(TransactionDTO dto, Accounts account, Category category, Users user) {
-        int parcelas = (dto.getInstallments() == null || dto.getInstallments() < 1) ? 1 : dto.getInstallments();
-
-        // CENÁRIO 1: Despesa/Receita FIXA (Infinita - Netflix/Salário)
-        if (Boolean.TRUE.equals(dto.getIsFixed()) && dto.getRecurrenceFrequency() != null) {
-            Transactions.TransactionsBuilder baseBuilder = createBaseTransactionBuilder(dto, account, category, user);
-            RecurrenceRule rule = createRecurrenceRule(dto, dto.getType(), DateUtils.getEpochNow(), user, account, null, category);
-            baseBuilder.recurrenceRule(rule);
-
-            Transactions tx = baseBuilder.build();
-            applyAccountBalance(tx, account);
-            return repository.save(tx);
-        }
-
-        // CENÁRIO 2: Financiamento / Carnê (Múltiplas Parcelas Finitas em Conta Corrente/Dinheiro)
-        if (parcelas > 1) {
-            BigDecimal valorParcela = dto.getAmount().divide(BigDecimal.valueOf(parcelas), 2, RoundingMode.DOWN);
-            BigDecimal diferenca = dto.getAmount().subtract(valorParcela.multiply(BigDecimal.valueOf(parcelas)));
-
-            LocalDateTime dataCompra = DateUtils.epochToLocalDateTime(dto.getDate());
-            Transactions primeiraParcela = null;
-
-            for (int i = 0; i < parcelas; i++) {
-                BigDecimal valorDestaParcela = (i == 0) ? valorParcela.add(diferenca) : valorParcela;
-                long dataDestaParcela = DateUtils.localDateTimeToEpoch(dataCompra.plusMonths(i));
-
-                String nomeParcela = dto.getName() + " (" + (i + 1) + "/" + parcelas + ")";
-
-                Transactions tx = createBaseTransactionBuilder(dto, account, category, user)
-                        .name(nomeParcela)
-                        .amount(valorDestaParcela)
-                        .date(dataDestaParcela)
-                        .paid(i == 0 ? dto.getPaid() : false) // Apenas a 1ª parcela pode nascer paga
-                        .fixed(false) // Carnês NÃO são controlados pelo Cron Job
-                        .build();
-
-                tx = repository.save(tx);
-
-                if (i == 0) {
-                    primeiraParcela = tx;
-                    applyAccountBalance(tx, account); // Desconta a 1ª parcela do saldo se estiver paga
-                } else {
-                    tx.setParentTransaction(primeiraParcela); // Relaciona as parcelas futuras à 1ª para sabermos que são uma família
-                    repository.save(tx);
-                }
-            }
-            return primeiraParcela;
-        }
-
-        // CENÁRIO 3: Transação Normal e Única (A compra do pão na padaria)
-        Transactions tx = createBaseTransactionBuilder(dto, account, category, user).build();
-        applyAccountBalance(tx, account);
-        return repository.save(tx);
-    }
-
-    // --- Auxiliar de Saldo
-    private void applyAccountBalance(Transactions tx, Accounts account) {
-        if (Boolean.TRUE.equals(tx.getPaid())) {
-            if (tx.getType() == TransactionType.DESPESA) {
-                account.debit(tx.getAmount());
-            } else if (tx.getType() == TransactionType.RECEITA) {
-                account.credit(tx.getAmount());
-            }
-            accountsService.update(account);
-        }
-    }
-
-    private Transactions processCreditCardExpense(TransactionDTO dto, Accounts account, Category category, Users user) {
-        if (dto.getType() != TransactionType.DESPESA) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.CARD_ONLY_EXPENSE);
-        }
-
-        long dateNow = DateUtils.getEpochNow();
-        CreditCard card = creditCardService.findByAccountId(account.getId());
-
-        card.consumeLimit(dto.getAmount());
-        creditCardService.updateLimit(card);
-
-        Transactions purchaseTransaction = createBaseTransactionBuilder(dto, account, category, user).paid(false).build();
-        purchaseTransaction = repository.save(purchaseTransaction);
-
-        int parcelas = (dto.getInstallments() == null || dto.getInstallments() < 1) ? 1 : dto.getInstallments();
-
-        BigDecimal valorParcela = dto.getAmount().divide(BigDecimal.valueOf(parcelas), 2, RoundingMode.DOWN);
-        BigDecimal diferenca = dto.getAmount().subtract(valorParcela.multiply(BigDecimal.valueOf(parcelas)));
-
-        LocalDateTime dataCompra = DateUtils.epochToLocalDateTime(dto.getDate());
-
-        for (int i = 0; i < parcelas; i++) {
-            BigDecimal valorDestaParcela = (i == 0) ? valorParcela.add(diferenca) : valorParcela;
-
-            LocalDateTime dataVencimentoFatura = calculateInvoiceDate(dataCompra.plusMonths(i), card.getCloseDay(), card.getBestDay());
-            int invMonth = dataVencimentoFatura.getMonthValue();
-            int invYear = dataVencimentoFatura.getYear();
-
-            Invoices invoice = invoicesService.findByCreditCardIdAndMonthAndYear(card.getId(), invMonth, invYear)
-                    .orElseGet(() -> invoicesService.save(Invoices.builder()
-                            .id(ID.generate())
-                            .month(invMonth)
-                            .year(invYear)
-                            .amount(BigDecimal.ZERO)
-                            .expirationDate(DateUtils.localDateTimeToEpoch(dataVencimentoFatura))
-                            .paid(false)
-                            .enabled(true)
-                            .createdAt(dateNow)
-                            .creditCard(card)
-                            .user(user)
-                            .build()));
-
-            invoice.setAmount(invoice.getAmount().add(valorDestaParcela));
-            invoicesService.save(invoice);
-
-            InstallmentPlan installment = InstallmentPlan.builder()
-                    .id(ID.generate())
-                    .name(dto.getName() + (parcelas > 1 ? " (" + (i + 1) + "/" + parcelas + ")" : ""))
-                    .type(TransactionType.DESPESA.name())
-                    .amount(valorDestaParcela)
-                    .totalInstallmentsPlan(parcelas)
-                    .currentInstallment(i + 1)
-                    .fixed(dto.getIsFixed() != null ? dto.getIsFixed() : false)
-                    .paid(false)
-                    .purchaseId(purchaseTransaction.getId())
-                    .enabled(true)
-                    .createdAt(dateNow)
-                    .date(invoice.getExpirationDate())
-                    .invoices(invoice)
-                    .user(user)
-                    .build();
-
-            installmentPlanService.save(installment);
-        }
-
-        account.debit(dto.getAmount());
-        accountsService.update(account);
-
-        return purchaseTransaction;
-    }
-
-    private Transactions.TransactionsBuilder createBaseTransactionBuilder(TransactionDTO dto, Accounts account, Category category, Users user) {
-        long dateNow = DateUtils.getEpochNow();
-        var builder = Transactions.builder()
-                .id(ID.generate())
-                .name(dto.getName())
-                .description(dto.getDescription())
-                .type(dto.getType())
-                .amount(dto.getAmount())
-                .date(dto.getDate())
-                .paid(dto.getPaid())
-                .fixed(dto.getIsFixed() != null ? dto.getIsFixed() : false)
-                .enabled(true)
-                .account(account)
-                .category(category)
-                .user(user)
-                .createdAt(dateNow);
-
-        if (dto.getVehicleId() != null) {
-            Vehicle vehicle = vehicleService.findById(dto.getVehicleId());
-            if (!vehicle.getUser().getId().equals(user.getId())) {
-                throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_VEHICLE);
-            }
-            Double efficiency = vehicleService.processRefuel(vehicle, dto.getCurrentOdometer(), dto.getLiters(), dto.getFuelType());
-
-            builder.vehicle(vehicle)
-                    .liters(dto.getLiters())
-                    .currentOdometer(dto.getCurrentOdometer())
-                    .fuelType(dto.getFuelType())
-                    .efficiency(efficiency);
-        }
-        return builder;
-    }
-
-    private LocalDateTime calculateInvoiceDate(LocalDateTime refDate, int closeDay, int bestDay) {
-        if (refDate.getDayOfMonth() >= closeDay) {
-            refDate = refDate.plusMonths(1);
-        }
-
-        int year = refDate.getYear();
-        int month = refDate.getMonthValue();
-
-        int maxDays = refDate.toLocalDate().lengthOfMonth();
-        int finalDay = Math.min(bestDay, maxDays);
-
-        return LocalDateTime.of(year, month, finalDay, 23, 59, 59);
-    }
-
     private Transactions createTransactionFromRule(RecurrenceRule rule, TransactionType type, long date, Accounts account) {
-        return Transactions.builder()
-                .id(ID.generate())
-                .name(rule.getName())
-                .description(rule.getDescription())
-                .type(type)
-                .amount(rule.getBaseAmount())
-                .date(date)
-                .paid(false)
-                .fixed(true)
-                .enabled(true)
-                .createdAt(DateUtils.getEpochNow())
-                .account(account)
-                .category(rule.getCategory())
-                .user(rule.getUser())
-                .recurrenceRule(rule)
-                .build();
+        return Transactions.builder().id(ID.generate()).name(rule.getName()).description(rule.getDescription())
+                .type(type).amount(rule.getBaseAmount()).date(date).paid(false).fixed(true).enabled(true)
+                .createdAt(DateUtils.getEpochNow()).account(account).category(rule.getCategory()).user(rule.getUser()).recurrenceRule(rule).build();
     }
 
     private LocalDate calculateNextDate(LocalDate current, RecurrenceFrequency freq) {
@@ -705,19 +314,5 @@ public class TransactionServiceImpl implements TransactionService {
             case MONTHLY -> current.plusMonths(1);
             case YEARLY -> current.plusYears(1);
         };
-    }
-
-    private void deleteInstallmentsAndRestoreInvoice(UUID purchaseId, long dateNow) {
-        List<InstallmentPlan> installments = installmentPlanService.findByPurchaseId(purchaseId);
-        for (InstallmentPlan inst : installments) {
-            if (inst.getDeletedAt() == null) {
-                inst.setDeletedAt(dateNow);
-
-                Invoices invoice = inst.getInvoices();
-                invoice.setAmount(invoice.getAmount().subtract(inst.getAmount()));
-                invoicesService.save(invoice);
-            }
-        }
-        installmentPlanService.saveAll(installments);
     }
 }
