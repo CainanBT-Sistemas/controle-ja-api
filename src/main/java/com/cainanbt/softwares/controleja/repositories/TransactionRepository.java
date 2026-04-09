@@ -74,7 +74,7 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
 
     @Query("SELECT t FROM Transactions t WHERE t.user.id = :userId " +
             "AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
-            "ORDER BY t.date DESC")
+            "ORDER BY t.date DESC, t.createdAt DESC")
     List<Transactions> findTransactionsByMonth(@Param("userId") UUID userId, @Param("start") Long start, @Param("end") Long end);
 
     @Query("SELECT MAX(t.date) FROM Transactions t WHERE t.recurrenceRule.id = :ruleId AND t.deletedAt IS NULL")
