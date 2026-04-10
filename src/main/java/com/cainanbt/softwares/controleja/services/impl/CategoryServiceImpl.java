@@ -27,14 +27,21 @@ public class CategoryServiceImpl implements CategoryService {
     @Override
     public Category createCategory(CategoryDTO dto) {
         Users user = SecurityContextUtils.getCurrentUser();
-
         Category parent = null;
+
         if (dto.getParentId() != null) {
             parent = repository.findByIdAndNotDeleted(dto.getParentId())
                     .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.PARENT_CATEGORY_NOT_FOUND));
 
             if (!parent.getUser().getId().equals(user.getId())) {
                 throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_CATEGORY);
+            }
+            if (parent.getIsSubCategory()) {
+                throw new BadRequestException("Ação não permitida", "Não é possível criar uma subcategoria dentro de outra. O limite é de 1 nível.");
+            }
+            long totalFilhos = repository.countActiveSubCategories(parent.getId());
+            if (totalFilhos >= 2) {
+                throw new BadRequestException("Limite Atingido", "Você atingiu o limite de 2 subcategorias por categoria pai. Assine o Premium para liberar acesso ilimitado!");
             }
         }
 
@@ -94,9 +101,14 @@ public class CategoryServiceImpl implements CategoryService {
                 throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_CATEGORY);
             }
 
+            if (parent.getIsSubCategory()) {
+                throw new BadRequestException("Ação não permitida", "A categoria destino já é uma subcategoria.");
+            }
+
             category.setSubCategory(parent);
             category.setIsSubCategory(true);
         }
+
         category.setUpdatedAt(DateUtils.getEpochNow());
 
         return repository.save(category);

@@ -16,4 +16,6 @@ public interface InvoicesService {
     Invoices findByIdOrThrow(UUID id);
 
     Optional<Invoices> findByCreditCardIdAndMonthAndYear(UUID creditCardId, Integer month, Integer year);
+
+    List<Invoices> findByUserAndDateBetween(UUID userId, Long start, Long end);
 }

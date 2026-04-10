@@ -18,4 +18,6 @@ public interface InstallmentPlanService {
     List<InstallmentPlan> findByInvoiceId(UUID invoiceId);
 
     List<InstallmentPlan> findByPurchaseId(UUID purchaseId);
+
+    List<InstallmentPlan> findByUserAndDateBetween(UUID userId, Long start, Long end);
 }

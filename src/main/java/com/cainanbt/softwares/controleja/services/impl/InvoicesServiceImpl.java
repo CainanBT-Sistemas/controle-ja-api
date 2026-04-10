@@ -44,4 +44,9 @@ public class InvoicesServiceImpl implements InvoicesService {
     public Optional<Invoices> findByCreditCardIdAndMonthAndYear(UUID creditCardId, Integer month, Integer year) {
         return repository.findByCreditCardIdAndMonthAndYear(creditCardId, month, year);
     }
+
+    @Override
+    public List<Invoices> findByUserAndDateBetween(UUID userId, Long start, Long end) {
+        return repository.findByUserAndDateBetween(userId, start, end);
+    }
 }

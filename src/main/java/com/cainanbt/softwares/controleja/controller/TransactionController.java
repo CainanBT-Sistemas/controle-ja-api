@@ -39,8 +39,8 @@ public class TransactionController {
 
     @GetMapping
     public ResponseEntity<List<TransactionResponseDTO>> listAll(@RequestParam Long start, @RequestParam Long end) {
-        var list = transactionService.listLastTransactions(start, end);
-        return ResponseEntity.ok(list.stream().map(TransactionResponseDTO::toDTO).toList());
+        var list = transactionService.listLastTransactionsDTO(start, end);
+        return ResponseEntity.ok(list);
     }
 
     @GetMapping("/{id}")
@@ -48,15 +48,14 @@ public class TransactionController {
         return ResponseEntity.ok(TransactionResponseDTO.toDTO(transactionService.findByIdOrThrow(id)));
     }
 
-    // NOVO: Recebe o parâmetro updateFuture
     @PutMapping("/{id}")
     public ResponseEntity<TransactionResponseDTO> update(
             @PathVariable UUID id,
             @RequestBody @Valid TransactionDTO dto,
             @RequestParam(defaultValue = "false") Boolean updateFuture) {
 
-        var entity = transactionService.updateTransaction(id, dto, updateFuture);
-        return ResponseEntity.ok(TransactionResponseDTO.toDTO(entity));
+        var dtoResponse = transactionService.updateTransactionDTO(id, dto, updateFuture);
+        return ResponseEntity.ok(dtoResponse);
     }
 
     // NOVO: Recebe o parâmetro cancelFuture

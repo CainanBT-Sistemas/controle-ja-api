@@ -17,55 +17,39 @@ import java.util.UUID;
 @Repository
 public interface TransactionRepository extends JpaRepository<Transactions, UUID> {
 
+    @Query("SELECT t FROM Transactions t WHERE t.user.id = :userId " +
+            "AND t.account.type != com.cainanbt.softwares.controleja.enums.AccountType.CREDIT_CARD " +
+            "AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
+            "ORDER BY t.date DESC, t.createdAt DESC")
+    List<Transactions> findCashFlowTransactionsByMonth(@Param("userId") UUID userId, @Param("start") Long start, @Param("end") Long end);
+
     @Query("SELECT t FROM Transactions t WHERE t.user.id = :userId AND t.deletedAt IS NULL ORDER BY t.date DESC")
     List<Transactions> findByUserIdOrderByDateDesc(@Param("userId") UUID userId);
 
     @Query("SELECT c.name AS label, SUM(t.amount) AS value " +
             "FROM Transactions t JOIN t.category c " +
-            "WHERE t.user.id = :userId " +
-            "AND t.type = :type " +
-            "AND t.date BETWEEN :start AND :end " +
-            "AND t.deletedAt IS NULL " +
-            "GROUP BY c.name " +
-            "ORDER BY value DESC")
+            "WHERE t.user.id = :userId AND t.type = :type AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
+            "GROUP BY c.name ORDER BY value DESC")
     List<ChartDataDTO> getExpensesByCategory(@Param("userId") UUID userId, @Param("start") Long start, @Param("end") Long end, @Param("type") TransactionType type);
 
     @Query("SELECT CAST(t.fuelType AS string) AS label, SUM(t.amount) AS value " +
-            "FROM Transactions t " +
-            "WHERE t.user.id = :userId " +
-            "AND t.type = 'DESPESA' " +
-            "AND t.vehicle IS NOT NULL " +
-            "AND t.fuelType IS NOT NULL " +
-            "AND t.date BETWEEN :start AND :end " +
-            "AND t.deletedAt IS NULL " +
-            "GROUP BY t.fuelType " +
-            "ORDER BY value DESC")
+            "FROM Transactions t WHERE t.user.id = :userId AND t.type = 'DESPESA' AND t.vehicle IS NOT NULL " +
+            "AND t.fuelType IS NOT NULL AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
+            "GROUP BY t.fuelType ORDER BY value DESC")
     List<ChartDataDTO> getExpensesByFuelType(@Param("userId") UUID userId, @Param("start") Long start, @Param("end") Long end);
 
     @Query("SELECT SUM(t.amount) FROM Transactions t " +
-            "WHERE t.user.id = :userId " +
-            "AND t.type = :type " +
-            "AND t.date BETWEEN :start AND :end " +
-            "AND t.deletedAt IS NULL")
+            "WHERE t.user.id = :userId AND t.type = :type AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL")
     BigDecimal getTotalByType(@Param("userId") UUID userId, @Param("type") TransactionType type, @Param("start") Long start, @Param("end") Long end);
 
-    // CONSULTAS SEPARADAS PARA EVITAR O ERRO $2 DO POSTGRES
     @Query("SELECT CAST(t.date AS string) AS label, t.amount AS value " +
-            "FROM Transactions t " +
-            "WHERE t.user.id = :userId " +
-            "AND t.type = 'DESPESA' " +
-            "AND t.date BETWEEN :start AND :end " +
-            "AND t.deletedAt IS NULL " +
+            "FROM Transactions t WHERE t.user.id = :userId AND t.type = 'DESPESA' AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
             "ORDER BY t.date ASC")
     List<ChartDataDTO> getEvolutionRawDataAll(@Param("userId") UUID userId, @Param("start") Long start, @Param("end") Long end);
 
     @Query("SELECT CAST(t.date AS string) AS label, t.amount AS value " +
-            "FROM Transactions t " +
-            "WHERE t.user.id = :userId " +
-            "AND t.type = 'DESPESA' " +
-            "AND t.category.id = :categoryId " +
-            "AND t.date BETWEEN :start AND :end " +
-            "AND t.deletedAt IS NULL " +
+            "FROM Transactions t WHERE t.user.id = :userId AND t.type = 'DESPESA' AND t.category.id = :categoryId " +
+            "AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
             "ORDER BY t.date ASC")
     List<ChartDataDTO> getEvolutionRawDataByCategory(@Param("userId") UUID userId, @Param("start") Long start, @Param("end") Long end, @Param("categoryId") UUID categoryId);
 

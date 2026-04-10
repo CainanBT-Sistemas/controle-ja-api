@@ -17,6 +17,7 @@ import static com.cainanbt.softwares.controleja.utils.ConstsMessages.PARCEL_NOT_
 @Service
 @RequiredArgsConstructor
 public class InstallmentPlanServiceImpl implements InstallmentPlanService {
+
     private final InstallmentPlanRepository repository;
 
     @Override
@@ -48,5 +49,10 @@ public class InstallmentPlanServiceImpl implements InstallmentPlanService {
     @Override
     public List<InstallmentPlan> findByPurchaseId(UUID purchaseId) {
         return repository.findByPurchaseId(purchaseId);
+    }
+
+    @Override
+    public List<InstallmentPlan> findByUserAndDateBetween(UUID userId, Long start, Long end) {
+        return repository.findByUserAndDateBetween(userId, start, end);
     }
 }
