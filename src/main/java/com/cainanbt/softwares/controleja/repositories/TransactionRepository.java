@@ -74,4 +74,7 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
     @Query("UPDATE Transactions t SET t.deletedAt = :dateNow WHERE t.parentTransaction.id = :parentId AND t.deletedAt IS NULL")
     void deleteByParentId(@Param("parentId") UUID parentId, @Param("dateNow") long dateNow);
 
+    // Returns top 3 pending transactions by type for the user, ordered by date ascending
+    List<Transactions> findTop3ByUserIdAndTypeAndPaidFalseAndDeletedAtIsNullOrderByDateAsc(UUID userId, TransactionType type);
+
 }

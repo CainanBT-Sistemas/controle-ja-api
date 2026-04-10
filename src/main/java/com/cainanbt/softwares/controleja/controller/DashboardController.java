@@ -1,6 +1,7 @@
 package com.cainanbt.softwares.controleja.controller;
 
 import com.cainanbt.softwares.controleja.dtos.dashboard.ChartDataDTO;
+import com.cainanbt.softwares.controleja.dtos.dashboard.DashboardFullSummaryDTO;
 import com.cainanbt.softwares.controleja.dtos.dashboard.FinancialSummaryDTO;
 import com.cainanbt.softwares.controleja.services.DashboardService;
 import org.springframework.http.ResponseEntity;
@@ -48,5 +49,10 @@ public class DashboardController {
     @GetMapping("/summary")
     public ResponseEntity<FinancialSummaryDTO> getSummary(@RequestParam Long start, @RequestParam Long end) {
         return ResponseEntity.ok(service.getSummary(start, end));
+    }
+
+    @GetMapping("/full-summary")
+    public ResponseEntity<DashboardFullSummaryDTO> getFullSummary(@RequestParam Long start, @RequestParam Long end) {
+        return ResponseEntity.ok(service.getFullSummary(start, end));
     }
 }

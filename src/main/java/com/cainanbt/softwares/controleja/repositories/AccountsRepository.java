@@ -20,4 +20,7 @@ public interface AccountsRepository extends JpaRepository<Accounts, UUID> {
 
     @Query("SELECT a FROM Accounts a WHERE a.user.id = :userId AND a.name = :name AND a.type = :type AND a.deletedAt IS NULL")
     Optional<Accounts> findByUserIdAndNameAndType(UUID userId, String name, AccountType type);
+
+    @Query("SELECT COALESCE(SUM(a.currentBalance), 0) FROM Accounts a WHERE a.user.id = :userId AND a.deletedAt IS NULL AND (a.type = com.cainanbt.softwares.controleja.enums.AccountType.WALLET OR a.type = com.cainanbt.softwares.controleja.enums.AccountType.BANK)")
+    java.math.BigDecimal getAvailableBalanceByUserId(UUID userId);
 }

@@ -1,6 +1,7 @@
 package com.cainanbt.softwares.controleja.services;
 
 import com.cainanbt.softwares.controleja.dtos.dashboard.ChartDataDTO;
+import com.cainanbt.softwares.controleja.dtos.dashboard.DashboardFullSummaryDTO;
 import com.cainanbt.softwares.controleja.dtos.dashboard.FinancialSummaryDTO;
 
 import java.util.List;
@@ -16,4 +17,6 @@ public interface DashboardService {
     List<ChartDataDTO> getEvolution(Long start, Long end, UUID categoryId);
 
     FinancialSummaryDTO getSummary(Long start, Long end);
+
+    DashboardFullSummaryDTO getFullSummary(Long start, Long end);
 }

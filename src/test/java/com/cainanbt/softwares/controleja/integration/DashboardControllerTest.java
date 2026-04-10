@@ -111,4 +111,49 @@ public class DashboardControllerTest extends BaseTest {
                 .when().get("/dashboard/fuel-comparison")
                 .then().statusCode(200);
     }
+
+    @Test
+    @DisplayName("Deve retornar full-summary com pendências e projeções corretas")
+    void shouldReturnFullSummaryWithPendingAndProjections() {
+        long now = DateUtils.getEpochNow();
+        long start = now - 86400000L;
+        long end = now + 86400000L;
+
+        // criar pendência (despesa) não paga
+        TransactionDTO unpaidExpense = new TransactionDTO();
+        unpaidExpense.setName("Unpaid Bill");
+        unpaidExpense.setAmount(new BigDecimal("150.00"));
+        unpaidExpense.setCategoryId(catFoodId);
+        unpaidExpense.setAccountId(walletId);
+        unpaidExpense.setType(TransactionType.DESPESA);
+        unpaidExpense.setPaid(false);
+        unpaidExpense.setDate(now);
+        unpaidExpense.setIsFixed(false);
+
+        given().header("Authorization", "Bearer " + token).contentType(ContentType.JSON).body(unpaidExpense).post("/transactions").then().statusCode(200);
+
+        // criar pendência (receita) não paga
+        TransactionDTO unpaidIncome = new TransactionDTO();
+        unpaidIncome.setName("Pending Income");
+        unpaidIncome.setAmount(new BigDecimal("500.00"));
+        unpaidIncome.setCategoryId(catFoodId);
+        unpaidIncome.setAccountId(walletId);
+        unpaidIncome.setType(TransactionType.RECEITA);
+        unpaidIncome.setPaid(false);
+        unpaidIncome.setDate(now);
+        unpaidIncome.setIsFixed(false);
+
+        given().header("Authorization", "Bearer " + token).contentType(ContentType.JSON).body(unpaidIncome).post("/transactions").then().statusCode(200);
+
+        // chama full-summary
+        given().header("Authorization", "Bearer " + token).param("start", start).param("end", end)
+                .when().get("/dashboard/full-summary")
+                .then().statusCode(200)
+                .body("availableBalance", is(5650.0f))
+                .body("projectedPayables", is(150.0f))
+                .body("projectedVariables", is(166.67f))
+                .body("projectedBalance", is(5833.33f))
+                .body("pendingPayables.size()", is(1))
+                .body("pendingReceivables.size()", is(1));
+    }
 }

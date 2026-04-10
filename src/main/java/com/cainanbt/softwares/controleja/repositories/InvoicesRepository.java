@@ -16,4 +16,7 @@ public interface InvoicesRepository extends JpaRepository<Invoices, UUID> {
 
     @Query("SELECT i FROM Invoices i WHERE i.user.id = :userId AND i.expirationDate BETWEEN :start AND :end AND i.deletedAt IS NULL")
     List<Invoices> findByUserAndDateBetween(@Param("userId") UUID userId, @Param("start") Long start, @Param("end") Long end);
+
+    // Top 3 pending invoices for user ordered by expirationDate ascending
+    List<Invoices> findTop3ByUserIdAndPaidFalseAndDeletedAtIsNullOrderByExpirationDateAsc(UUID userId);
 }
