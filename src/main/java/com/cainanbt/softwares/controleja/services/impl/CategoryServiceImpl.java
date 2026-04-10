@@ -6,6 +6,7 @@ import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.exceptions.models.EntityNotFoundException;
 import com.cainanbt.softwares.controleja.repositories.CategoryRepository;
+import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.services.CategoryService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
@@ -23,6 +24,7 @@ import java.util.UUID;
 public class CategoryServiceImpl implements CategoryService {
 
     private final CategoryRepository repository;
+    private final TransactionRepository transactionRepository;
 
     @Override
     public Category createCategory(CategoryDTO dto) {
@@ -121,6 +123,12 @@ public class CategoryServiceImpl implements CategoryService {
 
         if (!category.getUser().getId().equals(currentUser.getId())) {
             throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_CATEGORY);
+        }
+
+        // Check for active transactions referencing this category
+        long dependent = transactionRepository.countByCategoryId(id);
+        if (dependent > 0) {
+            throw new BadRequestException("Ação não permitida", "Categoria não pode ser excluída pois está sendo usada em transações. Remova ou atualize as transações que referenciam essa categoria antes de excluir.");
         }
 
         if (category.getDeletedAt() != null) {

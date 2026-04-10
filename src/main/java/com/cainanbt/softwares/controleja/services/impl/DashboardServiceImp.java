@@ -76,12 +76,29 @@ public class DashboardServiceImp implements DashboardService {
         BigDecimal availableBalance = accountsRepository.getAvailableBalanceByUserId(userId);
         if (availableBalance == null) availableBalance = BigDecimal.ZERO;
 
-        // pending transactions
-        List<com.cainanbt.softwares.controleja.entities.Transactions> payables = repository.findTop3ByUserIdAndTypeAndPaidFalseAndDeletedAtIsNullOrderByDateAsc(userId, TransactionType.DESPESA);
-        List<com.cainanbt.softwares.controleja.entities.Transactions> receivables = repository.findTop3ByUserIdAndTypeAndPaidFalseAndDeletedAtIsNullOrderByDateAsc(userId, TransactionType.RECEITA);
+        // Busca transações pendentes normais
+        List<com.cainanbt.softwares.controleja.entities.Transactions> payables = repository.findPendingUpToDate(userId, TransactionType.DESPESA, end);
+        List<com.cainanbt.softwares.controleja.entities.Transactions> receivables = repository.findPendingUpToDate(userId, TransactionType.RECEITA, end);
 
-        // pending invoices
-        List<com.cainanbt.softwares.controleja.entities.Invoices> invoices = invoicesRepository.findTop3ByUserIdAndPaidFalseAndDeletedAtIsNullOrderByExpirationDateAsc(userId);
+        // Busca todas as faturas até a data final do mês selecionado
+        List<com.cainanbt.softwares.controleja.entities.Invoices> rawInvoices = invoicesRepository.findPendingInvoicesUpToDate(userId, end);
+
+        // Pega a data EXATA de hoje, ignorando o mês que o usuário selecionou no app
+        java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneId.of("America/Sao_Paulo"));
+
+        // FILTRO INTELIGENTE E DEFINITIVO DE FATURAS
+        List<com.cainanbt.softwares.controleja.entities.Invoices> invoices = rawInvoices.stream().filter(inv -> {
+
+            java.time.LocalDate closeDate;
+            try {
+                closeDate = java.time.LocalDate.of(inv.getYear(), inv.getMonth(), inv.getCreditCard().getCloseDay());
+            } catch (java.time.DateTimeException e) {
+                closeDate = java.time.LocalDate.of(inv.getYear(), inv.getMonth(), 1).with(java.time.temporal.TemporalAdjusters.lastDayOfMonth());
+            }
+            return !today.isBefore(closeDate);
+
+        }).toList();
+
 
         // map transactions to DashboardAlertDTO
         List<DashboardAlertDTO> pendingPayables = payables.stream().map(t -> DashboardAlertDTO.builder()

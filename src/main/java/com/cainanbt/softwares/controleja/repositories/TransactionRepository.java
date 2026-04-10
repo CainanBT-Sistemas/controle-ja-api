@@ -77,4 +77,10 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
     // Returns top 3 pending transactions by type for the user, ordered by date ascending
     List<Transactions> findTop3ByUserIdAndTypeAndPaidFalseAndDeletedAtIsNullOrderByDateAsc(UUID userId, TransactionType type);
 
+    @Query("SELECT COUNT(t) FROM Transactions t WHERE t.category.id = :categoryId AND t.deletedAt IS NULL")
+    long countByCategoryId(@Param("categoryId") UUID categoryId);
+
+    @Query("SELECT t FROM Transactions t WHERE t.user.id = :userId AND t.type = :type AND t.paid = false AND t.date <= :endDate AND t.account.type != com.cainanbt.softwares.controleja.enums.AccountType.CREDIT_CARD AND t.deletedAt IS NULL ORDER BY t.date ASC")
+    List<Transactions> findPendingUpToDate(@Param("userId") UUID userId, @Param("type") TransactionType type, @Param("endDate") Long endDate);
+
 }
