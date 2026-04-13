@@ -19,6 +19,8 @@ import com.cainanbt.softwares.controleja.utils.ID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
+
 @Component
 @RequiredArgsConstructor
 public class TransactionHelper {
@@ -92,7 +94,7 @@ public class TransactionHelper {
         }
     }
 
-    public java.time.LocalDateTime calculateInvoiceDate(java.time.LocalDateTime refDate, int closeDay, int bestDay) {
+    public LocalDateTime calculateInvoiceDate(LocalDateTime refDate, int closeDay, int bestDay) {
         if (refDate.getDayOfMonth() >= closeDay) {
             refDate = refDate.plusMonths(1);
         }
@@ -103,6 +105,6 @@ public class TransactionHelper {
         int maxDays = refDate.toLocalDate().lengthOfMonth();
         int finalDay = Math.min(bestDay, maxDays);
 
-        return java.time.LocalDateTime.of(year, month, finalDay, 23, 59, 59);
+        return LocalDateTime.of(year, month, finalDay, 23, 59, 59);
     }
 }

@@ -28,6 +28,12 @@ public class DashboardController {
         return ResponseEntity.ok(service.getExpensesByCategory(start, end));
     }
 
+    // === A ROTA QUE FALTAVA AQUI ===
+    @GetMapping("/credit-expenses-category")
+    public ResponseEntity<List<ChartDataDTO>> getCreditCardExpensesByCategory(@RequestParam Long start, @RequestParam Long end) {
+        return ResponseEntity.ok(service.getCreditCardExpensesByCategory(start, end));
+    }
+
     @GetMapping("/incomes-category")
     public ResponseEntity<List<ChartDataDTO>> getIncomesByCategory(@RequestParam Long start, @RequestParam Long end) {
         return ResponseEntity.ok(service.getIncomesByCategory(start, end));

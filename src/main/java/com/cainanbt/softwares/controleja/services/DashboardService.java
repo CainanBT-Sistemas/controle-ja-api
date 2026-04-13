@@ -10,6 +10,8 @@ import java.util.UUID;
 public interface DashboardService {
     List<ChartDataDTO> getExpensesByCategory(Long start, Long end);
 
+    List<ChartDataDTO> getCreditCardExpensesByCategory(Long start, Long end);
+
     List<ChartDataDTO> getIncomesByCategory(Long start, Long end);
 
     List<ChartDataDTO> getFuelComparison(Long start, Long end);

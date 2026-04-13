@@ -38,9 +38,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.Month;
+import java.time.format.TextStyle;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -97,7 +100,7 @@ public class TransactionServiceImpl implements TransactionService {
             dto.setId(inv.getId()); // ID da fatura!
 
             // Cria um nome elegante: "Fatura Nubank - Março"
-            String monthName = java.time.Month.of(inv.getMonth()).getDisplayName(java.time.format.TextStyle.FULL, new java.util.Locale("pt", "BR"));
+            String monthName = Month.of(inv.getMonth()).getDisplayName(TextStyle.FULL, new Locale("pt", "BR"));
             String formattedMonth = monthName.substring(0, 1).toUpperCase() + monthName.substring(1);
             dto.setName("Fatura " + inv.getCreditCard().getName() + " - " + formattedMonth);
 
@@ -400,3 +403,4 @@ public class TransactionServiceImpl implements TransactionService {
         };
     }
 }
+

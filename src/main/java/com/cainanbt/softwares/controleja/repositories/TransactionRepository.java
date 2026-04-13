@@ -16,7 +16,6 @@ import java.util.UUID;
 
 @Repository
 public interface TransactionRepository extends JpaRepository<Transactions, UUID> {
-
     @Query("SELECT t FROM Transactions t WHERE t.user.id = :userId " +
             "AND t.account.type != com.cainanbt.softwares.controleja.enums.AccountType.CREDIT_CARD " +
             "AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
@@ -26,13 +25,29 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
     @Query("SELECT t FROM Transactions t WHERE t.user.id = :userId AND t.deletedAt IS NULL ORDER BY t.date DESC")
     List<Transactions> findByUserIdOrderByDateDesc(@Param("userId") UUID userId);
 
-    @Query("SELECT c.name AS label, SUM(t.amount) AS value " +
+    @Query("SELECT c.name AS label, SUM(t.amount) AS value, c.color AS color " +
+            "FROM Transactions t JOIN t.category c " +
+            "WHERE t.user.id = :userId AND t.type = :type AND t.account.type != com.cainanbt.softwares.controleja.enums.AccountType.CREDIT_CARD " +
+            "AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
+            "GROUP BY c.name, c.color ORDER BY value DESC")
+    List<ChartDataDTO> getGeneralExpensesByCategory(@Param("userId") UUID userId, @Param("start") Long start, @Param("end") Long end, @Param("type") TransactionType type);
+
+    @Query("SELECT c.name AS label, SUM(i.amount) AS value, c.color AS color " +
+            "FROM InstallmentPlan i, Transactions t JOIN t.category c " +
+            "WHERE i.purchaseId = t.id AND i.user.id = :userId " +
+            "AND t.type = :type " +
+            "AND i.date BETWEEN :start AND :end " +
+            "AND i.deletedAt IS NULL AND t.deletedAt IS NULL " +
+            "GROUP BY c.name, c.color ORDER BY value DESC")
+    List<ChartDataDTO> getCreditCardExpensesByCategory(@Param("userId") UUID userId, @Param("start") Long start, @Param("end") Long end, @Param("type") TransactionType type);
+
+    @Query("SELECT c.name AS label, SUM(t.amount) AS value, c.color AS color " +
             "FROM Transactions t JOIN t.category c " +
             "WHERE t.user.id = :userId AND t.type = :type AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
-            "GROUP BY c.name ORDER BY value DESC")
+            "GROUP BY c.name, c.color ORDER BY value DESC")
     List<ChartDataDTO> getExpensesByCategory(@Param("userId") UUID userId, @Param("start") Long start, @Param("end") Long end, @Param("type") TransactionType type);
 
-    @Query("SELECT CAST(t.fuelType AS string) AS label, SUM(t.amount) AS value " +
+    @Query("SELECT CAST(t.fuelType AS string) AS label, SUM(t.amount) AS value, '#FF9800' AS color " +
             "FROM Transactions t WHERE t.user.id = :userId AND t.type = 'DESPESA' AND t.vehicle IS NOT NULL " +
             "AND t.fuelType IS NOT NULL AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
             "GROUP BY t.fuelType ORDER BY value DESC")
@@ -42,12 +57,12 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
             "WHERE t.user.id = :userId AND t.type = :type AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL")
     BigDecimal getTotalByType(@Param("userId") UUID userId, @Param("type") TransactionType type, @Param("start") Long start, @Param("end") Long end);
 
-    @Query("SELECT CAST(t.date AS string) AS label, t.amount AS value " +
+    @Query("SELECT CAST(t.date AS string) AS label, t.amount AS value, '#00E676' AS color " +
             "FROM Transactions t WHERE t.user.id = :userId AND t.type = 'DESPESA' AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
             "ORDER BY t.date ASC")
     List<ChartDataDTO> getEvolutionRawDataAll(@Param("userId") UUID userId, @Param("start") Long start, @Param("end") Long end);
 
-    @Query("SELECT CAST(t.date AS string) AS label, t.amount AS value " +
+    @Query("SELECT CAST(t.date AS string) AS label, t.amount AS value, '#00E676' AS color " +
             "FROM Transactions t WHERE t.user.id = :userId AND t.type = 'DESPESA' AND t.category.id = :categoryId " +
             "AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
             "ORDER BY t.date ASC")
@@ -74,7 +89,6 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
     @Query("UPDATE Transactions t SET t.deletedAt = :dateNow WHERE t.parentTransaction.id = :parentId AND t.deletedAt IS NULL")
     void deleteByParentId(@Param("parentId") UUID parentId, @Param("dateNow") long dateNow);
 
-    // Returns top 3 pending transactions by type for the user, ordered by date ascending
     List<Transactions> findTop3ByUserIdAndTypeAndPaidFalseAndDeletedAtIsNullOrderByDateAsc(UUID userId, TransactionType type);
 
     @Query("SELECT COUNT(t) FROM Transactions t WHERE t.category.id = :categoryId AND t.deletedAt IS NULL")
@@ -82,5 +96,4 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
 
     @Query("SELECT t FROM Transactions t WHERE t.user.id = :userId AND t.type = :type AND t.paid = false AND t.date <= :endDate AND t.account.type != com.cainanbt.softwares.controleja.enums.AccountType.CREDIT_CARD AND t.deletedAt IS NULL ORDER BY t.date ASC")
     List<Transactions> findPendingUpToDate(@Param("userId") UUID userId, @Param("type") TransactionType type, @Param("endDate") Long endDate);
-
 }

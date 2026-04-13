@@ -4,6 +4,7 @@ import com.cainanbt.softwares.controleja.entities.RecurrenceRule;
 import com.cainanbt.softwares.controleja.enums.RuleStatus;
 import com.cainanbt.softwares.controleja.repositories.RecurrenceRuleRepository;
 import com.cainanbt.softwares.controleja.services.TransactionService;
+import com.cainanbt.softwares.controleja.utils.DateUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.EnableScheduling;
@@ -26,8 +27,8 @@ public class RecurrenceWorkerService {
         // Busca todas as regras de todos os usuários que estão ativas
         List<RecurrenceRule> activeRules = recurrenceRuleRepository.findByStatusAndDeletedAtIsNull(RuleStatus.ACTIVE);
 
-        // Nossa janela de visão: 1 ano para o futuro
-        LocalDate projectionLimit = LocalDate.now().plusYears(1);
+        // Nossa janela de visão: 1 ano para o futuro (usa DateUtils.zoneId)
+        LocalDate projectionLimit = LocalDate.now(DateUtils.zoneId).plusYears(1);
 
         int processed = 0;
         for (RecurrenceRule rule : activeRules) {
