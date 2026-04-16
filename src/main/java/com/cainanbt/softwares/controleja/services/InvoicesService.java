@@ -17,5 +17,7 @@ public interface InvoicesService {
 
     Optional<Invoices> findByCreditCardIdAndMonthAndYear(UUID creditCardId, Integer month, Integer year);
 
+    List<Invoices> findFutureUnpaidByCardAndDate(UUID userId, UUID cardId, Long expirationDate);
+
     List<Invoices> findByUserAndDateBetween(UUID userId, Long start, Long end);
 }

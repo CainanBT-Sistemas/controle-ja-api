@@ -6,6 +6,7 @@ import com.cainanbt.softwares.controleja.entities.Category;
 import com.cainanbt.softwares.controleja.entities.CreditCard;
 import com.cainanbt.softwares.controleja.entities.InstallmentPlan;
 import com.cainanbt.softwares.controleja.entities.Invoices;
+import com.cainanbt.softwares.controleja.entities.RecurrenceRule;
 import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.enums.AccountType;
@@ -54,7 +55,16 @@ public class CreditCardExpenseProcessor implements TransactionProcessor {
         card.consumeLimit(dto.getAmount());
         creditCardService.updateLimit(card);
 
-        Transactions purchaseTransaction = helper.createBaseTransactionBuilder(dto, account, category, user).paid(false).build();
+        // CORREÇÃO: Registrando a Regra de Recorrência se o usuário marcar "Fixo" no Cartão de Crédito
+        RecurrenceRule rule = null;
+        if (Boolean.TRUE.equals(dto.getIsFixed()) && dto.getRecurrenceFrequency() != null) {
+            rule = helper.createRecurrenceRule(dto, TransactionType.DESPESA, dateNow, user, account, null, category);
+        }
+
+        Transactions purchaseTransaction = helper.createBaseTransactionBuilder(dto, account, category, user)
+                .paid(false)
+                .recurrenceRule(rule) // ANEXANDO A REGRA AQUI!
+                .build();
         purchaseTransaction = repository.save(purchaseTransaction);
 
         int parcelas = (dto.getInstallments() == null || dto.getInstallments() < 1) ? 1 : dto.getInstallments();

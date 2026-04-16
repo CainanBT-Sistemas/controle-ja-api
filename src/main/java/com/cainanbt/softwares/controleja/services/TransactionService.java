@@ -20,6 +20,7 @@ public interface TransactionService {
     void cascadeRuleUpdate(UUID ruleId, BigDecimal newAmount);
     void generateProjectionsForRule(RecurrenceRule rule, java.time.LocalDate limitDate);
 
+    void generateProjectionsByRuleId(UUID ruleId, java.time.LocalDate limitDate);
     List<TransactionResponseDTO> listLastTransactionsDTO(Long start, Long end);
 
     TransactionResponseDTO updateTransactionDTO(UUID id, TransactionDTO dto, Boolean updateFuture);

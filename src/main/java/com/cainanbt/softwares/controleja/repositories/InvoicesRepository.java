@@ -22,4 +22,7 @@ public interface InvoicesRepository extends JpaRepository<Invoices, UUID> {
 
     @Query("SELECT i FROM Invoices i WHERE i.user.id = :userId AND i.paid = false AND i.expirationDate <= :endDate AND i.deletedAt IS NULL ORDER BY i.expirationDate ASC")
     List<Invoices> findPendingInvoicesUpToDate(@Param("userId") UUID userId, @Param("endDate") Long endDate);
+
+    @Query("SELECT i FROM Invoices i WHERE i.user.id = :userId AND i.creditCard.id = :cardId AND i.expirationDate > :expirationDate AND i.paid = false AND i.deletedAt IS NULL")
+    List<Invoices> findFutureUnpaidByCardAndDate(@Param("userId") UUID userId, @Param("cardId") UUID cardId, @Param("expirationDate") Long expirationDate);
 }

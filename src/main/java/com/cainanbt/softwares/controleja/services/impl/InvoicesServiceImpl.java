@@ -46,6 +46,11 @@ public class InvoicesServiceImpl implements InvoicesService {
     }
 
     @Override
+    public List<Invoices> findFutureUnpaidByCardAndDate(UUID userId, UUID cardId, Long expirationDate) {
+        return repository.findFutureUnpaidByCardAndDate(userId, cardId, expirationDate);
+    }
+
+    @Override
     public List<Invoices> findByUserAndDateBetween(UUID userId, Long start, Long end) {
         return repository.findByUserAndDateBetween(userId, start, end);
     }

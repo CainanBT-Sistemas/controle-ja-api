@@ -22,6 +22,7 @@ import com.cainanbt.softwares.controleja.utils.ID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 @Component
@@ -84,13 +85,44 @@ public class InvoicePaymentProcessor implements TransactionProcessor {
 
             if (dto.getTargetInvoiceId() != null) {
                 Invoices invoiceToPay = invoicesService.findByIdOrThrow(dto.getTargetInvoiceId());
-                invoiceToPay.setPaid(true);
+
+                // Create a credit installment in the invoice representing the payment received
+                InstallmentPlan paymentCredit = InstallmentPlan.builder()
+                        .id(ID.generate())
+                        .date(DateUtils.getEpochNow())
+                        .name("Pagamento Recebido")
+                        .description(dto.getDescription())
+                        .type(TransactionType.RECEITA.name())
+                        .amount(dto.getAmount().abs().negate()) // force negative
+                        .totalInstallmentsPlan(1)
+                        .currentInstallment(1)
+                        .fixed(false)
+                        .paid(true)
+                        .purchaseId(paymentOut.getId())
+                        .enabled(true)
+                        .createdAt(DateUtils.getEpochNow())
+                        .user(user)
+                        .invoices(invoiceToPay)
+                        .build();
+
+                installmentPlanService.save(paymentCredit);
+
+                // Subtract amount from invoice total
+                invoiceToPay.setAmount(invoiceToPay.getAmount().subtract(dto.getAmount()));
+
+                // If invoice is paid off or overpaid, mark as paid and set amount to zero and mark installments
+                if (invoiceToPay.getAmount() == null || invoiceToPay.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+                    invoiceToPay.setPaid(true);
+                    invoiceToPay.setAmount(BigDecimal.ZERO);
+
+                    List<InstallmentPlan> installmentPlans = installmentPlanService.findByInvoiceId(invoiceToPay.getId());
+                    installmentPlans.forEach(inst -> inst.setPaid(true));
+                    installmentPlanService.saveAll(installmentPlans);
+                }
+
+                // Associate payment transaction
                 invoiceToPay.setTransaction(paymentOut);
                 invoicesService.save(invoiceToPay);
-
-                List<InstallmentPlan> installmentPlans = installmentPlanService.findByInvoiceId(invoiceToPay.getId());
-                installmentPlans.forEach(inst -> inst.setPaid(true));
-                installmentPlanService.saveAll(installmentPlans);
             }
         }
         return paymentOut;

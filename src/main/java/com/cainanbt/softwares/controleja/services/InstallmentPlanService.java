@@ -20,4 +20,6 @@ public interface InstallmentPlanService {
     List<InstallmentPlan> findByPurchaseId(UUID purchaseId);
 
     List<InstallmentPlan> findByUserAndDateBetween(UUID userId, Long start, Long end);
+
+    List<InstallmentPlan> findAdvanceableByInvoiceIds(List<UUID> invoiceIds);
 }

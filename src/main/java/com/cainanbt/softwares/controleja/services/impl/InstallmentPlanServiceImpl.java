@@ -55,4 +55,9 @@ public class InstallmentPlanServiceImpl implements InstallmentPlanService {
     public List<InstallmentPlan> findByUserAndDateBetween(UUID userId, Long start, Long end) {
         return repository.findByUserAndDateBetween(userId, start, end);
     }
+
+    @Override
+    public List<InstallmentPlan> findAdvanceableByInvoiceIds(List<UUID> invoiceIds) {
+        return repository.findAdvanceableByInvoiceIds(invoiceIds);
+    }
 }

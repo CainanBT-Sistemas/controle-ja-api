@@ -32,6 +32,7 @@ import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -47,9 +48,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 @RequiredArgsConstructor
 @Service
+@Slf4j
 public class TransactionServiceImpl implements TransactionService {
     private final TransactionRepository repository;
     private final AccountsService accountsService;
@@ -76,7 +79,18 @@ public class TransactionServiceImpl implements TransactionService {
                 .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.CATEGORY_NOT_FOUND));
 
         TransactionProcessor processor = processorFactory.getProcessor(dto, account);
-        return processor.process(dto, account, category, user);
+
+        // Salva a transação atual e a regra de recorrência
+        Transactions savedTransaction = processor.process(dto, account, category, user);
+
+        // CORREÇÃO: Roda na mesma thread. É tão rápido (5ms) que não vai travar o celular.
+        // Como roda dentro da mesma transação, o banco enxerga a regra que acabou de ser criada!
+        if (savedTransaction.getRecurrenceRule() != null && Boolean.TRUE.equals(dto.getIsFixed())) {
+            LocalDate limiteProjecao = LocalDate.now(DateUtils.zoneId).plusYears(1);
+            generateProjectionsForRule(savedTransaction.getRecurrenceRule(), limiteProjecao);
+        }
+
+        return savedTransaction;
     }
 
     @Override
@@ -84,22 +98,17 @@ public class TransactionServiceImpl implements TransactionService {
         Users user = SecurityContextUtils.getCurrentUser();
         if (start == null || end == null) return Collections.emptyList();
 
-        // 1. Busca transações normais (Dinheiro/Conta Corrente)
         List<Transactions> normalTx = repository.findCashFlowTransactionsByMonth(user.getId(), start, end);
         List<TransactionResponseDTO> responseList = new java.util.ArrayList<>(normalTx.stream().map(TransactionResponseDTO::toDTO).toList());
 
-        // 2. Busca as FATURAS que vencem neste mês (Em vez das parcelas avulsas)
         List<Invoices> invoices = invoicesService.findByUserAndDateBetween(user.getId(), start, end);
 
-        // 3. Transforma a Fatura em uma "Transação" para o app exibir
         for (Invoices inv : invoices) {
-            // Ignora faturas com valor zerado
             if (inv.getAmount().compareTo(BigDecimal.ZERO) <= 0) continue;
 
             TransactionResponseDTO dto = new TransactionResponseDTO();
-            dto.setId(inv.getId()); // ID da fatura!
+            dto.setId(inv.getId());
 
-            // Cria um nome elegante: "Fatura Nubank - Março"
             String monthName = Month.of(inv.getMonth()).getDisplayName(TextStyle.FULL, new Locale("pt", "BR"));
             String formattedMonth = monthName.substring(0, 1).toUpperCase() + monthName.substring(1);
             dto.setName("Fatura " + inv.getCreditCard().getName() + " - " + formattedMonth);
@@ -107,16 +116,15 @@ public class TransactionServiceImpl implements TransactionService {
             dto.setAmount(inv.getAmount());
             dto.setDate(inv.getExpirationDate());
             dto.setPaid(inv.getPaid());
-            dto.setType(TransactionType.DESPESA); // Força como despesa para aparecer vermelho no app
+            dto.setType(TransactionType.DESPESA);
 
             dto.setAccountId(inv.getCreditCard().getAccounts().getId());
             dto.setAccountName(inv.getCreditCard().getName());
-            dto.setCategoryName("Fatura de Cartão"); // Categoria virtual para estética
+            dto.setCategoryName("Fatura de Cartão");
 
             responseList.add(dto);
         }
 
-        // 4. Ordena tudo por data
         responseList.sort((a, b) -> b.getDate().compareTo(a.getDate()));
 
         return responseList;
@@ -125,17 +133,15 @@ public class TransactionServiceImpl implements TransactionService {
     @Override
     @Transactional
     public TransactionResponseDTO updateTransactionDTO(UUID id, TransactionDTO dto, Boolean updateFuture) {
-        // INTERCEPTADOR MAGNÍFICO: Verifica se o celular enviou o ID de uma FATURA
         Optional<Invoices> invOpt = invoicesService.findById(id);
+
         if (invOpt.isPresent()) {
             Invoices inv = invOpt.get();
 
-            // Se o usuário clicou no "Check" no app, ele quer pagar a fatura!
             if (dto.getPaid() != null) {
                 inv.setPaid(dto.getPaid());
                 invoicesService.save(inv);
 
-                // Bônus: Dá baixa automaticamente em todas as parcelas que estavam dentro dessa fatura
                 List<InstallmentPlan> installments = installmentPlanService.findByInvoiceId(inv.getId());
                 installments.forEach(inst -> inst.setPaid(dto.getPaid()));
                 installmentPlanService.saveAll(installments);
@@ -151,22 +157,21 @@ public class TransactionServiceImpl implements TransactionService {
             return resp;
         }
 
-        // Se não for fatura, é uma transação normal, segue o fluxo
         Transactions transaction = updateTransaction(id, dto, updateFuture);
+
         return TransactionResponseDTO.toDTO(transaction);
     }
 
     @Override
     @Transactional
     public void softDelete(UUID id, Boolean cancelFuture) {
-        // INTERCEPTADOR DE DELETE PARA PARCELAS DE CARTÃO
         Optional<InstallmentPlan> instOpt = installmentPlanService.findById(id);
+
         if (instOpt.isPresent()) {
             InstallmentPlan inst = instOpt.get();
             inst.setDeletedAt(DateUtils.getEpochNow());
             installmentPlanService.save(inst);
 
-            // Abate o valor da parcela deletada da Fatura (Invoice) correspondente
             Invoices inv = inst.getInvoices();
             inv.setAmount(inv.getAmount().subtract(inst.getAmount()));
             invoicesService.save(inv);
@@ -212,6 +217,13 @@ public class TransactionServiceImpl implements TransactionService {
             creditCardService.updateLimit(card);
         }
 
+        if (transaction.getPaid() && transaction.getAccount().getType() != AccountType.CREDIT_CARD) {
+            Accounts acc = transaction.getAccount();
+            if (transaction.getType() == TransactionType.DESPESA) acc.credit(transaction.getAmount());
+            else if (transaction.getType() == TransactionType.RECEITA) acc.debit(transaction.getAmount());
+            accountsService.update(acc);
+        }
+
         transaction.setDeletedAt(dateNow);
         repository.save(transaction);
     }
@@ -247,36 +259,105 @@ public class TransactionServiceImpl implements TransactionService {
             throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_TRANSACTION);
         }
 
+        Accounts oldAccount = transaction.getAccount();
+        BigDecimal oldAmount = transaction.getAmount();
+        boolean wasPaid = transaction.getPaid();
+        TransactionType oldType = transaction.getType();
+
+        if (wasPaid && oldAccount.getType() != AccountType.CREDIT_CARD) {
+            if (oldType == TransactionType.DESPESA) oldAccount.credit(oldAmount);
+            else if (oldType == TransactionType.RECEITA) oldAccount.debit(oldAmount);
+            accountsService.update(oldAccount);
+        }
+
         if (dto.getName() != null) transaction.setName(dto.getName());
         if (dto.getDescription() != null) transaction.setDescription(dto.getDescription());
         if (dto.getType() != null) transaction.setType(dto.getType());
 
         if (dto.getAmount() != null) {
             transaction.setAmount(dto.getAmount());
+
+            // O Efeito Cascata funciona paralelo porque a regra JÁ existe no banco há tempos.
             if (Boolean.TRUE.equals(updateFuture) && transaction.getRecurrenceRule() != null) {
-                cascadeRuleUpdate(transaction.getRecurrenceRule().getId(), dto.getAmount());
+                UUID ruleId = transaction.getRecurrenceRule().getId();
+                BigDecimal newAmount = dto.getAmount();
+                CompletableFuture.runAsync(() -> {
+                    try {
+                        cascadeRuleUpdate(ruleId, newAmount);
+                    } catch (Exception e) {
+                        log.error("Erro ao aplicar efeito cascata na regra: " + ruleId, e);
+                    }
+                });
             }
         }
 
         if (dto.getDate() != null) transaction.setDate(dto.getDate());
         if (dto.getPaid() != null) transaction.setPaid(dto.getPaid());
 
-        if (dto.getAccountId() != null) {
-            Accounts account = accountsService.findById(dto.getAccountId())
-                    .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.ACCOUNT_NOT_FOUND));
-            if (!account.getUser().getId().equals(currentUser.getId())) {
+        // Controle para saber se precisamos projetar no final da função
+        boolean transformToFixed = false;
+
+        if (dto.getIsFixed() != null) {
+            boolean wasFixed = transaction.getFixed() != null ? transaction.getFixed() : false;
+            boolean isFixedNow = dto.getIsFixed();
+
+            transaction.setFixed(isFixedNow);
+
+            // Cenário A: Transformou uma transação normal em fixa!
+            if (!wasFixed && isFixedNow && dto.getRecurrenceFrequency() != null) {
+                RecurrenceRule rule = helper.createRecurrenceRule(dto, transaction.getType(), dateNow, currentUser, oldAccount, null, transaction.getCategory());
+                transaction.setRecurrenceRule(rule);
+                transformToFixed = true; // Avisa o final do método para projetar
+            }
+
+            // Cenário B: Era fixa e o usuário desmarcou (Cancela as futuras)
+            if (wasFixed && !isFixedNow && transaction.getRecurrenceRule() != null) {
+                RecurrenceRule rule = transaction.getRecurrenceRule();
+                rule.setStatus(RuleStatus.CANCELED);
+                rule.setUpdatedAt(dateNow);
+                recurrenceRuleService.save(rule);
+
+                List<Transactions> futureUnpaidTx = repository.findFutureUnpaidByRuleId(rule.getId(), dateNow);
+                for (Transactions tx : futureUnpaidTx) {
+                    tx.setDeletedAt(dateNow);
+                }
+                repository.saveAll(futureUnpaidTx);
+                transaction.setRecurrenceRule(null);
+            }
+        }
+
+        Accounts currentAccount = oldAccount;
+        if (dto.getAccountId() != null && !dto.getAccountId().equals(oldAccount.getId())) {
+            currentAccount = accountsService.findByIdOrThrow(dto.getAccountId());
+            if (!currentAccount.getUser().getId().equals(currentUser.getId())) {
                 throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_ACCOUNT);
             }
-            transaction.setAccount(account);
+            transaction.setAccount(currentAccount);
         }
+
         if (dto.getCategoryId() != null) {
-            Category category = categoryService.findById(dto.getCategoryId())
-                    .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.CATEGORY_NOT_FOUND));
+            Category category = categoryService.findByIdOrThrow(dto.getCategoryId());
             transaction.setCategory(category);
         }
 
+        if (transaction.getPaid() && currentAccount.getType() != AccountType.CREDIT_CARD) {
+            if (transaction.getType() == TransactionType.DESPESA) currentAccount.debit(transaction.getAmount());
+            else if (transaction.getType() == TransactionType.RECEITA) currentAccount.credit(transaction.getAmount());
+            accountsService.update(currentAccount);
+        }
+
         transaction.setUpdatedAt(dateNow);
-        return repository.save(transaction);
+
+        // 1. SALVA A TRANSAÇÃO ATUAL NO BANCO COM A REGRA ANEXADA
+        transaction = repository.save(transaction);
+
+        // 2. AGORA SIM GERA AS PROJEÇÕES (O banco já consegue enxergar a transação do passo 1)
+        if (transformToFixed) {
+            LocalDate limiteProjecao = LocalDate.now(DateUtils.zoneId).plusYears(1);
+            generateProjectionsForRule(transaction.getRecurrenceRule(), limiteProjecao);
+        }
+
+        return transaction;
     }
 
     @Override
@@ -318,6 +399,13 @@ public class TransactionServiceImpl implements TransactionService {
 
     @Override
     @Transactional
+    public void generateProjectionsByRuleId(UUID ruleId, LocalDate limitDate) {
+        RecurrenceRule rule = recurrenceRuleService.findByIdOrThrow(ruleId);
+        generateProjectionsForRule(rule, limitDate);
+    }
+
+    @Override
+    @Transactional
     public void generateProjectionsForRule(RecurrenceRule rule, LocalDate limitDate) {
         Long maxDateEpoch = repository.findMaxDateByRuleId(rule.getId());
         LocalDate nextDate = (maxDateEpoch != null) ? calculateNextDate(DateUtils.epochToLocalDate(maxDateEpoch), rule.getFrequency()) : DateUtils.epochToLocalDate(rule.getStartDate());
@@ -325,7 +413,6 @@ public class TransactionServiceImpl implements TransactionService {
 
         while (!nextDate.isAfter(limitDate) && DateUtils.localDateToEpoch(nextDate) <= endDateEpoch) {
             long epochNextDate = DateUtils.localDateToEpoch(nextDate);
-
             if (rule.getType() == TransactionType.TRANSFERENCIA) {
                 Transactions transferOut = createTransactionFromRule(rule, TransactionType.TRANSFERENCIA_SAIDA, epochNextDate, rule.getAccount());
                 Transactions transferIn = createTransactionFromRule(rule, TransactionType.TRANSFERENCIA_ENTRADA, epochNextDate, rule.getTargetAccount());
@@ -366,7 +453,6 @@ public class TransactionServiceImpl implements TransactionService {
 
         LocalDateTime dataCompra = DateUtils.epochToLocalDateTime(epochNextDate);
         LocalDateTime dataVencimentoFatura = helper.calculateInvoiceDate(dataCompra, card.getCloseDay(), card.getBestDay());
-
         int invMonth = dataVencimentoFatura.getMonthValue();
         int invYear = dataVencimentoFatura.getYear();
 
@@ -383,7 +469,6 @@ public class TransactionServiceImpl implements TransactionService {
                 .id(ID.generate()).name(rule.getName()).type(TransactionType.DESPESA.name()).amount(rule.getBaseAmount())
                 .totalInstallmentsPlan(1).currentInstallment(1).fixed(true).paid(false).purchaseId(purchaseTransaction.getId())
                 .enabled(true).createdAt(DateUtils.getEpochNow()).date(invoice.getExpirationDate()).invoices(invoice).user(rule.getUser()).build();
-
         installmentPlanService.save(installment);
     }
 
@@ -403,4 +488,3 @@ public class TransactionServiceImpl implements TransactionService {
         };
     }
 }
-

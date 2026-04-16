@@ -2,6 +2,7 @@ package com.cainanbt.softwares.controleja.dtos.responses;
 
 import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.enums.FuelType;
+import com.cainanbt.softwares.controleja.enums.RecurrenceFrequency;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
 import lombok.Data;
 
@@ -27,6 +28,10 @@ public class TransactionResponseDTO {
     private FuelType fuelType;
     private UUID recurrenceRuleId;
 
+    // CORREÇÃO: Campos que faltavam para o app ler o status do Toggle
+    private Boolean isFixed;
+    private RecurrenceFrequency recurrenceFrequency;
+
     public static TransactionResponseDTO toDTO(Transactions entity) {
         TransactionResponseDTO dto = new TransactionResponseDTO();
         dto.setId(entity.getId());
@@ -35,6 +40,8 @@ public class TransactionResponseDTO {
         dto.setAmount(entity.getAmount());
         dto.setDate(entity.getDate());
         dto.setPaid(entity.getPaid());
+
+        dto.setIsFixed(entity.getFixed());
 
         if (entity.getCategory() != null) {
             dto.setCategoryName(entity.getCategory().getName());
@@ -53,6 +60,7 @@ public class TransactionResponseDTO {
         }
         if (entity.getRecurrenceRule() != null) {
             dto.setRecurrenceRuleId(entity.getRecurrenceRule().getId());
+            dto.setRecurrenceFrequency(entity.getRecurrenceRule().getFrequency());
         }
 
         return dto;

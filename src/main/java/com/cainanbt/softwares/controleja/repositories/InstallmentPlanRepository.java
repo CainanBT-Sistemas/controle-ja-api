@@ -17,4 +17,7 @@ public interface InstallmentPlanRepository extends JpaRepository<InstallmentPlan
 
     @Query("SELECT i FROM InstallmentPlan i WHERE i.user.id = :userId AND i.date BETWEEN :start AND :end AND i.deletedAt IS NULL")
     List<InstallmentPlan> findByUserAndDateBetween(@Param("userId") UUID userId, @Param("start") Long start, @Param("end") Long end);
+
+    @Query("SELECT p FROM InstallmentPlan p WHERE p.invoices.id IN :invoiceIds AND p.deletedAt IS NULL AND p.paid = false AND p.amount > 0")
+    List<InstallmentPlan> findAdvanceableByInvoiceIds(@Param("invoiceIds") List<UUID> invoiceIds);
 }

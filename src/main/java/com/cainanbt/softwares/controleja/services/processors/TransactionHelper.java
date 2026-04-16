@@ -31,10 +31,14 @@ public class TransactionHelper {
 
     public Transactions.TransactionsBuilder createBaseTransactionBuilder(TransactionDTO dto, Accounts account, Category category, Users user) {
         long dateNow = DateUtils.getEpochNow();
+
+        // BLINDAGEM: Se a descrição vier nula do app, salva como texto vazio para não quebrar o banco de dados
+        String safeDescription = dto.getDescription() != null ? dto.getDescription() : "";
+
         var builder = Transactions.builder()
                 .id(ID.generate())
                 .name(dto.getName())
-                .description(dto.getDescription())
+                .description(safeDescription)
                 .type(dto.getType())
                 .amount(dto.getAmount())
                 .date(dto.getDate())
@@ -52,7 +56,6 @@ public class TransactionHelper {
                 throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_VEHICLE);
             }
             Double efficiency = vehicleService.processRefuel(vehicle, dto.getCurrentOdometer(), dto.getLiters(), dto.getFuelType());
-
             builder.vehicle(vehicle)
                     .liters(dto.getLiters())
                     .currentOdometer(dto.getCurrentOdometer())
@@ -63,10 +66,14 @@ public class TransactionHelper {
     }
 
     public RecurrenceRule createRecurrenceRule(TransactionDTO dto, TransactionType transactionType, long dateNow, Users user, Accounts accountOrigin, Accounts accountDest, Category category) {
+
+        // BLINDAGEM: Se a descrição vier nula do app, salva como texto vazio para não quebrar o banco de dados
+        String safeDescription = dto.getDescription() != null ? dto.getDescription() : "";
+
         RecurrenceRule rule = RecurrenceRule.builder()
                 .id(ID.generate())
                 .name(dto.getName())
-                .description(dto.getDescription())
+                .description(safeDescription)
                 .baseAmount(dto.getAmount())
                 .type(transactionType)
                 .frequency(dto.getRecurrenceFrequency())
@@ -79,7 +86,6 @@ public class TransactionHelper {
                 .account(accountOrigin)
                 .targetAccount(accountDest)
                 .build();
-
         return recurrenceRuleService.save(rule);
     }
 
