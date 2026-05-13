@@ -19,4 +19,6 @@ public interface CategoryRepository extends JpaRepository<Category, UUID> {
 
     @Query("SELECT COUNT(c) FROM Category c WHERE c.subCategory.id = :parentId AND c.deletedAt IS NULL")
     long countActiveSubCategories(@Param("parentId") UUID parentId);
+
+    Optional<Category> findByUserIdAndNameAndDeletedAtIsNull(UUID userId, String name);
 }

@@ -1,8 +1,10 @@
 package com.cainanbt.softwares.controleja.controller;
 
 import com.cainanbt.softwares.controleja.dtos.AccountDTO;
+import com.cainanbt.softwares.controleja.dtos.BalanceAdjustmentDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.AccountResponseDTO;
 import com.cainanbt.softwares.controleja.services.AccountsService;
+import com.cainanbt.softwares.controleja.services.TransactionService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -23,9 +25,11 @@ import java.util.UUID;
 @RequestMapping("controle_ja_api/v1/accounts")
 public class AccountsController {
     private final AccountsService accountsService;
+    private final TransactionService transactionService;
 
-    public AccountsController(AccountsService accountsService) {
+    public AccountsController(AccountsService accountsService, TransactionService transactionService) {
         this.accountsService = accountsService;
+        this.transactionService = transactionService;
     }
 
     @PostMapping
@@ -53,6 +57,14 @@ public class AccountsController {
         accountsService.softDelete(id);
         Map<String, String> response = new HashMap<>();
         response.put("message", ConstsMessages.DELETE_SUCCESS);
+        return ResponseEntity.ok(response);
+    }
+
+    @PutMapping("/{id}/adjust")
+    public ResponseEntity<?> adjustBalance(@PathVariable UUID id, @RequestBody @Valid BalanceAdjustmentDTO dto) {
+        transactionService.adjustBalance(id, dto.getNewBalance());
+        Map<String, String> response = new HashMap<>();
+        response.put("message", ConstsMessages.BALANCE_ADJUSTMENT_SUCCESS);
         return ResponseEntity.ok(response);
     }
 }

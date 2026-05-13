@@ -125,6 +125,13 @@ public class CategoryServiceImpl implements CategoryService {
             throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_CATEGORY);
         }
 
+        if (Boolean.TRUE.equals(category.getIsDefault())) {
+            throw new BadRequestException(
+                    ConstsMessages.ERROR_TITLE,
+                    "Categorias de sistema não podem ser excluídas." // Pode adicionar essa no seu ConstsMessages depois!
+            );
+        }
+
         // Check for active transactions referencing this category
         long dependent = transactionRepository.countByCategoryId(id);
         if (dependent > 0) {
@@ -141,5 +148,14 @@ public class CategoryServiceImpl implements CategoryService {
     @Override
     public void save(Category category) {
         repository.save(category);
+    }
+
+    @Override
+    public Category findCategoryByUserAndName(Users user, String categoryName) {
+        return repository.findByUserIdAndNameAndDeletedAtIsNull(user.getId(), categoryName)
+                .orElseThrow(() -> new BadRequestException(
+                        ConstsMessages.CRITICAL_ERROR_TITLE,
+                        ConstsMessages.CATEGORY_NOT_FOUND + " (" + categoryName + "). " + ConstsMessages.SYSTEM_CRITICAL_ERROR
+                ));
     }
 }

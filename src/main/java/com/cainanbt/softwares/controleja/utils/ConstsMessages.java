@@ -67,4 +67,5 @@ public class ConstsMessages {
     public static final String DELETE_SUCCESS = "Registro excluído com sucesso.";
     public static final String UPDATE_SUCCESS = "Registro atualizado com sucesso.";
     public static final String PASSWORD_CHANGED_SUCCESS = "Senha alterada com sucesso.";
+    public static final String BALANCE_ADJUSTMENT_SUCCESS = "Reajuste de saldo concluido com sucesso";
 }

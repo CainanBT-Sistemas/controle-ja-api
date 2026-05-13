@@ -428,6 +428,36 @@ public class TransactionServiceImpl implements TransactionService {
         }
     }
 
+    @Override
+    @Transactional
+    public void adjustBalance(UUID accountId, BigDecimal newBalance) {
+        Accounts account = accountsService.findByIdOrThrow(accountId);
+        BigDecimal currentBalance = account.getCurrentBalance();
+        BigDecimal difference = newBalance.subtract(currentBalance);
+
+        if (difference.compareTo(BigDecimal.ZERO) == 0) return;
+
+        TransactionType type = difference.compareTo(BigDecimal.ZERO) > 0
+                ? TransactionType.RECEITA
+                : TransactionType.DESPESA;
+
+        String categoryName = "Reajuste de Saldo";
+
+        Category category = categoryService.findCategoryByUserAndName(account.getUser(), categoryName);
+
+        TransactionDTO txDto = new TransactionDTO();
+        txDto.setName(categoryName);
+        txDto.setAmount(difference.abs());
+        txDto.setType(type);
+        txDto.setDate(DateUtils.getEpochNow());
+        txDto.setAccountId(accountId);
+        txDto.setCategoryId(category.getId());
+        txDto.setPaid(true);
+        txDto.setIsFixed(false);
+
+        this.createTransaction(txDto);
+    }
+
     private void deleteInstallmentsAndRestoreInvoice(UUID purchaseId, long dateNow) {
         List<InstallmentPlan> installments = installmentPlanService.findByPurchaseId(purchaseId);
         Map<UUID, Invoices> invoicesToUpdate = new HashMap<>();

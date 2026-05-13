@@ -208,6 +208,7 @@ public class UserServiceImpl implements UsersService {
         createDefaultCategory(user, "Vestuário", TransactionType.DESPESA.name(), "checkroom", "#26A69A", now);
         createDefaultCategory(user, "Pets", TransactionType.DESPESA.name(), "pets", "#795548", now);
         createDefaultCategory(user, "Transferência", TransactionType.TRANSFERENCIA.name(), "swap_horiz", "#3B82F6", now);
+        createDefaultCategory(user, "Reajuste de Saldo", TransactionType.REAJUSTE_SALDO.name(), "sync", "#9E9E9E", now);
 
         createDefaultCategory(user, "Salário", TransactionType.RECEITA.name(), "attach_money", "#00E676", now);
         createDefaultCategory(user, "Investimentos", TransactionType.RECEITA.name(), "trending_up", "#2979FF", now);

@@ -2,6 +2,7 @@ package com.cainanbt.softwares.controleja.services;
 
 import com.cainanbt.softwares.controleja.dtos.CategoryDTO;
 import com.cainanbt.softwares.controleja.entities.Category;
+import com.cainanbt.softwares.controleja.entities.Users;
 
 import java.util.List;
 import java.util.Optional;
@@ -21,4 +22,6 @@ public interface CategoryService {
     void softDelete(UUID id);
 
     void save(Category category);
+
+    Category findCategoryByUserAndName(Users user, String categoryName);
 }
