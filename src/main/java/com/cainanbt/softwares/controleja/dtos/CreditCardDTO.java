@@ -16,15 +16,15 @@ public class CreditCardDTO {
 
     @NotNull(message = "O limite é obrigatório")
     @DecimalMin(value = "0.0", inclusive = false, message = "O limite deve ser maior que zero")
-    private BigDecimal limit;
+    private BigDecimal totalLimit;
 
     @Min(value = 1, message = "Dia de fechamento inválido")
     @Max(value = 31, message = "Dia de fechamento inválido")
-    private int closeDay; // Dia que a fatura fecha
+    private int closeDay;
 
     @Min(value = 1, message = "Dia de vencimento inválido")
     @Max(value = 31, message = "Dia de vencimento inválido")
-    private int bestDay; // Dia que a fatura vence
+    private int bestDay;
 
     private String icon;
     private String color;

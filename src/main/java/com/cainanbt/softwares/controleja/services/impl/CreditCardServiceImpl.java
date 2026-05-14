@@ -62,8 +62,8 @@ public class CreditCardServiceImpl implements CreditCardService {
         CreditCard card = CreditCard.builder()
                 .id(ID.generate())
                 .name(dto.getName())
-                .totalLimit(dto.getLimit())
-                .currentLimit(dto.getLimit())
+                .totalLimit(dto.getTotalLimit()) // Ajustado para getTotalLimit()
+                .currentLimit(dto.getTotalLimit()) // Ajustado para getTotalLimit()
                 .closeDay(dto.getCloseDay())
                 .bestDay(dto.getBestDay())
                 .user(user)
@@ -115,6 +115,26 @@ public class CreditCardServiceImpl implements CreditCardService {
             throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_CARD);
         }
 
+        // --- VALIDAÇÃO DE SEGURANÇA DO LIMITE ---
+        if (dto.getTotalLimit() != null) {
+            // Valor já utilizado = Limite Total - Limite Disponível
+            BigDecimal usedAmount = card.getTotalLimit().subtract(card.getCurrentLimit());
+
+            // Se o novo limite total for menor que o que já foi gasto, barramos.
+            if (dto.getTotalLimit().compareTo(usedAmount) < 0) {
+                throw new BadRequestException(
+                        "Limite Inválido",
+                        "O novo limite não pode ser menor que o valor já utilizado na fatura (R$ " + usedAmount + ")."
+                );
+            }
+
+            // Calcula a diferença para ajustar o limite atual livre
+            BigDecimal difference = dto.getTotalLimit().subtract(card.getTotalLimit());
+            card.setTotalLimit(dto.getTotalLimit());
+            card.setCurrentLimit(card.getCurrentLimit().add(difference));
+        }
+
+        // Atualização da conta vinculada
         if (card.getAccounts() != null) {
             Accounts account = card.getAccounts();
             if (dto.getName() != null) {
@@ -127,12 +147,6 @@ public class CreditCardServiceImpl implements CreditCardService {
         }
 
         if (dto.getName() != null) card.setName(dto.getName());
-        if (dto.getLimit() != null) {
-            BigDecimal difference = dto.getLimit().subtract(card.getTotalLimit());
-            card.setTotalLimit(dto.getLimit());
-            card.setCurrentLimit(card.getCurrentLimit().add(difference));
-        }
-
         if (dto.getCloseDay() > 0) card.setCloseDay(dto.getCloseDay());
         if (dto.getBestDay() > 0) card.setBestDay(dto.getBestDay());
         if (dto.getIcon() != null) card.setIcon(dto.getIcon());
@@ -144,6 +158,7 @@ public class CreditCardServiceImpl implements CreditCardService {
     }
 
     @Override
+    @Transactional
     public void softDelete(UUID id) {
         CreditCard card = findByIdOrThrow(id);
         Users currentUser = SecurityContextUtils.getCurrentUser();
