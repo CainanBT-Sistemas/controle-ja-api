@@ -1,5 +1,6 @@
 package com.cainanbt.softwares.controleja.controller.controle_ja_api.v1.invoices;
 
+import com.cainanbt.softwares.controleja.controller.InvoicesController;
 import com.cainanbt.softwares.controleja.dtos.invoices.AdvanceRequestDTO;
 import com.cainanbt.softwares.controleja.dtos.invoices.InvoiceDetailsDTO;
 import com.cainanbt.softwares.controleja.dtos.invoices.RefundRequestDTO;

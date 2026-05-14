@@ -20,34 +20,34 @@ public interface UsersRepository extends JpaRepository<Users, UUID> {
     // --- QUERIES PARA O RESET DE CONTA (HARD DELETE) ---
 
     @Modifying
-    @Query(value = "DELETE FROM installment_plan WHERE user_id = :userId", nativeQuery = true)
+    @Query(value = "DELETE FROM installment_plan WHERE user_id = CAST(:userId AS uuid)", nativeQuery = true)
     void deleteInstallmentsByUserId(@Param("userId") UUID userId);
 
     @Modifying
-    @Query(value = "DELETE FROM invoicess WHERE user_id = :userId", nativeQuery = true)
+    @Query(value = "DELETE FROM invoicess WHERE user_id = CAST(:userId AS uuid)", nativeQuery = true)
     void deleteInvoicesByUserId(@Param("userId") UUID userId);
 
     @Modifying
-    @Query(value = "DELETE FROM transactions WHERE user_id = :userId", nativeQuery = true)
+    @Query(value = "DELETE FROM transactions WHERE user_id = CAST(:userId AS uuid)", nativeQuery = true)
     void deleteTransactionsByUserId(@Param("userId") UUID userId);
 
     @Modifying
-    @Query(value = "DELETE FROM credit_cards WHERE user_id = :userId", nativeQuery = true)
+    @Query(value = "DELETE FROM credit_cards WHERE user_id = CAST(:userId AS uuid)", nativeQuery = true)
     void deleteCreditCardsByUserId(@Param("userId") UUID userId);
 
     @Modifying
-    @Query(value = "DELETE FROM vehicles WHERE user_id = :userId", nativeQuery = true)
+    @Query(value = "DELETE FROM vehicles WHERE user_id = CAST(:userId AS uuid)", nativeQuery = true)
     void deleteVehiclesByUserId(@Param("userId") UUID userId);
 
     @Modifying
-    @Query(value = "DELETE FROM category WHERE sub_category_id IS NOT NULL AND user_id = :userId", nativeQuery = true)
+    @Query(value = "DELETE FROM category WHERE sub_category_id IS NOT NULL AND user_id = CAST(:userId AS uuid)", nativeQuery = true)
     void deleteSubCategoriesByUserId(@Param("userId") UUID userId);
 
     @Modifying
-    @Query(value = "DELETE FROM category WHERE user_id = :userId", nativeQuery = true)
+    @Query(value = "DELETE FROM category WHERE user_id = CAST(:userId AS uuid)", nativeQuery = true)
     void deleteCategoriesByUserId(@Param("userId") UUID userId);
 
     @Modifying
-    @Query(value = "DELETE FROM accounts WHERE user_id = :userId", nativeQuery = true)
+    @Query(value = "DELETE FROM accounts WHERE user_id = CAST(:userId AS uuid)", nativeQuery = true)
     void deleteAccountsByUserId(@Param("userId") UUID userId);
 }

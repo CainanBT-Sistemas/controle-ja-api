@@ -207,7 +207,6 @@ public class UserServiceImpl implements UsersService {
         createDefaultCategory(user, "Contas Fixas", TransactionType.DESPESA.name(), "receipt_long", "#8D6E63", now, null);
         createDefaultCategory(user, "Vestuário", TransactionType.DESPESA.name(), "checkroom", "#26A69A", now, null);
         createDefaultCategory(user, "Pets", TransactionType.DESPESA.name(), "pets", "#795548", now, null);
-        createDefaultCategory(user, "Veículo", TransactionType.TRANSFERENCIA.name(), "swap_horiz", "#3B82F6", now, null);
 
         Category categoryVeiculo = createDefaultCategory(user, "Veículo", TransactionType.DESPESA.name(), "directions_car", "#3F51B5", now, null);
         createDefaultCategory(user, "Abastecimento", TransactionType.DESPESA.name(), "local_gas_station", "#3F51B5", now, categoryVeiculo);
@@ -216,7 +215,7 @@ public class UserServiceImpl implements UsersService {
         createDefaultCategory(user, "Impostos (IPVA/Lic.)", TransactionType.DESPESA.name(), "receipt", "#3F51B5", now, categoryVeiculo);
         createDefaultCategory(user, "Multas", TransactionType.DESPESA.name(), "gavel", "#3F51B5", now, categoryVeiculo);
         createDefaultCategory(user, "Estacionamento/Pedágio", TransactionType.DESPESA.name(), "toll", "#3F51B5", now, categoryVeiculo);
-        createDefaultCategory(user, "Estética", TransactionType.DESPESA.name(), "toll", "#3F51B5", now, categoryVeiculo);
+        createDefaultCategory(user, "Estética", TransactionType.DESPESA.name(), "local_car_wash", "#3F51B5", now, categoryVeiculo);
 
         createDefaultCategory(user, "Reajuste de Saldo", TransactionType.REAJUSTE_SALDO.name(), "sync", "#9E9E9E", now, null);
 
@@ -233,7 +232,7 @@ public class UserServiceImpl implements UsersService {
                 .name(name)
                 .categoryType(type)
                 .enabled(true)
-                .isSubCategory(false)
+                .isSubCategory(parentCategory != null)
                 .isDefault(true)
                 .icon(icon)
                 .color(color)

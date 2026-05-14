@@ -1,4 +1,4 @@
-package com.cainanbt.softwares.controleja.controller.controle_ja_api.v1.invoices;
+package com.cainanbt.softwares.controleja.controller;
 
 import com.cainanbt.softwares.controleja.dtos.invoices.AdvanceRequestDTO;
 import com.cainanbt.softwares.controleja.dtos.invoices.InvoiceDetailsDTO;
