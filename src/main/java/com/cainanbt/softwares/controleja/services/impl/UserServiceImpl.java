@@ -216,6 +216,7 @@ public class UserServiceImpl implements UsersService {
         createDefaultCategory(user, "Impostos (IPVA/Lic.)", TransactionType.DESPESA.name(), "receipt", "#3F51B5", now, categoryVeiculo);
         createDefaultCategory(user, "Multas", TransactionType.DESPESA.name(), "gavel", "#3F51B5", now, categoryVeiculo);
         createDefaultCategory(user, "Estacionamento/Pedágio", TransactionType.DESPESA.name(), "toll", "#3F51B5", now, categoryVeiculo);
+        createDefaultCategory(user, "Estética", TransactionType.DESPESA.name(), "toll", "#3F51B5", now, categoryVeiculo);
 
         createDefaultCategory(user, "Reajuste de Saldo", TransactionType.REAJUSTE_SALDO.name(), "sync", "#9E9E9E", now, null);
 
