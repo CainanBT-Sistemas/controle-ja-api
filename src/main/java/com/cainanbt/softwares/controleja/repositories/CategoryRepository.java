@@ -21,4 +21,6 @@ public interface CategoryRepository extends JpaRepository<Category, UUID> {
     long countActiveSubCategories(@Param("parentId") UUID parentId);
 
     Optional<Category> findByUserIdAndNameAndDeletedAtIsNull(UUID userId, String name);
+
+    List<Category> findBySubCategoryIdAndDeletedAtIsNull(UUID parentId);
 }

@@ -21,7 +21,7 @@ public interface CategoryService {
     
     void softDelete(UUID id);
 
-    void save(Category category);
+    Category save(Category category);
 
     Category findCategoryByUserAndName(Users user, String categoryName);
 }

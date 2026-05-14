@@ -14,6 +14,7 @@ import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -117,6 +118,7 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
+    @Transactional
     public void softDelete(UUID id) {
         Category category = findByIdOrThrow(id);
         Users currentUser = SecurityContextUtils.getCurrentUser();
@@ -132,22 +134,30 @@ public class CategoryServiceImpl implements CategoryService {
             );
         }
 
-        // Check for active transactions referencing this category
-        long dependent = transactionRepository.countByCategoryId(id);
-        if (dependent > 0) {
-            throw new BadRequestException("Ação não permitida", "Categoria não pode ser excluída pois está sendo usada em transações. Remova ou atualize as transações que referenciam essa categoria antes de excluir.");
+        List<Category> subCategories = repository.findBySubCategoryIdAndDeletedAtIsNull(category.getId());
+        long dependentTransactions = transactionRepository.countByCategoryId(id);
+        for (Category sub : subCategories) {
+            dependentTransactions += transactionRepository.countByCategoryId(sub.getId());
         }
-
         if (category.getDeletedAt() != null) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.ENTITY_ALREADY_DELETED);
         }
-        category.setDeletedAt(DateUtils.getEpochNow());
+
+        long now = DateUtils.getEpochNow();
+
+        if (!subCategories.isEmpty()) {
+            for (Category sub : subCategories) {
+                sub.setDeletedAt(now);
+            }
+            repository.saveAll(subCategories);
+        }
+        category.setDeletedAt(now);
         repository.save(category);
     }
 
     @Override
-    public void save(Category category) {
-        repository.save(category);
+    public Category save(Category category) {
+        return repository.save(category);
     }
 
     @Override
