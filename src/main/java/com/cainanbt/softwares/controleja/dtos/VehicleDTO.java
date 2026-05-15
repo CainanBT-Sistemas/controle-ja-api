@@ -26,4 +26,6 @@ public class VehicleDTO {
 
     @NotNull(message = "Quilometragem inicial é obrigatória")
     private BigDecimal currentOdometer;
+
+    private Double tankCapacity; // NOVO CAMPO OPCIONAL
 }

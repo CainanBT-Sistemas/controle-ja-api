@@ -33,27 +33,42 @@ import java.util.UUID;
 public class Vehicle {
     @Id
     private UUID id;
+
     @Column(nullable = false)
     private String name;
+
     @Column(nullable = false)
     private String brand;
+
     @Column(nullable = false)
     private String model;
+
     @Column(nullable = false)
     private Integer year;
+
     private String plate;
+
     @Column(nullable = false)
     private BigDecimal currentOdometer;
+
     @Column(nullable = false)
     private Long createdAt;
+
     @Column
     private Double avgKmPerLiterGasoline;
+
     @Column
     private Double avgKmPerLiterEthanol;
+
+    @Column
+    private Double tankCapacity; // NOVO CAMPO
+
     @Column
     private Long updatedAt;
+
     @Column
     private Long deletedAt;
+
     @ManyToOne
     @JoinColumn(name = "user_id", nullable = false)
     private Users user;

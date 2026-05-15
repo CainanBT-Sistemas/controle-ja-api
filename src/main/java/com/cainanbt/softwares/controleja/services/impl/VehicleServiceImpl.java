@@ -110,12 +110,10 @@ public class VehicleServiceImpl implements VehicleService {
             throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_VEHICLE);
         }
 
-        if (dto.getName() != null) vehicle.setName(dto.getName());
-        if (dto.getBrand() != null) vehicle.setBrand(dto.getBrand());
-        if (dto.getModel() != null) vehicle.setModel(dto.getModel());
-        if (dto.getYear() != null) vehicle.setYear(dto.getYear());
-        if (dto.getPlate() != null) vehicle.setPlate(dto.getPlate());
-        if (dto.getCurrentOdometer() != null) vehicle.setCurrentOdometer(dto.getCurrentOdometer());
+        // A MURALHA: Apenas o Apelido (Name) pode ser alterado na edição!
+        if (dto.getName() != null && !dto.getName().trim().isEmpty()) {
+            vehicle.setName(dto.getName());
+        }
 
         vehicle.setUpdatedAt(DateUtils.getEpochNow());
         return repository.save(vehicle);

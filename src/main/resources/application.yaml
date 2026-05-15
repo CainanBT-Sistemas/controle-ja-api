@@ -34,7 +34,7 @@ app:
   config:
     jwt:
       secret: ${JWT_SECRET:verysecretkeythatshouldbeatleast32chars!}
-      expiration-ms: 3600000
+      expiration-ms: 604800000
       refresh-expiration-ms: 86400000
     token:
       issue: controle_ja_api

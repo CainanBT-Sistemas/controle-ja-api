@@ -17,6 +17,7 @@ public class VehicleResponseDTO {
     private Double avgEthanol;
     private Integer year;
     private String plate;
+    private Double tankCapacity; // NOVO CAMPO
 
     public static VehicleResponseDTO toDTO(Vehicle entity) {
         VehicleResponseDTO dto = new VehicleResponseDTO();
@@ -29,6 +30,7 @@ public class VehicleResponseDTO {
         dto.setAvgEthanol(entity.getAvgKmPerLiterEthanol());
         dto.setPlate(entity.getPlate());
         dto.setYear(entity.getYear());
+        dto.setTankCapacity(entity.getTankCapacity());
         return dto;
     }
 }

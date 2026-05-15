@@ -96,4 +96,10 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
 
     @Query("SELECT t FROM Transactions t WHERE t.user.id = :userId AND t.type = :type AND t.paid = false AND t.date <= :endDate AND t.account.type != com.cainanbt.softwares.controleja.enums.AccountType.CREDIT_CARD AND t.deletedAt IS NULL ORDER BY t.date ASC")
     List<Transactions> findPendingUpToDate(@Param("userId") UUID userId, @Param("type") TransactionType type, @Param("endDate") Long endDate);
+
+    @Query("SELECT SUM(t.amount) FROM Transactions t WHERE t.vehicle.id = :vehicleId AND t.type = 'DESPESA' AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL")
+    BigDecimal getTotalExpenseByVehicle(@Param("vehicleId") UUID vehicleId, @Param("start") Long start, @Param("end") Long end);
+
+    // Encontra o último abastecimento do carro (onde fuelType não é nulo)
+    Optional<Transactions> findFirstByVehicleIdAndFuelTypeIsNotNullAndDeletedAtIsNullOrderByDateDesc(UUID vehicleId);
 }

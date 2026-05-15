@@ -2,6 +2,7 @@ package com.cainanbt.softwares.controleja.controller;
 
 import com.cainanbt.softwares.controleja.dtos.VehicleDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.VehicleResponseDTO;
+import com.cainanbt.softwares.controleja.services.VehicleDashboardService;
 import com.cainanbt.softwares.controleja.services.VehicleService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import jakarta.validation.Valid;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.HashMap;
@@ -26,8 +28,11 @@ public class VehicleController {
 
     private final VehicleService vehicleService;
 
-    public VehicleController(VehicleService vehicleService) {
+    private final VehicleDashboardService dashboardService;
+
+    public VehicleController(VehicleService vehicleService, VehicleDashboardService dashboardService) {
         this.vehicleService = vehicleService;
+        this.dashboardService = dashboardService;
     }
 
     @PostMapping
@@ -56,5 +61,13 @@ public class VehicleController {
         Map<String, String> response = new HashMap<>();
         response.put("message", ConstsMessages.DELETE_SUCCESS);
         return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/{id}/dashboard")
+    public ResponseEntity<com.cainanbt.softwares.controleja.dtos.dashboard.VehicleDashboardDTO> getDashboard(
+            @PathVariable UUID id,
+            @RequestParam Long start,
+            @RequestParam Long end) {
+        return ResponseEntity.ok(dashboardService.getDashboard(id, start, end));
     }
 }

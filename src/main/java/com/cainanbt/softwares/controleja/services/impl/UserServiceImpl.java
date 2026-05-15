@@ -162,6 +162,7 @@ public class UserServiceImpl implements UsersService {
         if (userOpt.isPresent()) {
             Users u = userOpt.get();
             UUID userId = u.getId();
+            userRepository.deleteVehicleLogsByUserId(userId);
             userRepository.deleteInstallmentsByUserId(userId);
             userRepository.deleteInvoicesByUserId(userId);
             userRepository.deleteTransactionsByUserId(userId);
