@@ -7,6 +7,7 @@ import com.cainanbt.softwares.controleja.entities.CreditCard;
 import com.cainanbt.softwares.controleja.entities.InstallmentPlan;
 import com.cainanbt.softwares.controleja.entities.Invoices;
 import com.cainanbt.softwares.controleja.entities.Users;
+import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
 import com.cainanbt.softwares.controleja.services.InstallmentPlanService;
 import com.cainanbt.softwares.controleja.services.InvoicesService;
@@ -31,6 +32,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -157,6 +159,7 @@ public class InvoicesWebServiceImplTest {
 
             when(invoicesService.findByIdOrThrow(invoice.getId())).thenReturn(invoice);
             when(installmentPlanService.findById(original.getId())).thenReturn(Optional.of(original));
+            when(installmentPlanService.findByPurchaseId(original.getPurchaseId())).thenReturn(List.of(original));
 
             RefundRequestDTO req = RefundRequestDTO.builder().installmentId(original.getId()).refundAmount(new BigDecimal("20.00")).build();
 
@@ -177,6 +180,57 @@ public class InvoicesWebServiceImplTest {
             assertEquals(new BigDecimal("130.00"), savedInv.getAmount());
 
             verify(creditCardService).updateLimit(any(CreditCard.class));
+        }
+    }
+
+    @Test
+    public void processRefund_whenInstallmentDoesNotBelongToInvoice_shouldThrow() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            Invoices invoice = Invoices.builder().id(UUID.randomUUID()).amount(new BigDecimal("150.00")).user(currentUser).build();
+            Invoices otherInvoice = Invoices.builder().id(UUID.randomUUID()).amount(new BigDecimal("50.00")).user(currentUser).build();
+            InstallmentPlan original = InstallmentPlan.builder()
+                    .id(UUID.randomUUID())
+                    .amount(new BigDecimal("50.00"))
+                    .purchaseId(UUID.randomUUID())
+                    .user(currentUser)
+                    .invoices(otherInvoice)
+                    .paid(false)
+                    .build();
+
+            when(invoicesService.findByIdOrThrow(invoice.getId())).thenReturn(invoice);
+            when(installmentPlanService.findById(original.getId())).thenReturn(Optional.of(original));
+
+            RefundRequestDTO req = RefundRequestDTO.builder().installmentId(original.getId()).refundAmount(new BigDecimal("20.00")).build();
+
+            assertThrows(BadRequestException.class, () -> service.processRefund(invoice.getId(), req));
+        }
+    }
+
+    @Test
+    public void processRefund_whenAmountExceedsRemaining_shouldThrow() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            Invoices invoice = Invoices.builder().id(UUID.randomUUID()).amount(new BigDecimal("150.00")).user(currentUser).build();
+            UUID purchaseId = UUID.randomUUID();
+            InstallmentPlan original = InstallmentPlan.builder()
+                    .id(UUID.randomUUID())
+                    .amount(new BigDecimal("50.00"))
+                    .purchaseId(purchaseId)
+                    .user(currentUser)
+                    .invoices(invoice)
+                    .paid(false)
+                    .build();
+
+            when(invoicesService.findByIdOrThrow(invoice.getId())).thenReturn(invoice);
+            when(installmentPlanService.findById(original.getId())).thenReturn(Optional.of(original));
+            when(installmentPlanService.findByPurchaseId(purchaseId)).thenReturn(List.of(original));
+
+            RefundRequestDTO req = RefundRequestDTO.builder().installmentId(original.getId()).refundAmount(new BigDecimal("60.00")).build();
+
+            assertThrows(BadRequestException.class, () -> service.processRefund(invoice.getId(), req));
         }
     }
 
@@ -214,6 +268,32 @@ public class InvoicesWebServiceImplTest {
 
             // Fatura atual: 100 original + 30 (parcela 1) + 40 (parcela 2) - 10 (desconto) = 160
             assertEquals(new BigDecimal("160.00"), currentInvoice.getAmount());
+        }
+    }
+
+    @Test
+    public void advanceInstallments_whenQuantityExceedsAvailable_shouldThrow() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            CreditCard card = CreditCard.builder().id(UUID.randomUUID()).currentLimit(new BigDecimal("50.00")).totalLimit(new BigDecimal("200.00")).build();
+            Invoices currentInvoice = Invoices.builder()
+                    .id(UUID.randomUUID())
+                    .expirationDate(DateUtils.getEpochNow())
+                    .amount(new BigDecimal("100.00"))
+                    .creditCard(card)
+                    .user(currentUser)
+                    .build();
+            Invoices futureInvoice = Invoices.builder().id(UUID.randomUUID()).expirationDate(DateUtils.getEpochNow() + 500000L).amount(new BigDecimal("200.00")).user(currentUser).build();
+            UUID purchaseId = UUID.randomUUID();
+            InstallmentPlan i1 = InstallmentPlan.builder().id(UUID.randomUUID()).date(DateUtils.getEpochNow() + 100000L).amount(new BigDecimal("30.00")).invoices(futureInvoice).purchaseId(purchaseId).paid(false).build();
+
+            when(invoicesService.findByIdOrThrow(currentInvoice.getId())).thenReturn(currentInvoice);
+            when(installmentPlanService.findByPurchaseId(purchaseId)).thenReturn(List.of(i1));
+
+            AdvanceRequestDTO req = AdvanceRequestDTO.builder().purchaseId(purchaseId).quantityToAdvance(2).discountAmount(BigDecimal.ZERO).build();
+
+            assertThrows(BadRequestException.class, () -> service.advanceInstallments(currentInvoice.getId(), req));
         }
     }
 

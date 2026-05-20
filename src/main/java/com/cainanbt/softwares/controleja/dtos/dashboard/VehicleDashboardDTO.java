@@ -1,5 +1,6 @@
 package com.cainanbt.softwares.controleja.dtos.dashboard;
 
+import com.cainanbt.softwares.controleja.enums.FuelType;
 import lombok.Builder;
 import lombok.Data;
 
@@ -18,4 +19,11 @@ public class VehicleDashboardDTO {
     private Double remainingKms;
     private Long estimatedNextRefuelDate; // Epoch de quando o tanque vai pedir reserva
     private BigDecimal estimatedNextRefuelCost; // Quanto vai custar para encher com base no último preço pago
+
+    // Dados do último abastecimento no período consultado
+    private BigDecimal lastRefuelAmount;
+    private BigDecimal lastFuelPricePerLiter;
+    private Double lastRefuelDistanceKm;
+    private Double lastRefuelKml;
+    private FuelType lastRefuelFuelType;
 }

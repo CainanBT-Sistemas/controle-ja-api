@@ -85,6 +85,11 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
     @Query("SELECT t FROM Transactions t WHERE t.parentTransaction.id = :parentId AND t.deletedAt IS NULL")
     List<Transactions> findByParentTransactionId(@Param("parentId") UUID parentId);
 
+    @Query("SELECT t FROM Transactions t WHERE t.parentTransaction.id = :parentId " +
+            "AND t.type = com.cainanbt.softwares.controleja.enums.TransactionType.TRANSFERENCIA_ENTRADA " +
+            "AND t.deletedAt IS NULL")
+    Optional<Transactions> findTransferChildByParentId(@Param("parentId") UUID parentId);
+
     @Modifying
     @Query("UPDATE Transactions t SET t.deletedAt = :dateNow WHERE t.parentTransaction.id = :parentId AND t.deletedAt IS NULL")
     void deleteByParentId(@Param("parentId") UUID parentId, @Param("dateNow") long dateNow);
@@ -97,9 +102,46 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
     @Query("SELECT t FROM Transactions t WHERE t.user.id = :userId AND t.type = :type AND t.paid = false AND t.date <= :endDate AND t.account.type != com.cainanbt.softwares.controleja.enums.AccountType.CREDIT_CARD AND t.deletedAt IS NULL ORDER BY t.date ASC")
     List<Transactions> findPendingUpToDate(@Param("userId") UUID userId, @Param("type") TransactionType type, @Param("endDate") Long endDate);
 
-    @Query("SELECT SUM(t.amount) FROM Transactions t WHERE t.vehicle.id = :vehicleId AND t.type = 'DESPESA' AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL")
-    BigDecimal getTotalExpenseByVehicle(@Param("vehicleId") UUID vehicleId, @Param("start") Long start, @Param("end") Long end);
+    @Query("SELECT COALESCE(SUM(CASE " +
+            "WHEN t.type = com.cainanbt.softwares.controleja.enums.TransactionType.DESPESA THEN t.amount " +
+            "WHEN t.type = com.cainanbt.softwares.controleja.enums.TransactionType.RECEITA THEN -t.amount " +
+            "ELSE 0 END), 0) " +
+            "FROM Transactions t LEFT JOIN t.category.subCategory parentCategory " +
+            "WHERE t.vehicle.id = :vehicleId " +
+            "AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
+            "AND t.type IN (com.cainanbt.softwares.controleja.enums.TransactionType.DESPESA, com.cainanbt.softwares.controleja.enums.TransactionType.RECEITA) " +
+            "AND (LOWER(t.category.name) IN ('veículo', 'veículos') " +
+            "OR LOWER(parentCategory.name) IN ('veículo', 'veículos'))")
+    BigDecimal getNetVehicleCost(@Param("vehicleId") UUID vehicleId, @Param("start") Long start, @Param("end") Long end);
 
     // Encontra o último abastecimento do carro (onde fuelType não é nulo)
     Optional<Transactions> findFirstByVehicleIdAndFuelTypeIsNotNullAndDeletedAtIsNullOrderByDateDesc(UUID vehicleId);
+
+    @Query("SELECT t FROM Transactions t LEFT JOIN t.category.subCategory parentCategory " +
+            "WHERE t.vehicle.id = :vehicleId AND t.type = 'DESPESA' " +
+            "AND t.liters IS NOT NULL AND t.liters > 0 " +
+            "AND t.amount IS NOT NULL AND t.amount > 0 " +
+            "AND t.currentOdometer IS NOT NULL AND t.currentOdometer > 0 " +
+            "AND (LOWER(t.category.name) = 'abastecimento' " +
+            "OR LOWER(parentCategory.name) = 'abastecimento' " +
+            "OR t.fuelType IS NOT NULL OR t.gasStation IS NOT NULL) " +
+            "AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
+            "ORDER BY t.date ASC, t.createdAt ASC")
+    List<Transactions> findRefuelsByVehicleAndDateBetween(@Param("vehicleId") UUID vehicleId, @Param("start") Long start, @Param("end") Long end);
+
+    @Query("SELECT t FROM Transactions t LEFT JOIN t.category.subCategory parentCategory " +
+            "WHERE t.vehicle.id = :vehicleId AND t.type = 'DESPESA' " +
+            "AND t.currentOdometer IS NOT NULL AND t.currentOdometer > 0 " +
+            "AND (LOWER(t.category.name) = 'abastecimento' " +
+            "OR LOWER(parentCategory.name) = 'abastecimento' " +
+            "OR t.liters IS NOT NULL OR t.fuelType IS NOT NULL OR t.gasStation IS NOT NULL) " +
+            "AND t.date < :date AND t.deletedAt IS NULL " +
+            "ORDER BY t.date DESC, t.createdAt DESC")
+    List<Transactions> findPreviousValidRefuelsByVehicleBeforeDate(@Param("vehicleId") UUID vehicleId, @Param("date") Long date);
+
+    @Query("SELECT t FROM Transactions t WHERE t.vehicle.id = :vehicleId AND t.type = 'DESPESA' " +
+            "AND t.fuelType IS NOT NULL AND t.liters IS NOT NULL AND t.liters > 0 " +
+            "AND t.currentOdometer IS NOT NULL AND t.date <= :date AND t.deletedAt IS NULL " +
+            "ORDER BY t.date DESC, t.createdAt DESC")
+    List<Transactions> findValidRefuelsByVehicleUpToDate(@Param("vehicleId") UUID vehicleId, @Param("date") Long date);
 }

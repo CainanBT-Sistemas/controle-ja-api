@@ -51,6 +51,22 @@ public class InvoicePaymentProcessor implements TransactionProcessor {
         if (cardAccount.getType() != AccountType.CREDIT_CARD) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.INVOICE_TARGET_NOT_CARD);
         }
+        if (!cardAccount.getUser().getId().equals(user.getId())) {
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_ACCOUNT);
+        }
+
+        Invoices invoiceToPay = null;
+        CreditCard card = creditCardService.findByAccountId(cardAccount.getId());
+        if (dto.getTargetInvoiceId() != null) {
+            invoiceToPay = invoicesService.findByIdOrThrow(dto.getTargetInvoiceId());
+            if (!invoiceToPay.getUser().getId().equals(user.getId())) {
+                throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, "Fatura não pertence ao usuário autenticado.");
+            }
+            if (invoiceToPay.getCreditCard() == null
+                    || !invoiceToPay.getCreditCard().getAccounts().getId().equals(cardAccount.getId())) {
+                throw new BadRequestException(ConstsMessages.ERROR_TITLE, "A conta de destino não pertence ao cartão da fatura.");
+            }
+        }
 
         long dateNow = DateUtils.getEpochNow();
 
@@ -60,6 +76,7 @@ public class InvoicePaymentProcessor implements TransactionProcessor {
                 .fixed(false).paid(dto.getPaid()).enabled(true)
                 .createdAt(dateNow).date(dto.getDate())
                 .account(sourceAccount).category(category).user(user)
+                .targetInvoice(invoiceToPay).creditCard(card)
                 .build();
 
         Transactions paymentIn = Transactions.builder()
@@ -68,6 +85,7 @@ public class InvoicePaymentProcessor implements TransactionProcessor {
                 .fixed(false).paid(dto.getPaid()).enabled(true)
                 .createdAt(dateNow).date(dto.getDate())
                 .account(cardAccount).category(category).user(user)
+                .targetInvoice(invoiceToPay).creditCard(card)
                 .parentTransaction(paymentOut)
                 .build();
 
@@ -79,13 +97,10 @@ public class InvoicePaymentProcessor implements TransactionProcessor {
             cardAccount.credit(dto.getAmount());
             accountsService.update(cardAccount);
 
-            CreditCard card = creditCardService.findByAccountId(cardAccount.getId());
             card.restoreLimit(dto.getAmount());
             creditCardService.updateLimit(card);
 
-            if (dto.getTargetInvoiceId() != null) {
-                Invoices invoiceToPay = invoicesService.findByIdOrThrow(dto.getTargetInvoiceId());
-
+            if (invoiceToPay != null) {
                 // Create a credit installment in the invoice representing the payment received
                 InstallmentPlan paymentCredit = InstallmentPlan.builder()
                         .id(ID.generate())

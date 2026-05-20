@@ -1,6 +1,7 @@
 package com.cainanbt.softwares.controleja.entities;
 
 import com.cainanbt.softwares.controleja.enums.FuelType;
+import com.cainanbt.softwares.controleja.enums.DrivingPredominance;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -89,7 +90,16 @@ public class Transactions {
     private FuelType fuelType;
     @Column(nullable = true)
     private Double efficiency; // Km/L deste abastecimento específico
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = true)
+    private DrivingPredominance drivingPredominance;
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "gas_station_id", nullable = true)
     private GasStation gasStation;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "target_invoice_id", nullable = true)
+    private Invoices targetInvoice;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "credit_card_id", nullable = true)
+    private CreditCard creditCard;
 }

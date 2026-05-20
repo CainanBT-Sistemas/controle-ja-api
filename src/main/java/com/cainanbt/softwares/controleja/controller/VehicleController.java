@@ -1,6 +1,7 @@
 package com.cainanbt.softwares.controleja.controller;
 
 import com.cainanbt.softwares.controleja.dtos.VehicleDTO;
+import com.cainanbt.softwares.controleja.dtos.dashboard.VehicleDashboardDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.VehicleResponseDTO;
 import com.cainanbt.softwares.controleja.services.VehicleDashboardService;
 import com.cainanbt.softwares.controleja.services.VehicleService;
@@ -64,7 +65,7 @@ public class VehicleController {
     }
 
     @GetMapping("/{id}/dashboard")
-    public ResponseEntity<com.cainanbt.softwares.controleja.dtos.dashboard.VehicleDashboardDTO> getDashboard(
+    public ResponseEntity<VehicleDashboardDTO> getDashboard(
             @PathVariable UUID id,
             @RequestParam Long start,
             @RequestParam Long end) {

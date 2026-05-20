@@ -63,6 +63,7 @@ public class CreditCardExpenseProcessor implements TransactionProcessor {
 
         Transactions purchaseTransaction = helper.createBaseTransactionBuilder(dto, account, category, user)
                 .paid(false)
+                .creditCard(card)
                 .recurrenceRule(rule) // ANEXANDO A REGRA AQUI!
                 .build();
         purchaseTransaction = repository.save(purchaseTransaction);

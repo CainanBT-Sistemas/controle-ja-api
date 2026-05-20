@@ -21,6 +21,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static io.restassured.RestAssured.given;
@@ -28,6 +30,7 @@ import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 
 public class TransactionControllerTest extends BaseTest {
 
@@ -129,9 +132,11 @@ public class TransactionControllerTest extends BaseTest {
         dto.setCategoryId(categoryId);
         dto.setIsFixed(false);
 
-        given().header("Authorization", "Bearer " + token)
+        String transferOutId = given().header("Authorization", "Bearer " + token)
                 .contentType(ContentType.JSON).body(dto).post("/transactions")
-                .then().statusCode(200);
+                .then().statusCode(200)
+                .body("parentTransactionId", nullValue())
+                .extract().path("id");
 
         // Valida saldos cruzados
         given().header("Authorization", "Bearer " + token).get("/accounts/" + walletId)
@@ -139,6 +144,129 @@ public class TransactionControllerTest extends BaseTest {
 
         given().header("Authorization", "Bearer " + token).get("/accounts/" + bankId)
                 .then().body("currentBalance", is(200.0f)); // 0 + 200
+
+        given().header("Authorization", "Bearer " + token)
+                .param("start", DateUtils.getEpochNow() - 86400000L)
+                .param("end", DateUtils.getEpochNow() + 86400000L)
+                .get("/transactions")
+                .then().statusCode(200)
+                .body("find { it.type == 'TRANSFERENCIA_SAIDA' }.id", is(transferOutId))
+                .body("find { it.type == 'TRANSFERENCIA_SAIDA' }.parentTransactionId", nullValue())
+                .body("find { it.type == 'TRANSFERENCIA_ENTRADA' }.parentTransactionId", is(transferOutId));
+    }
+
+    @Test
+    @DisplayName("CENÁRIO 2.1: Editar transferência pela saída atualiza os dois lados")
+    void shouldUpdateTransferPairFromOutgoingTransaction() {
+        String transferOutId = createTransfer("Reserva", new BigDecimal("200.00"));
+
+        TransactionDTO update = transferUpdateDto("Reserva editada", new BigDecimal("300.00"), walletId, bankId, true);
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(update)
+                .put("/transactions/" + transferOutId)
+                .then().statusCode(200)
+                .body("id", is(transferOutId))
+                .body("type", is("TRANSFERENCIA_SAIDA"))
+                .body("amount", is(300.0f))
+                .body("parentTransactionId", nullValue());
+
+        List<Map<String, Object>> transfers = listTransfersByName("Reserva editada");
+
+        Map<String, Object> out = findByType(transfers, "TRANSFERENCIA_SAIDA");
+        Map<String, Object> in = findByType(transfers, "TRANSFERENCIA_ENTRADA");
+
+        org.junit.jupiter.api.Assertions.assertEquals(transferOutId, out.get("id"));
+        org.junit.jupiter.api.Assertions.assertNull(out.get("parentTransactionId"));
+        org.junit.jupiter.api.Assertions.assertEquals(transferOutId, in.get("parentTransactionId"));
+        org.junit.jupiter.api.Assertions.assertEquals(300.0f, ((Number) out.get("amount")).floatValue());
+        org.junit.jupiter.api.Assertions.assertEquals(300.0f, ((Number) in.get("amount")).floatValue());
+
+        given().header("Authorization", "Bearer " + token).get("/accounts/" + walletId)
+                .then().body("currentBalance", is(700.0f));
+        given().header("Authorization", "Bearer " + token).get("/accounts/" + bankId)
+                .then().body("currentBalance", is(300.0f));
+    }
+
+    @Test
+    @DisplayName("CENÁRIO 2.2: Editar transferência pela entrada encontra a saída e atualiza os dois lados")
+    void shouldUpdateTransferPairFromIncomingTransaction() {
+        String transferOutId = createTransfer("Aporte", new BigDecimal("200.00"));
+        String transferInId = findIncomingIdForParent(transferOutId);
+
+        TransactionDTO update = transferUpdateDto("Aporte editado", new BigDecimal("150.00"), walletId, bankId, false);
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(update)
+                .put("/transactions/" + transferInId)
+                .then().statusCode(200)
+                .body("id", is(transferOutId))
+                .body("type", is("TRANSFERENCIA_SAIDA"))
+                .body("amount", is(150.0f));
+
+        List<Map<String, Object>> transfers = listTransfersByName("Aporte editado");
+        Map<String, Object> out = findByType(transfers, "TRANSFERENCIA_SAIDA");
+        Map<String, Object> in = findByType(transfers, "TRANSFERENCIA_ENTRADA");
+
+        org.junit.jupiter.api.Assertions.assertEquals(Boolean.FALSE, out.get("paid"));
+        org.junit.jupiter.api.Assertions.assertEquals(Boolean.FALSE, in.get("paid"));
+        org.junit.jupiter.api.Assertions.assertEquals(transferOutId, in.get("parentTransactionId"));
+
+        given().header("Authorization", "Bearer " + token).get("/accounts/" + walletId)
+                .then().body("currentBalance", is(1000.0f));
+        given().header("Authorization", "Bearer " + token).get("/accounts/" + bankId)
+                .then().body("currentBalance", is(0.0f));
+    }
+
+    @Test
+    @DisplayName("CENÁRIO 2.2.1: Inverter origem e destino atualiza os dois lados da transferência")
+    void shouldSwapTransferOriginAndDestinationAccounts() {
+        String transferOutId = createTransfer("Swap contas", new BigDecimal("200.00"));
+
+        TransactionDTO update = transferUpdateDto("Swap contas", new BigDecimal("200.00"), bankId, walletId, true);
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(update)
+                .put("/transactions/" + transferOutId)
+                .then().statusCode(200)
+                .body("id", is(transferOutId))
+                .body("type", is("TRANSFERENCIA_SAIDA"))
+                .body("accountId", is(bankId.toString()))
+                .body("parentTransactionId", nullValue());
+
+        List<Map<String, Object>> transfers = listTransfersByName("Swap contas");
+        Map<String, Object> out = findByType(transfers, "TRANSFERENCIA_SAIDA");
+        Map<String, Object> in = findByType(transfers, "TRANSFERENCIA_ENTRADA");
+
+        org.junit.jupiter.api.Assertions.assertEquals(bankId.toString(), out.get("accountId"));
+        org.junit.jupiter.api.Assertions.assertEquals(walletId.toString(), in.get("accountId"));
+        org.junit.jupiter.api.Assertions.assertEquals(transferOutId, in.get("parentTransactionId"));
+
+        given().header("Authorization", "Bearer " + token).get("/accounts/" + walletId)
+                .then().body("currentBalance", is(1200.0f));
+        given().header("Authorization", "Bearer " + token).get("/accounts/" + bankId)
+                .then().body("currentBalance", is(-200.0f));
+    }
+
+    @Test
+    @DisplayName("CENÁRIO 2.3: Excluir transferência por qualquer lado remove o par")
+    void shouldDeleteTransferPairFromEitherSide() {
+        String firstTransferOutId = createTransfer("Excluir pela saída", new BigDecimal("100.00"));
+
+        given().header("Authorization", "Bearer " + token)
+                .delete("/transactions/" + firstTransferOutId)
+                .then().statusCode(200);
+
+        assertNoTransfersByName("Excluir pela saída");
+
+        String secondTransferOutId = createTransfer("Excluir pela entrada", new BigDecimal("120.00"));
+        String secondTransferInId = findIncomingIdForParent(secondTransferOutId);
+
+        given().header("Authorization", "Bearer " + token)
+                .delete("/transactions/" + secondTransferInId)
+                .then().statusCode(200);
+
+        assertNoTransfersByName("Excluir pela entrada");
     }
 
     @Test
@@ -317,7 +445,7 @@ public class TransactionControllerTest extends BaseTest {
     private UUID createCreditCardAux(String name, BigDecimal limit) {
         CreditCardDTO cardDto = new CreditCardDTO();
         cardDto.setName(name);
-        cardDto.setLimit(limit);
+        cardDto.setTotalLimit(limit);
         cardDto.setCloseDay(10);
         cardDto.setBestDay(15);
 
@@ -329,5 +457,64 @@ public class TransactionControllerTest extends BaseTest {
                 .then().extract().path("find { it.name == '" + name + "' }.accountId");
 
         return UUID.fromString(idStr);
+    }
+
+    private String createTransfer(String name, BigDecimal amount) {
+        TransactionDTO dto = transferUpdateDto(name, amount, walletId, bankId, true);
+
+        return given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(dto).post("/transactions")
+                .then().statusCode(200)
+                .body("id", notNullValue())
+                .body("parentTransactionId", nullValue())
+                .extract().path("id");
+    }
+
+    private TransactionDTO transferUpdateDto(String name, BigDecimal amount, UUID originAccountId, UUID targetAccountId, boolean paid) {
+        TransactionDTO dto = new TransactionDTO();
+        dto.setName(name);
+        dto.setType(TransactionType.TRANSFERENCIA);
+        dto.setAmount(amount);
+        dto.setDate(DateUtils.getEpochNow());
+        dto.setPaid(paid);
+        dto.setAccountId(originAccountId);
+        dto.setTargetAccountId(targetAccountId);
+        dto.setCategoryId(categoryId);
+        dto.setIsFixed(false);
+        return dto;
+    }
+
+    private List<Map<String, Object>> listTransfersByName(String name) {
+        return given().header("Authorization", "Bearer " + token)
+                .param("start", DateUtils.getEpochNow() - 86400000L)
+                .param("end", DateUtils.getEpochNow() + 86400000L)
+                .get("/transactions")
+                .then().statusCode(200)
+                .extract().jsonPath().getList("findAll { it.name == '" + name + "' }");
+    }
+
+    private String findIncomingIdForParent(String parentId) {
+        return given().header("Authorization", "Bearer " + token)
+                .param("start", DateUtils.getEpochNow() - 86400000L)
+                .param("end", DateUtils.getEpochNow() + 86400000L)
+                .get("/transactions")
+                .then().statusCode(200)
+                .extract().path("find { it.parentTransactionId == '" + parentId + "' }.id");
+    }
+
+    private Map<String, Object> findByType(List<Map<String, Object>> transfers, String type) {
+        return transfers.stream()
+                .filter(tx -> type.equals(tx.get("type")))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private void assertNoTransfersByName(String name) {
+        given().header("Authorization", "Bearer " + token)
+                .param("start", DateUtils.getEpochNow() - 86400000L)
+                .param("end", DateUtils.getEpochNow() + 86400000L)
+                .get("/transactions")
+                .then().statusCode(200)
+                .body("findAll { it.name == '" + name + "' }", hasSize(0));
     }
 }

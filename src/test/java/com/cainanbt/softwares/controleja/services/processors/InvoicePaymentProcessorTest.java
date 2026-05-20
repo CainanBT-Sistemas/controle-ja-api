@@ -9,6 +9,7 @@ import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.enums.AccountType;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
+import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.services.AccountsService;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
@@ -30,6 +31,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.argThat;
@@ -80,8 +82,8 @@ public class InvoicePaymentProcessorTest {
         dto.setTargetAccountId(cardAccount.getId());
         dto.setPaid(true);
 
-        CreditCard card = CreditCard.builder().id(UUID.randomUUID()).currentLimit(new BigDecimal("500.00")).totalLimit(new BigDecimal("2000.00")).build();
-        Invoices invoice = Invoices.builder().id(UUID.randomUUID()).amount(new BigDecimal("2000.00")).creditCard(card).user(user).build();
+        CreditCard card = CreditCard.builder().id(UUID.randomUUID()).currentLimit(new BigDecimal("500.00")).totalLimit(new BigDecimal("2000.00")).accounts(cardAccount).build();
+        Invoices invoice = Invoices.builder().id(UUID.randomUUID()).amount(new BigDecimal("2000.00")).paid(false).creditCard(card).user(user).build();
         dto.setTargetInvoiceId(invoice.getId());
 
         when(accountsService.findById(cardAccount.getId())).thenReturn(Optional.of(cardAccount));
@@ -120,8 +122,8 @@ public class InvoicePaymentProcessorTest {
         dto.setTargetAccountId(cardAccount.getId());
         dto.setPaid(true);
 
-        CreditCard card = CreditCard.builder().id(UUID.randomUUID()).currentLimit(new BigDecimal("500.00")).totalLimit(new BigDecimal("2000.00")).build();
-        Invoices invoice = Invoices.builder().id(UUID.randomUUID()).amount(new BigDecimal("1000.00")).creditCard(card).user(user).build();
+        CreditCard card = CreditCard.builder().id(UUID.randomUUID()).currentLimit(new BigDecimal("500.00")).totalLimit(new BigDecimal("2000.00")).accounts(cardAccount).build();
+        Invoices invoice = Invoices.builder().id(UUID.randomUUID()).amount(new BigDecimal("1000.00")).paid(false).creditCard(card).user(user).build();
         dto.setTargetInvoiceId(invoice.getId());
 
         InstallmentPlan inst1 = InstallmentPlan.builder().id(UUID.randomUUID()).amount(new BigDecimal("500.00")).paid(false).invoices(invoice).build();
@@ -149,5 +151,53 @@ public class InvoicePaymentProcessorTest {
 
         // All installments marked paid
         verify(installmentPlanService).saveAll(argThat(list -> list.stream().allMatch(p -> p.getPaid())));
+    }
+
+    @Test
+    public void process_whenPaymentIsGreaterThanTotal_shouldMarkInvoiceAsPaid() {
+        TransactionDTO dto = new TransactionDTO();
+        dto.setName("Pay");
+        dto.setType(TransactionType.PAGAMENTO_FATURA);
+        dto.setAmount(new BigDecimal("1200.00"));
+        dto.setDate(DateUtils.getEpochNow());
+        dto.setTargetAccountId(cardAccount.getId());
+        dto.setPaid(true);
+
+        CreditCard card = CreditCard.builder().id(UUID.randomUUID()).currentLimit(new BigDecimal("500.00")).totalLimit(new BigDecimal("2000.00")).accounts(cardAccount).build();
+        Invoices invoice = Invoices.builder().id(UUID.randomUUID()).amount(new BigDecimal("1000.00")).paid(false).creditCard(card).user(user).build();
+        dto.setTargetInvoiceId(invoice.getId());
+
+        when(accountsService.findById(cardAccount.getId())).thenReturn(Optional.of(cardAccount));
+        when(creditCardService.findByAccountId(cardAccount.getId())).thenReturn(card);
+        when(invoicesService.findByIdOrThrow(invoice.getId())).thenReturn(invoice);
+        when(installmentPlanService.findByInvoiceId(invoice.getId())).thenReturn(List.of());
+
+        processor.process(dto, sourceAccount, null, user);
+
+        assertEquals(BigDecimal.ZERO, invoice.getAmount());
+        assertTrue(invoice.getPaid());
+    }
+
+    @Test
+    public void process_whenTargetAccountDoesNotBelongToInvoiceCard_shouldThrow() {
+        TransactionDTO dto = new TransactionDTO();
+        dto.setName("Pay");
+        dto.setType(TransactionType.PAGAMENTO_FATURA);
+        dto.setAmount(new BigDecimal("100.00"));
+        dto.setDate(DateUtils.getEpochNow());
+        dto.setTargetAccountId(cardAccount.getId());
+        dto.setPaid(true);
+
+        Accounts otherCardAccount = Accounts.builder().id(UUID.randomUUID()).type(AccountType.CREDIT_CARD).name("Other").currency("BRL").currentBalance(BigDecimal.ZERO).initialBalance(BigDecimal.ZERO).calculateBalance(false).enabled(true).user(user).createdAt(DateUtils.getEpochNow()).build();
+        CreditCard paymentCard = CreditCard.builder().id(UUID.randomUUID()).currentLimit(new BigDecimal("500.00")).totalLimit(new BigDecimal("2000.00")).accounts(cardAccount).build();
+        CreditCard invoiceCard = CreditCard.builder().id(UUID.randomUUID()).currentLimit(new BigDecimal("500.00")).totalLimit(new BigDecimal("2000.00")).accounts(otherCardAccount).build();
+        Invoices invoice = Invoices.builder().id(UUID.randomUUID()).amount(new BigDecimal("100.00")).paid(false).creditCard(invoiceCard).user(user).build();
+        dto.setTargetInvoiceId(invoice.getId());
+
+        when(accountsService.findById(cardAccount.getId())).thenReturn(Optional.of(cardAccount));
+        when(creditCardService.findByAccountId(cardAccount.getId())).thenReturn(paymentCard);
+        when(invoicesService.findByIdOrThrow(invoice.getId())).thenReturn(invoice);
+
+        assertThrows(BadRequestException.class, () -> processor.process(dto, sourceAccount, null, user));
     }
 }

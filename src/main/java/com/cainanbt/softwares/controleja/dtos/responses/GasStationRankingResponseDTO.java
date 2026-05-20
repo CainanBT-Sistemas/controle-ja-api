@@ -15,7 +15,11 @@ public class GasStationRankingResponseDTO {
     private String fuelType;
     private Double totalLiters;
     private Integer refuelCount;
+    private Integer cityRefuelCount;
+    private Integer roadRefuelCount;
+    private Integer unknownRefuelCount;
     private Double avgKml;
+    private Double adjustedAvgKml;
     private BigDecimal avgCostPerKm;
     private BigDecimal lastPricePerLiter;
     private Double score;
@@ -27,7 +31,11 @@ public class GasStationRankingResponseDTO {
                 .fuelType(entity.getFuelType().name())
                 .totalLiters(entity.getTotalLiters())
                 .refuelCount(entity.getRefuelCount())
+                .cityRefuelCount(entity.getCityRefuelCount())
+                .roadRefuelCount(entity.getRoadRefuelCount())
+                .unknownRefuelCount(entity.getUnknownRefuelCount())
                 .avgKml(entity.getAvgKml())
+                .adjustedAvgKml(entity.getAdjustedAvgKml())
                 .avgCostPerKm(entity.getAvgCostPerKm())
                 .lastPricePerLiter(entity.getLastPricePerLiter())
                 .score(entity.getScore())

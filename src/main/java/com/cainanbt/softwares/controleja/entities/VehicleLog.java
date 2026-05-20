@@ -1,7 +1,10 @@
 package com.cainanbt.softwares.controleja.entities;
 
+import com.cainanbt.softwares.controleja.enums.DrivingPredominance;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
@@ -33,6 +36,10 @@ public class VehicleLog {
     private BigDecimal odometerReading;
 
     private Double dashboardKml;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = true)
+    private DrivingPredominance drivingPredominance;
 
     @ManyToOne
     @JoinColumn(name = "vehicle_id", nullable = false)

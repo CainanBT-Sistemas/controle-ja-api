@@ -1,6 +1,7 @@
 package com.cainanbt.softwares.controleja.dtos;
 
 import com.cainanbt.softwares.controleja.enums.FuelType;
+import com.cainanbt.softwares.controleja.enums.DrivingPredominance;
 import com.cainanbt.softwares.controleja.enums.RecurrenceFrequency;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
 import jakarta.validation.constraints.DecimalMin;
@@ -57,6 +58,7 @@ public class TransactionDTO {
     private Double liters;
     private FuelType fuelType;
     private Double efficiency;
+    private DrivingPredominance drivingPredominance;
     private UUID gasStationId;
 
 }

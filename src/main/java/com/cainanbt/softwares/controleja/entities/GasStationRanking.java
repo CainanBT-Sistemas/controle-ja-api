@@ -38,8 +38,14 @@ public class GasStationRanking {
 
     private Double totalLiters;
     private Double totalDistance;
+    private Double totalAdjustedDistance;
+    private BigDecimal totalAmount;
     private Integer refuelCount;
+    private Integer cityRefuelCount;
+    private Integer roadRefuelCount;
+    private Integer unknownRefuelCount;
     private Double avgKml;
+    private Double adjustedAvgKml;
     private BigDecimal avgCostPerKm;
     private BigDecimal lastPricePerLiter;
     private Double score; // De 0 a 10

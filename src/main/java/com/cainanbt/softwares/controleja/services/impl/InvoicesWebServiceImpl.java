@@ -227,6 +227,27 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         InstallmentPlan original = installmentPlanService.findById(request.getInstallmentId())
                 .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Parcela não encontrada."));
 
+        if (original.getInvoices() == null || !original.getInvoices().getId().equals(invoice.getId())) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Parcela não pertence à fatura informada.");
+        }
+        if (request.getRefundAmount() == null || request.getRefundAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "O valor do estorno deve ser maior que zero.");
+        }
+        if (original.getAmount() == null || original.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "A parcela informada não permite estorno.");
+        }
+
+        BigDecimal alreadyRefunded = installmentPlanService.findByPurchaseId(original.getPurchaseId()).stream()
+                .filter(i -> i.getDeletedAt() == null)
+                .filter(i -> i.getInvoices() != null && i.getInvoices().getId().equals(invoice.getId()))
+                .filter(i -> i.getAmount() != null && i.getAmount().compareTo(BigDecimal.ZERO) < 0)
+                .map(i -> i.getAmount().abs())
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal refundableAmount = original.getAmount().abs().subtract(alreadyRefunded);
+        if (request.getRefundAmount().compareTo(refundableAmount) > 0) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "O valor do estorno ultrapassa o saldo disponível da parcela.");
+        }
+
         // CORREÇÃO MATEMÁTICA: Garante que o valor será negativo independente do que o front-end mandar
         BigDecimal refundAmount = request.getRefundAmount().abs().negate();
 
@@ -273,16 +294,21 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         int limitToAdvance = request.getQuantityToAdvance() != null && request.getQuantityToAdvance() > 0 ? request.getQuantityToAdvance() : 1;
 
         // CORREÇÃO: Filtra deletados, pagos e garante ordenação por vencimento da fatura original
-        List<InstallmentPlan> futureInstallments = installmentPlanService.findByPurchaseId(request.getPurchaseId()).stream()
+        List<InstallmentPlan> availableFutureInstallments = installmentPlanService.findByPurchaseId(request.getPurchaseId()).stream()
                 .filter(i -> i.getDeletedAt() == null && !i.getPaid())
                 .filter(i -> i.getInvoices().getExpirationDate() > currentInvoice.getExpirationDate())
                 .sorted(Comparator.comparing(i -> i.getInvoices().getExpirationDate()))
-                .limit(limitToAdvance)
                 .collect(Collectors.toList());
 
-        if (futureInstallments.isEmpty()) {
+        if (availableFutureInstallments.isEmpty()) {
             throw new BadRequestException("Aviso", "Não existem parcelas futuras pendentes para adiantar.");
         }
+        if (limitToAdvance > availableFutureInstallments.size()) {
+            throw new BadRequestException("Aviso", "Quantidade de parcelas para adiantar maior que o disponível.");
+        }
+        List<InstallmentPlan> futureInstallments = availableFutureInstallments.stream()
+                .limit(limitToAdvance)
+                .collect(Collectors.toList());
 
         BigDecimal totalAdvanced = BigDecimal.ZERO;
 
@@ -299,6 +325,10 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         }
 
         installmentPlanService.saveAll(futureInstallments);
+
+        if (request.getDiscountAmount() != null && request.getDiscountAmount().compareTo(totalAdvanced) > 0) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "O desconto não pode ser maior que o total adiantado.");
+        }
 
         // Lança o desconto de adiantamento, se houver
         if (request.getDiscountAmount() != null && request.getDiscountAmount().compareTo(BigDecimal.ZERO) > 0) {

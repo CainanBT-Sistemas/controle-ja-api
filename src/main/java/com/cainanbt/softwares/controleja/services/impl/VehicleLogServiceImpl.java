@@ -38,12 +38,19 @@ public class VehicleLogServiceImpl implements VehicleLogService {
             throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_VEHICLE);
         }
 
-        // 2. Cria o registro do Diário de Bordo
+        if (dto.getOdometerReading().compareTo(vehicle.getCurrentOdometer()) <= 0) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "O odômetro informado deve ser maior que o odômetro atual do veículo.");
+        }
+
+        // 2. Cria o registro do Diário de Bordo.
+        // dashboardKml é armazenado como leitura declarada pelo painel; o dashboard usa essa leitura apenas como fallback
+        // quando não há abastecimentos com litros/eficiência suficientes no período.
         VehicleLog log = VehicleLog.builder()
                 .id(ID.generate())
                 .date(dto.getDate())
                 .odometerReading(dto.getOdometerReading())
                 .dashboardKml(dto.getDashboardKml())
+                .drivingPredominance(dto.getDrivingPredominance())
                 .vehicle(vehicle)
                 .user(currentUser)
                 .createdAt(DateUtils.getEpochNow())

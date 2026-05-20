@@ -1,5 +1,6 @@
 package com.cainanbt.softwares.controleja.dtos;
 
+import com.cainanbt.softwares.controleja.enums.DrivingPredominance;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
@@ -19,4 +20,6 @@ public class VehicleLogDTO {
     private BigDecimal odometerReading;
 
     private Double dashboardKml;
+
+    private DrivingPredominance drivingPredominance;
 }

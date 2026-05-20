@@ -70,6 +70,7 @@ public class TransactionHelper {
                     .liters(dto.getLiters())
                     .currentOdometer(dto.getCurrentOdometer())
                     .fuelType(dto.getFuelType())
+                    .drivingPredominance(dto.getDrivingPredominance())
                     .efficiency(efficiency);
         }
         return builder;

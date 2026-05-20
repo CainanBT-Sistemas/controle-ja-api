@@ -14,5 +14,11 @@ public interface VehicleLogRepository extends JpaRepository<VehicleLog, UUID> {
 
     Optional<VehicleLog> findFirstByVehicleIdOrderByDateAsc(UUID vehicleId);
 
+    Optional<VehicleLog> findFirstByVehicleIdAndDateLessThanEqualOrderByDateAsc(UUID vehicleId, Long date);
+
     List<VehicleLog> findByVehicleIdAndDateBetweenOrderByDateDesc(UUID vehicleId, Long start, Long end);
+
+    List<VehicleLog> findByVehicleIdAndDateBetweenOrderByDateAsc(UUID vehicleId, Long start, Long end);
+
+    Optional<VehicleLog> findFirstByVehicleIdAndDateLessThanEqualOrderByDateDesc(UUID vehicleId, Long date);
 }

@@ -10,6 +10,7 @@ import com.cainanbt.softwares.controleja.entities.Invoices;
 import com.cainanbt.softwares.controleja.entities.RecurrenceRule;
 import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.entities.Users;
+import com.cainanbt.softwares.controleja.entities.Vehicle;
 import com.cainanbt.softwares.controleja.enums.AccountType;
 import com.cainanbt.softwares.controleja.enums.RecurrenceFrequency;
 import com.cainanbt.softwares.controleja.enums.RuleStatus;
@@ -160,6 +161,7 @@ public class TransactionServiceImpl implements TransactionService {
 
     private void applyVehicleConsolidation(List<TransactionResponseDTO> responseList, Long start, Long end) {
         BigDecimal totalVeiculos = BigDecimal.ZERO;
+        boolean allVehicleExpensesPaid = true;
         Iterator<TransactionResponseDTO> iterator = responseList.iterator();
         while (iterator.hasNext()) {
             TransactionResponseDTO tx = iterator.next();
@@ -168,6 +170,9 @@ public class TransactionServiceImpl implements TransactionService {
 
             if (isVeiculo && tx.getType() == TransactionType.DESPESA) {
                 totalVeiculos = totalVeiculos.add(tx.getAmount());
+                if (!Boolean.TRUE.equals(tx.getPaid())) {
+                    allVehicleExpensesPaid = false;
+                }
                 iterator.remove();
             }
         }
@@ -180,10 +185,11 @@ public class TransactionServiceImpl implements TransactionService {
             veiculoConsolidado.setName("Despesas de veículos do mês");
             veiculoConsolidado.setAmount(totalVeiculos);
             veiculoConsolidado.setDate(end);
-            veiculoConsolidado.setPaid(true);
+            veiculoConsolidado.setPaid(allVehicleExpensesPaid);
             veiculoConsolidado.setType(TransactionType.DESPESA);
             veiculoConsolidado.setCategoryName("Veículos");
             veiculoConsolidado.setAccountName("Consolidado");
+            veiculoConsolidado.setVirtual(true);
 
             responseList.add(veiculoConsolidado);
         }
@@ -214,6 +220,11 @@ public class TransactionServiceImpl implements TransactionService {
             resp.setPaid(inv.getPaid());
             resp.setType(TransactionType.DESPESA);
             return resp;
+        }
+
+        Transactions current = findByIdOrThrow(id);
+        if (isTransferSide(current)) {
+            return TransactionResponseDTO.toDTO(updateTransferPair(current, dto, updateFuture));
         }
 
         Transactions transaction = updateTransaction(id, dto, updateFuture);
@@ -259,6 +270,11 @@ public class TransactionServiceImpl implements TransactionService {
 
         if (!transaction.getUser().getId().equals(currentUser.getId())) {
             throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_TRANSACTION);
+        }
+
+        if (isTransferSide(transaction)) {
+            deleteTransferPair(transaction, cancelFuture, dateNow, currentUser);
+            return;
         }
 
         if (transaction.getDeletedAt() != null) {
@@ -415,6 +431,8 @@ public class TransactionServiceImpl implements TransactionService {
             transaction.setCategory(category);
         }
 
+        applyVehicleFieldsOnUpdate(transaction, dto, currentUser);
+
         if (transaction.getPaid() && currentAccount.getType() != AccountType.CREDIT_CARD) {
             if (transaction.getType() == TransactionType.DESPESA) currentAccount.debit(transaction.getAmount());
             else if (transaction.getType() == TransactionType.RECEITA) currentAccount.credit(transaction.getAmount());
@@ -438,6 +456,38 @@ public class TransactionServiceImpl implements TransactionService {
         }
 
         return transaction;
+    }
+
+    private void applyVehicleFieldsOnUpdate(Transactions transaction, TransactionDTO dto, Users currentUser) {
+        Vehicle vehicle = transaction.getVehicle();
+        if (dto.getVehicleId() != null) {
+            vehicle = vehicleService.findById(dto.getVehicleId());
+            if (!vehicle.getUser().getId().equals(currentUser.getId())) {
+                throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_VEHICLE);
+            }
+            transaction.setVehicle(vehicle);
+        }
+
+        if (vehicle == null) {
+            return;
+        }
+
+        if (dto.getCurrentOdometer() != null) {
+            transaction.setCurrentOdometer(dto.getCurrentOdometer());
+            vehicleService.updateOdometer(vehicle, dto.getCurrentOdometer());
+        }
+        if (dto.getLiters() != null) {
+            transaction.setLiters(dto.getLiters());
+        }
+        if (dto.getFuelType() != null) {
+            transaction.setFuelType(dto.getFuelType());
+        }
+        if (dto.getDrivingPredominance() != null) {
+            transaction.setDrivingPredominance(dto.getDrivingPredominance());
+        }
+        if (dto.getEfficiency() != null) {
+            transaction.setEfficiency(dto.getEfficiency());
+        }
     }
 
     @Override
@@ -554,6 +604,170 @@ public class TransactionServiceImpl implements TransactionService {
         if (!invoicesToUpdate.isEmpty()) {
             invoicesService.saveAll(invoicesToUpdate.values().stream().toList());
         }
+    }
+
+    @Transactional
+    protected Transactions updateTransferPair(Transactions current, TransactionDTO dto, Boolean updateFuture) {
+        Users currentUser = SecurityContextUtils.getCurrentUser();
+        TransferPair pair = findTransferPair(current);
+        validateTransferPairOwner(pair, currentUser);
+
+        long dateNow = DateUtils.getEpochNow();
+        Transactions transferOut = pair.out();
+        Transactions transferIn = pair.in();
+
+        Accounts oldOrigin = transferOut.getAccount();
+        Accounts oldDest = transferIn.getAccount();
+
+        if (Boolean.TRUE.equals(transferOut.getPaid())) {
+            oldOrigin.credit(transferOut.getAmount());
+        }
+        if (Boolean.TRUE.equals(transferIn.getPaid())) {
+            oldDest.debit(transferIn.getAmount());
+        }
+
+        Accounts newOrigin = oldOrigin;
+        if (dto.getAccountId() != null && !dto.getAccountId().equals(oldOrigin.getId())) {
+            newOrigin = accountsService.findByIdOrThrow(dto.getAccountId());
+            if (!newOrigin.getUser().getId().equals(currentUser.getId())) {
+                throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_ACCOUNT);
+            }
+        }
+
+        Accounts newDest = oldDest;
+        if (dto.getTargetAccountId() != null && !dto.getTargetAccountId().equals(oldDest.getId())) {
+            newDest = accountsService.findByIdOrThrow(dto.getTargetAccountId());
+            if (!newDest.getUser().getId().equals(currentUser.getId())) {
+                throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_ACCOUNT);
+            }
+        }
+
+        BigDecimal amount = dto.getAmount() != null ? dto.getAmount() : transferOut.getAmount();
+        Long date = dto.getDate() != null ? dto.getDate() : transferOut.getDate();
+        Boolean paid = dto.getPaid() != null ? dto.getPaid() : transferOut.getPaid();
+        String name = dto.getName() != null ? dto.getName() : transferOut.getName();
+        String description = dto.getDescription() != null ? dto.getDescription() : transferOut.getDescription();
+
+        Category category = transferOut.getCategory();
+        if (dto.getCategoryId() != null) {
+            category = categoryService.findByIdOrThrow(dto.getCategoryId());
+        }
+
+        transferOut.setName(name);
+        transferOut.setDescription(description);
+        transferOut.setAmount(amount);
+        transferOut.setDate(date);
+        transferOut.setPaid(paid);
+        transferOut.setAccount(newOrigin);
+        transferOut.setCategory(category);
+        transferOut.setType(TransactionType.TRANSFERENCIA_SAIDA);
+        transferOut.setUpdatedAt(dateNow);
+
+        transferIn.setName(name);
+        transferIn.setDescription(description);
+        transferIn.setAmount(amount);
+        transferIn.setDate(date);
+        transferIn.setPaid(paid);
+        transferIn.setAccount(newDest);
+        transferIn.setCategory(category);
+        transferIn.setType(TransactionType.TRANSFERENCIA_ENTRADA);
+        transferIn.setParentTransaction(transferOut);
+        transferIn.setUpdatedAt(dateNow);
+
+        if (Boolean.TRUE.equals(paid)) {
+            newOrigin.debit(amount);
+            newDest.credit(amount);
+        }
+
+        List<Accounts> accountsToUpdate = new ArrayList<>();
+        addUniqueAccount(accountsToUpdate, oldOrigin);
+        addUniqueAccount(accountsToUpdate, oldDest);
+        addUniqueAccount(accountsToUpdate, newOrigin);
+        addUniqueAccount(accountsToUpdate, newDest);
+        accountsToUpdate.forEach(accountsService::update);
+
+        if (Boolean.TRUE.equals(updateFuture) && transferOut.getRecurrenceRule() != null) {
+            cascadeRuleUpdate(transferOut.getRecurrenceRule().getId(), amount);
+        }
+
+        repository.saveAll(List.of(transferOut, transferIn));
+        return transferOut;
+    }
+
+    private void deleteTransferPair(Transactions current, Boolean cancelFuture, long dateNow, Users currentUser) {
+        TransferPair pair = findTransferPair(current);
+        validateTransferPairOwner(pair, currentUser);
+
+        Transactions transferOut = pair.out();
+        Transactions transferIn = pair.in();
+
+        if (Boolean.TRUE.equals(cancelFuture) && transferOut.getRecurrenceRule() != null) {
+            RecurrenceRule rule = transferOut.getRecurrenceRule();
+            rule.setStatus(RuleStatus.CANCELED);
+            rule.setUpdatedAt(dateNow);
+            recurrenceRuleService.save(rule);
+
+            List<Transactions> futureUnpaidTx = repository.findFutureUnpaidByRuleId(rule.getId(), dateNow);
+            for (Transactions tx : futureUnpaidTx) {
+                tx.setDeletedAt(dateNow);
+            }
+            repository.saveAll(futureUnpaidTx);
+        }
+
+        if (Boolean.TRUE.equals(transferOut.getPaid())) {
+            Accounts origin = transferOut.getAccount();
+            origin.credit(transferOut.getAmount());
+            accountsService.update(origin);
+        }
+        if (Boolean.TRUE.equals(transferIn.getPaid())) {
+            Accounts dest = transferIn.getAccount();
+            dest.debit(transferIn.getAmount());
+            accountsService.update(dest);
+        }
+
+        transferOut.setDeletedAt(dateNow);
+        transferIn.setDeletedAt(dateNow);
+        repository.saveAll(List.of(transferOut, transferIn));
+    }
+
+    private TransferPair findTransferPair(Transactions current) {
+        if (current.getType() == TransactionType.TRANSFERENCIA_ENTRADA) {
+            Transactions parent = current.getParentTransaction();
+            if (parent == null) {
+                throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Transferência de entrada sem vínculo com a saída.");
+            }
+            return new TransferPair(parent, current);
+        }
+
+        if (current.getType() == TransactionType.TRANSFERENCIA_SAIDA) {
+            Transactions child = repository.findTransferChildByParentId(current.getId())
+                    .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, "Transferência de saída sem lançamento de entrada vinculado."));
+            return new TransferPair(current, child);
+        }
+
+        throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Transação não é uma transferência vinculada.");
+    }
+
+    private void validateTransferPairOwner(TransferPair pair, Users currentUser) {
+        if (!pair.out().getUser().getId().equals(currentUser.getId()) || !pair.in().getUser().getId().equals(currentUser.getId())) {
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_TRANSACTION);
+        }
+    }
+
+    private boolean isTransferSide(Transactions transaction) {
+        return transaction.getType() == TransactionType.TRANSFERENCIA_SAIDA
+                || transaction.getType() == TransactionType.TRANSFERENCIA_ENTRADA;
+    }
+
+    private void addUniqueAccount(List<Accounts> accounts, Accounts account) {
+        if (account == null) return;
+        boolean alreadyAdded = accounts.stream().anyMatch(item -> item.getId().equals(account.getId()));
+        if (!alreadyAdded) {
+            accounts.add(account);
+        }
+    }
+
+    private record TransferPair(Transactions out, Transactions in) {
     }
 
     private void createProjectedCreditCardExpense(RecurrenceRule rule, long epochNextDate) {

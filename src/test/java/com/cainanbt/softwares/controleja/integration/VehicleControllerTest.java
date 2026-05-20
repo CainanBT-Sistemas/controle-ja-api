@@ -7,9 +7,11 @@ import com.cainanbt.softwares.controleja.dtos.InsertUpdateUserDTO;
 import com.cainanbt.softwares.controleja.dtos.TransactionDTO;
 import com.cainanbt.softwares.controleja.dtos.UserLoginDTO;
 import com.cainanbt.softwares.controleja.dtos.VehicleDTO;
+import com.cainanbt.softwares.controleja.dtos.VehicleLogDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.AccountResponseDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.CategoryResponseDTO;
 import com.cainanbt.softwares.controleja.enums.AccountType;
+import com.cainanbt.softwares.controleja.enums.DrivingPredominance;
 import com.cainanbt.softwares.controleja.enums.FuelType;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
@@ -148,5 +150,85 @@ public class VehicleControllerTest extends BaseTest {
         // 3. Valida que o veículo manteve 20.000 (Proteção)
         given().header("Authorization", "Bearer " + token).get("/vehicles/" + vehicleId)
                 .then().body("currentOdometer", is(20000.0f));
+    }
+
+    @Test
+    @DisplayName("Deve atualizar o odômetro do veículo ao editar despesa vinculada")
+    void shouldUpdateVehicleOdometerWhenUpdatingVehicleExpense() {
+        VehicleDTO vDto = new VehicleDTO();
+        vDto.setName("Odômetro Update");
+        vDto.setBrand("Toyota");
+        vDto.setModel("Corolla");
+        vDto.setYear(2021);
+        vDto.setCurrentOdometer(new BigDecimal("30000.00"));
+
+        String vehicleId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(vDto).post("/vehicles")
+                .then().statusCode(200).extract().path("id");
+
+        TransactionDTO tDto = new TransactionDTO();
+        tDto.setName("Despesa veículo");
+        tDto.setType(TransactionType.DESPESA);
+        tDto.setAmount(new BigDecimal("120.00"));
+        tDto.setDate(DateUtils.getEpochNow());
+        tDto.setPaid(true);
+        tDto.setAccountId(walletId);
+        tDto.setCategoryId(categoryId);
+        tDto.setIsFixed(false);
+        tDto.setVehicleId(UUID.fromString(vehicleId));
+        tDto.setCurrentOdometer(new BigDecimal("30100.00"));
+
+        String transactionId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(tDto).post("/transactions")
+                .then().statusCode(200)
+                .body("currentOdometer", is(30100.0f))
+                .extract().path("id");
+
+        tDto.setCurrentOdometer(new BigDecimal("30250.00"));
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(tDto).put("/transactions/" + transactionId)
+                .then().statusCode(200)
+                .body("currentOdometer", is(30250.0f))
+                .body("vehicleId", is(vehicleId));
+
+        given().header("Authorization", "Bearer " + token).get("/vehicles/" + vehicleId)
+                .then().statusCode(200)
+                .body("currentOdometer", is(30250.0f));
+    }
+
+    @Test
+    @DisplayName("Deve salvar diário com predominância e rejeitar odômetro menor")
+    void shouldCreateVehicleLogWithDrivingPredominanceAndRejectInvalidOdometer() {
+        VehicleDTO vDto = new VehicleDTO();
+        vDto.setName("Diário");
+        vDto.setBrand("Honda");
+        vDto.setModel("Fit");
+        vDto.setYear(2018);
+        vDto.setCurrentOdometer(new BigDecimal("10000.00"));
+
+        String vehicleId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(vDto).post("/vehicles")
+                .then().statusCode(200).extract().path("id");
+
+        VehicleLogDTO log = new VehicleLogDTO();
+        log.setVehicleId(UUID.fromString(vehicleId));
+        log.setDate(DateUtils.getEpochNow());
+        log.setOdometerReading(new BigDecimal("10150.00"));
+        log.setDashboardKml(11.5);
+        log.setDrivingPredominance(DrivingPredominance.CITY);
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(log).post("/vehicles/logs")
+                .then().statusCode(200)
+                .body("drivingPredominance", is("CITY"));
+
+        given().header("Authorization", "Bearer " + token).get("/vehicles/" + vehicleId)
+                .then().statusCode(200)
+                .body("currentOdometer", is(10150.0f));
+
+        log.setOdometerReading(new BigDecimal("10100.00"));
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(log).post("/vehicles/logs")
+                .then().statusCode(400);
     }
 }

@@ -44,7 +44,7 @@ public class CreditCardControllerTest extends BaseTest {
         // 1. CREATE
         CreditCardDTO dto = new CreditCardDTO();
         dto.setName("Nubank Platinum");
-        dto.setLimit(new BigDecimal("5000.00"));
+        dto.setTotalLimit(new BigDecimal("5000.00"));
         dto.setCloseDay(4);
         dto.setBestDay(11);
 
@@ -66,7 +66,7 @@ public class CreditCardControllerTest extends BaseTest {
 
         // 3. UPDATE
         dto.setName("Nubank Ultravioleta");
-        dto.setLimit(new BigDecimal("10000.00"));
+        dto.setTotalLimit(new BigDecimal("10000.00"));
         given().header("Authorization", "Bearer " + token)
                 .contentType(ContentType.JSON).body(dto)
                 .when().put("/cards/" + cardId)
@@ -94,7 +94,7 @@ public class CreditCardControllerTest extends BaseTest {
 
         CreditCardDTO dto = new CreditCardDTO();
         dto.setName("Card 3 Bloqueado");
-        dto.setLimit(BigDecimal.TEN);
+        dto.setTotalLimit(BigDecimal.TEN);
         dto.setCloseDay(1);
         dto.setBestDay(10);
 
@@ -108,7 +108,7 @@ public class CreditCardControllerTest extends BaseTest {
     private void createCardAux(String name) {
         CreditCardDTO dto = new CreditCardDTO();
         dto.setName(name);
-        dto.setLimit(new BigDecimal("1000"));
+        dto.setTotalLimit(new BigDecimal("1000"));
         dto.setCloseDay(1);
         dto.setBestDay(10);
 
