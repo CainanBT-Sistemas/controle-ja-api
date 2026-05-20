@@ -52,6 +52,9 @@ public class Vehicle {
     private BigDecimal currentOdometer;
 
     @Column(nullable = false)
+    private BigDecimal initialOdometer;
+
+    @Column(nullable = false)
     private Long createdAt;
 
     @Column
@@ -61,7 +64,7 @@ public class Vehicle {
     private Double avgKmPerLiterEthanol;
 
     @Column
-    private Double tankCapacity; // NOVO CAMPO
+    private Double tankCapacity;
 
     @Column
     private Long updatedAt;

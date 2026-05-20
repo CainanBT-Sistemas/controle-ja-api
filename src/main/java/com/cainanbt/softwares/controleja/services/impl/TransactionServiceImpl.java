@@ -20,10 +20,12 @@ import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.services.AccountsService;
 import com.cainanbt.softwares.controleja.services.CategoryService;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
+import com.cainanbt.softwares.controleja.services.GasStationRankingService;
 import com.cainanbt.softwares.controleja.services.InstallmentPlanService;
 import com.cainanbt.softwares.controleja.services.InvoicesService;
 import com.cainanbt.softwares.controleja.services.RecurrenceRuleService;
 import com.cainanbt.softwares.controleja.services.TransactionService;
+import com.cainanbt.softwares.controleja.services.VehicleService;
 import com.cainanbt.softwares.controleja.services.processors.TransactionHelper;
 import com.cainanbt.softwares.controleja.services.processors.TransactionProcessor;
 import com.cainanbt.softwares.controleja.services.processors.TransactionProcessorFactory;
@@ -37,12 +39,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Month;
 import java.time.format.TextStyle;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -63,6 +68,8 @@ public class TransactionServiceImpl implements TransactionService {
     private final RecurrenceRuleService recurrenceRuleService;
     private final TransactionProcessorFactory processorFactory;
     private final TransactionHelper helper;
+    private final GasStationRankingService gasStationRankingService;
+    private final VehicleService vehicleService;
 
     @Override
     @Transactional
@@ -83,6 +90,8 @@ public class TransactionServiceImpl implements TransactionService {
         // Salva a transação atual e a regra de recorrência
         Transactions savedTransaction = processor.process(dto, account, category, user);
 
+        processVehicleMetricsIfApplicable(savedTransaction, dto);
+
         // CORREÇÃO: Roda na mesma thread. É tão rápido (5ms) que não vai travar o celular.
         // Como roda dentro da mesma transação, o banco enxerga a regra que acabou de ser criada!
         if (savedTransaction.getRecurrenceRule() != null && Boolean.TRUE.equals(dto.getIsFixed())) {
@@ -93,16 +102,39 @@ public class TransactionServiceImpl implements TransactionService {
         return savedTransaction;
     }
 
+    private void processVehicleMetricsIfApplicable(Transactions tx, TransactionDTO dto) {
+        if (tx.getVehicle() != null) {
+            // Se informou odômetro, atualiza no cadastro do veículo
+            if (dto.getCurrentOdometer() != null) {
+                vehicleService.updateOdometer(tx.getVehicle(), dto.getCurrentOdometer());
+            }
+
+            // Se for abastecimento (tem posto e litros), atualiza o ranking de postos
+            if (tx.getGasStation() != null && tx.getLiters() != null && tx.getLiters() > 0) {
+                // Como você já tem a lógica prontinha no GasStationRankingService!
+                gasStationRankingService.updateRanking(tx);
+            }
+        }
+    }
+
     @Override
     public List<TransactionResponseDTO> listLastTransactionsDTO(Long start, Long end) {
         Users user = SecurityContextUtils.getCurrentUser();
         if (start == null || end == null) return Collections.emptyList();
 
         List<Transactions> normalTx = repository.findCashFlowTransactionsByMonth(user.getId(), start, end);
-        List<TransactionResponseDTO> responseList = new java.util.ArrayList<>(normalTx.stream().map(TransactionResponseDTO::toDTO).toList());
+        List<TransactionResponseDTO> responseList = new ArrayList<>(normalTx.stream().map(TransactionResponseDTO::toDTO).toList());
 
-        List<Invoices> invoices = invoicesService.findByUserAndDateBetween(user.getId(), start, end);
+        applyVehicleConsolidation(responseList, start, end);
+        applyCreditCardInvoices(responseList, user.getId(), start, end);
 
+        responseList.sort((a, b) -> b.getDate().compareTo(a.getDate()));
+
+        return responseList;
+    }
+
+    private void applyCreditCardInvoices(List<TransactionResponseDTO> responseList, UUID userId, Long start, Long end) {
+        List<Invoices> invoices = invoicesService.findByUserAndDateBetween(userId, start, end);
         for (Invoices inv : invoices) {
             if (inv.getAmount().compareTo(BigDecimal.ZERO) <= 0) continue;
 
@@ -124,10 +156,37 @@ public class TransactionServiceImpl implements TransactionService {
 
             responseList.add(dto);
         }
+    }
 
-        responseList.sort((a, b) -> b.getDate().compareTo(a.getDate()));
+    private void applyVehicleConsolidation(List<TransactionResponseDTO> responseList, Long start, Long end) {
+        BigDecimal totalVeiculos = BigDecimal.ZERO;
+        Iterator<TransactionResponseDTO> iterator = responseList.iterator();
+        while (iterator.hasNext()) {
+            TransactionResponseDTO tx = iterator.next();
 
-        return responseList;
+            boolean isVeiculo = tx.getVehicleId() != null;
+
+            if (isVeiculo && tx.getType() == TransactionType.DESPESA) {
+                totalVeiculos = totalVeiculos.add(tx.getAmount());
+                iterator.remove();
+            }
+        }
+        if (totalVeiculos.compareTo(BigDecimal.ZERO) > 0) {
+            String namespaceVirtual = "VEHICLE_CONSOLIDATED_" + start + "_" + end;
+            UUID idDeterministico = UUID.nameUUIDFromBytes(namespaceVirtual.getBytes(StandardCharsets.UTF_8));
+
+            TransactionResponseDTO veiculoConsolidado = new TransactionResponseDTO();
+            veiculoConsolidado.setId(idDeterministico);
+            veiculoConsolidado.setName("Despesas de veículos do mês");
+            veiculoConsolidado.setAmount(totalVeiculos);
+            veiculoConsolidado.setDate(end);
+            veiculoConsolidado.setPaid(true);
+            veiculoConsolidado.setType(TransactionType.DESPESA);
+            veiculoConsolidado.setCategoryName("Veículos");
+            veiculoConsolidado.setAccountName("Consolidado");
+
+            responseList.add(veiculoConsolidado);
+        }
     }
 
     @Override
@@ -160,6 +219,22 @@ public class TransactionServiceImpl implements TransactionService {
         Transactions transaction = updateTransaction(id, dto, updateFuture);
 
         return TransactionResponseDTO.toDTO(transaction);
+    }
+
+    @Override
+    public List<TransactionResponseDTO> getTransactionsTypeVehicle(Long start, Long end) {
+        Users user = SecurityContextUtils.getCurrentUser();
+        if (start == null || end == null) {
+            return Collections.emptyList();
+        }
+        List<Transactions> transactions = repository.findTransactionsByMonth(user.getId(), start, end);
+
+        return transactions.stream()
+                .map(TransactionResponseDTO::toDTO)
+                .filter(tx -> tx.getVehicleId() != null)
+                .filter(tx -> tx.getType() == TransactionType.DESPESA)
+                .sorted((a, b) -> b.getDate().compareTo(a.getDate()))
+                .toList();
     }
 
     @Override
@@ -350,6 +425,11 @@ public class TransactionServiceImpl implements TransactionService {
 
         // 1. SALVA A TRANSAÇÃO ATUAL NO BANCO COM A REGRA ANEXADA
         transaction = repository.save(transaction);
+        final Transactions savedTransaction = transaction;
+
+        if (transaction.getGasStation() != null) {
+            CompletableFuture.runAsync(() -> gasStationRankingService.updateRanking(savedTransaction));
+        }
 
         // 2. AGORA SIM GERA AS PROJEÇÕES (O banco já consegue enxergar a transação do passo 1)
         if (transformToFixed) {

@@ -70,4 +70,5 @@ public class VehicleController {
             @RequestParam Long end) {
         return ResponseEntity.ok(dashboardService.getDashboard(id, start, end));
     }
+
 }

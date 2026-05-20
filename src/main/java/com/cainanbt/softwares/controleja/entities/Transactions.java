@@ -89,4 +89,7 @@ public class Transactions {
     private FuelType fuelType;
     @Column(nullable = true)
     private Double efficiency; // Km/L deste abastecimento específico
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "gas_station_id", nullable = true)
+    private GasStation gasStation;
 }

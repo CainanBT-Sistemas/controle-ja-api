@@ -36,6 +36,7 @@ public class VehicleServiceImpl implements VehicleService {
                 .year(dto.getYear())
                 .plate(dto.getPlate())
                 .currentOdometer(dto.getCurrentOdometer())
+                .initialOdometer(dto.getCurrentOdometer())
                 .user(user)
                 .createdAt(DateUtils.getEpochNow())
                 .build();

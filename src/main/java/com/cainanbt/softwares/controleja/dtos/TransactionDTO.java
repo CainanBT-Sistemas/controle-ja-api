@@ -30,10 +30,8 @@ public class TransactionDTO {
     @NotNull(message = "A data é obrigatória")
     private Long date;
 
-    @NotNull(message = "A conta de origem é obrigatória")
     private UUID accountId;
 
-    @NotNull(message = "A categoria é obrigatória")
     private UUID categoryId;
 
     @Min(value = 1, message = "O número mínimo de parcelas é 1")
@@ -59,5 +57,6 @@ public class TransactionDTO {
     private Double liters;
     private FuelType fuelType;
     private Double efficiency;
+    private UUID gasStationId;
 
 }

@@ -70,4 +70,10 @@ public class TransactionController {
         response.put("message", cancelFuture ? "Assinatura cancelada e transações futuras removidas." : ConstsMessages.DELETE_SUCCESS);
         return ResponseEntity.ok(response);
     }
+
+    @GetMapping("/vehicle/details")
+    public ResponseEntity<List<TransactionResponseDTO>> getVehicleTransactionsDetails(@RequestParam Long start, @RequestParam Long end) {
+        List<TransactionResponseDTO> transactions = transactionService.getTransactionsTypeVehicle(start, end);
+        return ResponseEntity.ok(transactions);
+    }
 }

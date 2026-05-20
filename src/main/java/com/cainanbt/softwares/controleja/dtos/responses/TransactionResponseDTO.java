@@ -23,6 +23,7 @@ public class TransactionResponseDTO {
     private String accountName;
     private Double efficiency;
     private String vehicleName;
+    private UUID vehicleId;
     private Double liters;
     private BigDecimal currentOdometer;
     private FuelType fuelType;
@@ -57,6 +58,7 @@ public class TransactionResponseDTO {
             dto.setLiters(entity.getLiters());
             dto.setCurrentOdometer(entity.getCurrentOdometer());
             dto.setFuelType(entity.getFuelType());
+            dto.setVehicleId(entity.getVehicle().getId());
         }
         if (entity.getRecurrenceRule() != null) {
             dto.setRecurrenceRuleId(entity.getRecurrenceRule().getId());

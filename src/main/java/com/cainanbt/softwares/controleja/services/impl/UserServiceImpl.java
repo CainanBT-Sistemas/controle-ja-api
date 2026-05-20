@@ -23,6 +23,7 @@ import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
+import jakarta.persistence.EntityManager;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -48,6 +49,7 @@ public class UserServiceImpl implements UsersService {
     private final CreditCardService creditCardService;
     private final TransactionService transactionService;
     private final VehicleService vehicleService;
+    private final EntityManager entityManager;
 
     @Override
     public Optional<Users> getUserByEmailAndId(String email, UUID id) {
@@ -171,8 +173,15 @@ public class UserServiceImpl implements UsersService {
             userRepository.deleteSubCategoriesByUserId(userId);
             userRepository.deleteCategoriesByUserId(userId);
             userRepository.deleteAccountsByUserId(userId);
-            setupNewUser(u);
-            return u;
+            entityManager.flush();
+            entityManager.clear();
+
+            userOpt = userRepository.findById(uuid);
+            if (userOpt.isPresent()) {
+                u = userOpt.get();
+                setupNewUser(u);
+                return u;
+            }
         }
         throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.FAILURE_TO_FIND_USER);
     }
@@ -219,6 +228,8 @@ public class UserServiceImpl implements UsersService {
         createDefaultCategory(user, "Estética", TransactionType.DESPESA.name(), "local_car_wash", "#3F51B5", now, categoryVeiculo);
 
         createDefaultCategory(user, "Reajuste de Saldo", TransactionType.REAJUSTE_SALDO.name(), "sync", "#9E9E9E", now, null);
+
+        createDefaultCategory(user, "Transfêrencia", TransactionType.TRANSFERENCIA.name(), "sync", "#9E9E9E", now, null);
 
 
         createDefaultCategory(user, "Salário", TransactionType.RECEITA.name(), "attach_money", "#00E676", now, null);

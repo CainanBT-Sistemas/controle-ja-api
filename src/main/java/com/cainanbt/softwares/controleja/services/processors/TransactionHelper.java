@@ -3,6 +3,7 @@ package com.cainanbt.softwares.controleja.services.processors;
 import com.cainanbt.softwares.controleja.dtos.TransactionDTO;
 import com.cainanbt.softwares.controleja.entities.Accounts;
 import com.cainanbt.softwares.controleja.entities.Category;
+import com.cainanbt.softwares.controleja.entities.GasStation;
 import com.cainanbt.softwares.controleja.entities.RecurrenceRule;
 import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.entities.Users;
@@ -10,7 +11,9 @@ import com.cainanbt.softwares.controleja.entities.Vehicle;
 import com.cainanbt.softwares.controleja.enums.RuleStatus;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
+import com.cainanbt.softwares.controleja.repositories.GasStationRepository;
 import com.cainanbt.softwares.controleja.services.AccountsService;
+import com.cainanbt.softwares.controleja.services.GasStationRankingService;
 import com.cainanbt.softwares.controleja.services.RecurrenceRuleService;
 import com.cainanbt.softwares.controleja.services.VehicleService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
@@ -24,10 +27,11 @@ import java.time.LocalDateTime;
 @Component
 @RequiredArgsConstructor
 public class TransactionHelper {
-
     private final VehicleService vehicleService;
     private final AccountsService accountsService;
     private final RecurrenceRuleService recurrenceRuleService;
+    private final GasStationRepository gasStationRepository;
+    private final GasStationRankingService rankingService;
 
     public Transactions.TransactionsBuilder createBaseTransactionBuilder(TransactionDTO dto, Accounts account, Category category, Users user) {
         long dateNow = DateUtils.getEpochNow();
@@ -49,6 +53,12 @@ public class TransactionHelper {
                 .category(category)
                 .user(user)
                 .createdAt(dateNow);
+
+        if (dto.getGasStationId() != null) {
+            GasStation station = gasStationRepository.findById(dto.getGasStationId())
+                    .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, "Posto não encontrado."));
+            builder.gasStation(station);
+        }
 
         if (dto.getVehicleId() != null) {
             Vehicle vehicle = vehicleService.findById(dto.getVehicleId());
