@@ -139,6 +139,32 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
             "ORDER BY t.date DESC, t.createdAt DESC")
     List<Transactions> findPreviousValidRefuelsByVehicleBeforeDate(@Param("vehicleId") UUID vehicleId, @Param("date") Long date);
 
+    @Query("SELECT t FROM Transactions t WHERE t.vehicle.id = :vehicleId " +
+            "AND t.id <> :transactionId AND t.currentOdometer IS NOT NULL AND t.currentOdometer > 0 " +
+            "AND t.deletedAt IS NULL " +
+            "AND (t.date < :date OR (t.date = :date AND COALESCE(t.createdAt, 0) < :createdAt)) " +
+            "ORDER BY t.date DESC, t.createdAt DESC")
+    List<Transactions> findPreviousOdometerTransactions(
+            @Param("vehicleId") UUID vehicleId,
+            @Param("transactionId") UUID transactionId,
+            @Param("date") Long date,
+            @Param("createdAt") Long createdAt);
+
+    @Query("SELECT t FROM Transactions t WHERE t.vehicle.id = :vehicleId " +
+            "AND t.id <> :transactionId AND t.currentOdometer IS NOT NULL AND t.currentOdometer > 0 " +
+            "AND t.deletedAt IS NULL " +
+            "AND (t.date > :date OR (t.date = :date AND COALESCE(t.createdAt, 0) > :createdAt)) " +
+            "ORDER BY t.date ASC, t.createdAt ASC")
+    List<Transactions> findNextOdometerTransactions(
+            @Param("vehicleId") UUID vehicleId,
+            @Param("transactionId") UUID transactionId,
+            @Param("date") Long date,
+            @Param("createdAt") Long createdAt);
+
+    @Query("SELECT MAX(t.currentOdometer) FROM Transactions t WHERE t.vehicle.id = :vehicleId " +
+            "AND t.currentOdometer IS NOT NULL AND t.currentOdometer > 0 AND t.deletedAt IS NULL")
+    BigDecimal findMaxCurrentOdometerByVehicleId(@Param("vehicleId") UUID vehicleId);
+
     @Query("SELECT t FROM Transactions t WHERE t.vehicle.id = :vehicleId AND t.type = 'DESPESA' " +
             "AND t.fuelType IS NOT NULL AND t.liters IS NOT NULL AND t.liters > 0 " +
             "AND t.currentOdometer IS NOT NULL AND t.date <= :date AND t.deletedAt IS NULL " +

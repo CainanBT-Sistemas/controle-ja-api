@@ -197,6 +197,41 @@ public class VehicleControllerTest extends BaseTest {
     }
 
     @Test
+    @DisplayName("Deve permitir corrigir odômetro para menor que o atual no update, respeitando lançamento anterior")
+    void shouldAllowCorrectingVehicleTransactionOdometerBelowCurrentWhenItIsAfterPreviousOdometer() {
+        VehicleDTO vDto = new VehicleDTO();
+        vDto.setName("Correção Odômetro");
+        vDto.setBrand("VW");
+        vDto.setModel("Teste");
+        vDto.setYear(2022);
+        vDto.setCurrentOdometer(new BigDecimal("1000.00"));
+
+        String vehicleId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(vDto).post("/vehicles")
+                .then().statusCode(200).extract().path("id");
+
+        long date = DateUtils.getEpochNow();
+        createVehicleTransaction(vehicleId, "Anterior 1", date, new BigDecimal("1500.00"));
+        createVehicleTransaction(vehicleId, "Anterior 2", date + 1000, new BigDecimal("2000.00"));
+        String wrongTransactionId = createVehicleTransaction(vehicleId, "Errado", date + 2000, new BigDecimal("280980.00"));
+
+        TransactionDTO correction = vehicleTransactionDTO(vehicleId, "Corrigido", date + 2000, new BigDecimal("2780.00"));
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(correction).put("/transactions/" + wrongTransactionId)
+                .then().statusCode(200)
+                .body("currentOdometer", is(2780.0f));
+
+        given().header("Authorization", "Bearer " + token).get("/vehicles/" + vehicleId)
+                .then().statusCode(200)
+                .body("currentOdometer", is(2780.0f));
+
+        correction.setCurrentOdometer(new BigDecimal("1900.00"));
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(correction).put("/transactions/" + wrongTransactionId)
+                .then().statusCode(400);
+    }
+
+    @Test
     @DisplayName("Deve salvar diário com predominância e rejeitar odômetro menor")
     void shouldCreateVehicleLogWithDrivingPredominanceAndRejectInvalidOdometer() {
         VehicleDTO vDto = new VehicleDTO();
@@ -230,5 +265,28 @@ public class VehicleControllerTest extends BaseTest {
         given().header("Authorization", "Bearer " + token)
                 .contentType(ContentType.JSON).body(log).post("/vehicles/logs")
                 .then().statusCode(400);
+    }
+
+    private String createVehicleTransaction(String vehicleId, String name, long date, BigDecimal currentOdometer) {
+        return given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(vehicleTransactionDTO(vehicleId, name, date, currentOdometer))
+                .post("/transactions")
+                .then().statusCode(200)
+                .extract().path("id");
+    }
+
+    private TransactionDTO vehicleTransactionDTO(String vehicleId, String name, long date, BigDecimal currentOdometer) {
+        TransactionDTO dto = new TransactionDTO();
+        dto.setName(name);
+        dto.setType(TransactionType.DESPESA);
+        dto.setAmount(new BigDecimal("100.00"));
+        dto.setDate(date);
+        dto.setPaid(true);
+        dto.setAccountId(walletId);
+        dto.setCategoryId(categoryId);
+        dto.setIsFixed(false);
+        dto.setVehicleId(UUID.fromString(vehicleId));
+        dto.setCurrentOdometer(currentOdometer);
+        return dto;
     }
 }

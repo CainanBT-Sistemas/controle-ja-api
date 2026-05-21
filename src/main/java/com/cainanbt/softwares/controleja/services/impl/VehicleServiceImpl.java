@@ -59,6 +59,13 @@ public class VehicleServiceImpl implements VehicleService {
     @Override
     public void updateOdometer(Vehicle vehicle, BigDecimal newOdometer) {
         if (newOdometer != null && newOdometer.compareTo(vehicle.getCurrentOdometer()) > 0) {
+            setCurrentOdometer(vehicle, newOdometer);
+        }
+    }
+
+    @Override
+    public void setCurrentOdometer(Vehicle vehicle, BigDecimal newOdometer) {
+        if (newOdometer != null && newOdometer.compareTo(BigDecimal.ZERO) > 0) {
             vehicle.setCurrentOdometer(newOdometer);
             repository.save(vehicle);
         }

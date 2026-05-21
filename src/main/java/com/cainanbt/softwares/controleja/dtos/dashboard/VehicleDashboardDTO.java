@@ -18,7 +18,8 @@ public class VehicleDashboardDTO {
     // Dados para o Alerta de Previsão
     private Double remainingKms;
     private Long estimatedNextRefuelDate; // Epoch de quando o tanque vai pedir reserva
-    private BigDecimal estimatedNextRefuelCost; // Quanto vai custar para encher com base no último preço pago
+    private BigDecimal estimatedNextRefuelCost; // Previsão de gasto mensal com abastecimento
+    private BigDecimal estimatedNextCost; // Previsão mensal total do veículo com base no perfil de gastos
 
     // Dados do último abastecimento no período consultado
     private BigDecimal lastRefuelAmount;

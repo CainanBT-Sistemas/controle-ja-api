@@ -18,6 +18,7 @@ import com.cainanbt.softwares.controleja.enums.TransactionType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.exceptions.models.EntityNotFoundException;
 import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
+import com.cainanbt.softwares.controleja.repositories.VehicleLogRepository;
 import com.cainanbt.softwares.controleja.services.AccountsService;
 import com.cainanbt.softwares.controleja.services.CategoryService;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
@@ -71,6 +72,7 @@ public class TransactionServiceImpl implements TransactionService {
     private final TransactionHelper helper;
     private final GasStationRankingService gasStationRankingService;
     private final VehicleService vehicleService;
+    private final VehicleLogRepository vehicleLogRepository;
 
     @Override
     @Transactional
@@ -431,7 +433,7 @@ public class TransactionServiceImpl implements TransactionService {
             transaction.setCategory(category);
         }
 
-        applyVehicleFieldsOnUpdate(transaction, dto, currentUser);
+        boolean shouldRecalculateVehicleOdometer = applyVehicleFieldsOnUpdate(transaction, dto, currentUser);
 
         if (transaction.getPaid() && currentAccount.getType() != AccountType.CREDIT_CARD) {
             if (transaction.getType() == TransactionType.DESPESA) currentAccount.debit(transaction.getAmount());
@@ -444,6 +446,10 @@ public class TransactionServiceImpl implements TransactionService {
         // 1. SALVA A TRANSAÇÃO ATUAL NO BANCO COM A REGRA ANEXADA
         transaction = repository.save(transaction);
         final Transactions savedTransaction = transaction;
+
+        if (shouldRecalculateVehicleOdometer && savedTransaction.getVehicle() != null) {
+            recalculateVehicleCurrentOdometer(savedTransaction.getVehicle());
+        }
 
         if (transaction.getGasStation() != null) {
             CompletableFuture.runAsync(() -> gasStationRankingService.updateRanking(savedTransaction));
@@ -458,7 +464,7 @@ public class TransactionServiceImpl implements TransactionService {
         return transaction;
     }
 
-    private void applyVehicleFieldsOnUpdate(Transactions transaction, TransactionDTO dto, Users currentUser) {
+    private boolean applyVehicleFieldsOnUpdate(Transactions transaction, TransactionDTO dto, Users currentUser) {
         Vehicle vehicle = transaction.getVehicle();
         if (dto.getVehicleId() != null) {
             vehicle = vehicleService.findById(dto.getVehicleId());
@@ -469,12 +475,14 @@ public class TransactionServiceImpl implements TransactionService {
         }
 
         if (vehicle == null) {
-            return;
+            return false;
         }
 
+        boolean shouldRecalculateVehicleOdometer = false;
         if (dto.getCurrentOdometer() != null) {
+            validateOdometerTimelineOnUpdate(transaction, vehicle, dto.getCurrentOdometer());
             transaction.setCurrentOdometer(dto.getCurrentOdometer());
-            vehicleService.updateOdometer(vehicle, dto.getCurrentOdometer());
+            shouldRecalculateVehicleOdometer = true;
         }
         if (dto.getLiters() != null) {
             transaction.setLiters(dto.getLiters());
@@ -488,6 +496,58 @@ public class TransactionServiceImpl implements TransactionService {
         if (dto.getEfficiency() != null) {
             transaction.setEfficiency(dto.getEfficiency());
         }
+        return shouldRecalculateVehicleOdometer;
+    }
+
+    private void validateOdometerTimelineOnUpdate(Transactions transaction, Vehicle vehicle, BigDecimal newOdometer) {
+        long createdAt = transaction.getCreatedAt() != null ? transaction.getCreatedAt() : 0L;
+        Long date = transaction.getDate();
+        if (date == null) {
+            return;
+        }
+
+        Optional<Transactions> previousOpt = repository
+                .findPreviousOdometerTransactions(vehicle.getId(), transaction.getId(), date, createdAt)
+                .stream()
+                .findFirst();
+        if (previousOpt.isPresent()
+                && previousOpt.get().getCurrentOdometer() != null
+                && newOdometer.compareTo(previousOpt.get().getCurrentOdometer()) < 0) {
+            throw new BadRequestException(
+                    ConstsMessages.ERROR_TITLE,
+                    "Odômetro não pode ser menor que o lançamento anterior do veículo."
+            );
+        }
+
+        Optional<Transactions> nextOpt = repository
+                .findNextOdometerTransactions(vehicle.getId(), transaction.getId(), date, createdAt)
+                .stream()
+                .findFirst();
+        if (nextOpt.isPresent()
+                && nextOpt.get().getCurrentOdometer() != null
+                && newOdometer.compareTo(nextOpt.get().getCurrentOdometer()) > 0) {
+            throw new BadRequestException(
+                    ConstsMessages.ERROR_TITLE,
+                    "Odômetro não pode ser maior que o próximo lançamento do veículo."
+            );
+        }
+    }
+
+    private void recalculateVehicleCurrentOdometer(Vehicle vehicle) {
+        BigDecimal maxTransactionOdometer = repository.findMaxCurrentOdometerByVehicleId(vehicle.getId());
+        BigDecimal maxLogOdometer = vehicleLogRepository.findMaxOdometerReadingByVehicleId(vehicle.getId());
+        BigDecimal recalculatedOdometer = vehicle.getInitialOdometer() != null
+                ? vehicle.getInitialOdometer()
+                : BigDecimal.ZERO;
+
+        if (maxTransactionOdometer != null && maxTransactionOdometer.compareTo(recalculatedOdometer) > 0) {
+            recalculatedOdometer = maxTransactionOdometer;
+        }
+        if (maxLogOdometer != null && maxLogOdometer.compareTo(recalculatedOdometer) > 0) {
+            recalculatedOdometer = maxLogOdometer;
+        }
+
+        vehicleService.setCurrentOdometer(vehicle, recalculatedOdometer);
     }
 
     @Override

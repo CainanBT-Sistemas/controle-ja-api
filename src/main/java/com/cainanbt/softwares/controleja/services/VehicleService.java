@@ -6,7 +6,6 @@ import com.cainanbt.softwares.controleja.enums.FuelType;
 
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 public interface VehicleService {
@@ -17,6 +16,8 @@ public interface VehicleService {
     Vehicle findById(UUID id);
 
     void updateOdometer(Vehicle vehicle, java.math.BigDecimal newOdometer);
+
+    void setCurrentOdometer(Vehicle vehicle, java.math.BigDecimal newOdometer);
 
     Double processRefuel(Vehicle vehicle, BigDecimal newOdometer, Double liters, FuelType fuelType);
     
