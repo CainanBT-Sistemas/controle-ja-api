@@ -4,14 +4,22 @@ import com.cainanbt.softwares.controleja.dtos.invoices.AdvanceRequestDTO;
 import com.cainanbt.softwares.controleja.dtos.invoices.AdvanceablePurchaseDTO;
 import com.cainanbt.softwares.controleja.dtos.invoices.InvoiceDetailsDTO;
 import com.cainanbt.softwares.controleja.dtos.invoices.InvoiceItemDTO;
+import com.cainanbt.softwares.controleja.dtos.invoices.InvoicePaymentRequestDTO;
 import com.cainanbt.softwares.controleja.dtos.invoices.RefundRequestDTO;
+import com.cainanbt.softwares.controleja.entities.Accounts;
+import com.cainanbt.softwares.controleja.entities.Category;
 import com.cainanbt.softwares.controleja.entities.CreditCard;
 import com.cainanbt.softwares.controleja.entities.InstallmentPlan;
 import com.cainanbt.softwares.controleja.entities.Invoices;
+import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.entities.Users;
+import com.cainanbt.softwares.controleja.enums.AccountType;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.exceptions.models.EntityNotFoundException;
+import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
+import com.cainanbt.softwares.controleja.services.AccountsService;
+import com.cainanbt.softwares.controleja.services.CategoryService;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
 import com.cainanbt.softwares.controleja.services.InstallmentPlanService;
 import com.cainanbt.softwares.controleja.services.InvoicesService;
@@ -26,6 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.DateTimeException;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.temporal.TemporalAdjusters;
 import java.util.Comparator;
@@ -41,6 +50,9 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
     private final InvoicesService invoicesService;
     private final InstallmentPlanService installmentPlanService;
     private final CreditCardService creditCardService;
+    private final AccountsService accountsService;
+    private final CategoryService categoryService;
+    private final TransactionRepository transactionRepository;
 
     @Override
     public Optional<InvoiceDetailsDTO> getInvoiceDetails(UUID cardId, Integer month, Integer year) {
@@ -48,7 +60,7 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
 
         Optional<Invoices> invOpt = invoicesService.findByCreditCardIdAndMonthAndYear(cardId, month, year);
 
-        // If invoice not found, return a phantom DTO with calculated dates and "SEM GASTOS"
+        // If invoice not found, return a phantom DTO with calculated dates and computed status.
         if (invOpt.isEmpty()) {
             // Fetch card to build phantom values
             CreditCard card = creditCardService.findById(cardId).orElseThrow(() -> new BadRequestException("Erro", "Cartão não encontrado."));
@@ -56,25 +68,9 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
                 throw new BadRequestException("Acesso Negado", "Cartão não pertence ao usuário autenticado.");
             }
 
-            // Calculate closeDate and expirationDate phantom values
-            LocalDate closeLocal;
-            try {
-                closeLocal = LocalDate.of(year, month, card.getCloseDay());
-            } catch (DateTimeException e) {
-                closeLocal = LocalDate.of(year, month, 1).with(TemporalAdjusters.lastDayOfMonth());
-            }
-            if (card.getCloseDay() > card.getBestDay()) {
-                closeLocal = closeLocal.minusMonths(1);
-            }
+            LocalDate closeLocal = calculateCloseDate(card, month, year);
+            LocalDate expLocal = calculateExpirationDate(card, month, year);
             long closeEpoch = DateUtils.localDateToEpoch(closeLocal);
-
-            // expiration date: use bestDay in the target month
-            LocalDate expLocal;
-            try {
-                expLocal = LocalDate.of(year, month, Math.min(card.getBestDay(), LocalDate.of(year, month, 1).lengthOfMonth()));
-            } catch (DateTimeException e) {
-                expLocal = LocalDate.of(year, month, 1).with(TemporalAdjusters.lastDayOfMonth());
-            }
             long expEpoch = DateUtils.localDateToEpoch(expLocal);
 
             InvoiceDetailsDTO phantom = InvoiceDetailsDTO.builder()
@@ -84,9 +80,17 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
                     .month(month)
                     .year(year)
                     .totalAmount(BigDecimal.ZERO)
+                    .paidAmount(BigDecimal.ZERO)
+                    .openAmount(BigDecimal.ZERO)
                     .expirationDate(expEpoch)
                     .closeDate(closeEpoch)
-                    .status("SEM GASTOS")
+                    .status(calculateInvoiceStatus(card, false, BigDecimal.ZERO, BigDecimal.ZERO, closeLocal, expLocal, month, year))
+                    .canPay(false)
+                    .canAdvancePayment(false)
+                    .canAdvanceInstallments(false)
+                    .canRefund(false)
+                    .canEditTransactions(false)
+                    .canEditCard(true)
                     .items(List.of())
                     .build();
 
@@ -104,17 +108,19 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
                 .sorted(Comparator.comparing(InstallmentPlan::getDate))
                 .collect(Collectors.toList());
 
-        List<InvoiceItemDTO> itemDTOs = items.stream().map(i -> InvoiceItemDTO.builder()
-                .id(i.getId())
-                .date(i.getDate())
-                .name(i.getName())
-                .currentInstallment(i.getCurrentInstallment())
-                .totalInstallmentsPlan(i.getTotalInstallmentsPlan())
-                .amount(i.getAmount())
-                .build()).collect(Collectors.toList());
+        InvoiceTotals totals = calculateTotals(items);
+        if (syncInvoiceOpenAmount(inv, totals.openAmount())) {
+            invoicesService.save(inv);
+        }
 
-        String status = calculateInvoiceStatus(inv);
-        Long closeDate = calculateCloseEpoch(inv);
+        LocalDate closeLocal = calculateCloseDate(inv.getCreditCard(), inv.getMonth(), inv.getYear());
+        LocalDate expirationLocal = calculateExpirationDate(inv.getCreditCard(), inv.getMonth(), inv.getYear());
+        Long closeDate = DateUtils.localDateToEpoch(closeLocal);
+        Long expirationDate = DateUtils.localDateToEpoch(expirationLocal);
+        String status = calculateInvoiceStatus(inv.getCreditCard(), inv.getPaid(), totals.totalAmount(), totals.openAmount(), closeLocal, expirationLocal, inv.getMonth(), inv.getYear());
+        boolean closedOrPaid = isClosedOrPaid(status);
+
+        List<InvoiceItemDTO> itemDTOs = items.stream().map(i -> toInvoiceItemDTO(i, closedOrPaid)).collect(Collectors.toList());
 
         InvoiceDetailsDTO dto = InvoiceDetailsDTO.builder()
                 .invoiceId(inv.getId())
@@ -122,42 +128,177 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
                 .cardName(inv.getCreditCard() != null ? inv.getCreditCard().getName() : null)
                 .month(inv.getMonth())
                 .year(inv.getYear())
-                .totalAmount(inv.getAmount())
-                .expirationDate(inv.getExpirationDate())
+                .totalAmount(totals.totalAmount())
+                .paidAmount(totals.paidAmount())
+                .openAmount(totals.openAmount())
+                .expirationDate(expirationDate)
                 .closeDate(closeDate)
                 .status(status)
+                .canPay(totals.openAmount().compareTo(BigDecimal.ZERO) > 0)
+                .canAdvancePayment(totals.openAmount().compareTo(BigDecimal.ZERO) > 0)
+                .canAdvanceInstallments(!closedOrPaid)
+                .canRefund(items.stream().anyMatch(this::isRefundableItem))
+                .canEditTransactions(!closedOrPaid)
+                .canEditCard(true)
                 .items(itemDTOs)
                 .build();
 
         return Optional.of(dto);
     }
 
-    private long calculateCloseEpoch(Invoices inv) {
+    private LocalDate calculateCloseDate(CreditCard card, Integer month, Integer year) {
+        LocalDate closeDate = safeDate(year, month, card.getCloseDay());
+        if (card.getCloseDay() > card.getBestDay()) {
+            closeDate = closeDate.minusMonths(1);
+        }
+        return nextBusinessDay(closeDate);
+    }
+
+    private LocalDate calculateExpirationDate(CreditCard card, Integer month, Integer year) {
+        return nextBusinessDay(safeDate(year, month, card.getBestDay()));
+    }
+
+    private LocalDate safeDate(Integer year, Integer month, int requestedDay) {
         try {
-            LocalDate closeDate = LocalDate.of(inv.getYear(), inv.getMonth(), inv.getCreditCard().getCloseDay());
-            // CORREÇÃO: Se dia de fechamento é maior que o vencimento, ela fecha no mês anterior
-            if (inv.getCreditCard().getCloseDay() > inv.getCreditCard().getBestDay()) {
-                closeDate = closeDate.minusMonths(1);
-            }
-            return DateUtils.localDateToEpoch(closeDate);
-        } catch (Exception e) {
-            LocalDate closeDate = LocalDate.of(inv.getYear(), inv.getMonth(), 1).with(TemporalAdjusters.lastDayOfMonth());
-            return DateUtils.localDateToEpoch(closeDate);
+            int monthLength = LocalDate.of(year, month, 1).lengthOfMonth();
+            return LocalDate.of(year, month, Math.min(requestedDay, monthLength));
+        } catch (DateTimeException e) {
+            return LocalDate.of(year, month, 1).with(TemporalAdjusters.lastDayOfMonth());
         }
     }
 
-    private String calculateInvoiceStatus(Invoices invoice) {
-        if (Boolean.TRUE.equals(invoice.getPaid())) return "PAGA";
+    private LocalDate nextBusinessDay(LocalDate date) {
+        LocalDate adjusted = date;
+        while (isWeekend(adjusted) || isHoliday(adjusted)) {
+            adjusted = adjusted.plusDays(1);
+        }
+        return adjusted;
+    }
 
+    private boolean isWeekend(LocalDate date) {
+        return date.getDayOfWeek() == DayOfWeek.SATURDAY || date.getDayOfWeek() == DayOfWeek.SUNDAY;
+    }
+
+    private boolean isHoliday(LocalDate date) {
+        // Preparado para feriados: hoje não há calendário configurado, então nenhum feriado é aplicado.
+        return false;
+    }
+
+    private String calculateInvoiceStatus(CreditCard card, Boolean paid, BigDecimal totalAmount, BigDecimal openAmount, LocalDate closeDate, LocalDate expirationDate, Integer month, Integer year) {
         LocalDate today = LocalDate.now(DateUtils.zoneId);
-        long todayEpoch = DateUtils.localDateToEpoch(today);
+        LocalDate previousCloseDate = calculatePreviousCloseDate(card, month, year);
 
-        if (invoice.getExpirationDate() < todayEpoch) return "ATRASADA";
+        if (!today.isBefore(previousCloseDate) && today.isBefore(closeDate)) {
+            return "ABERTA";
+        }
 
-        Long closeDateEpoch = calculateCloseEpoch(invoice);
-        if (todayEpoch >= closeDateEpoch) return "FECHADA";
+        if (today.isAfter(expirationDate)) {
+            if (Boolean.TRUE.equals(paid) || openAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                return "PAGA";
+            }
+            return "ATRASADA";
+        }
 
-        return "ABERTA";
+        if (!today.isBefore(closeDate) && !today.isAfter(expirationDate)) {
+            if (Boolean.TRUE.equals(paid) || openAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                return "PAGA";
+            }
+            return "FECHADA";
+        }
+
+        return "FUTURA";
+    }
+
+    private LocalDate calculatePreviousCloseDate(CreditCard card, Integer month, Integer year) {
+        LocalDate invoiceMonth = LocalDate.of(year, month, 1).minusMonths(1);
+        return calculateCloseDate(card, invoiceMonth.getMonthValue(), invoiceMonth.getYear());
+    }
+
+    private boolean isClosedOrPaid(String status) {
+        return "PAGA".equals(status) || "ATRASADA".equals(status) || "FECHADA".equals(status);
+    }
+
+    private InvoiceItemDTO toInvoiceItemDTO(InstallmentPlan item, boolean closedOrPaid) {
+        String itemKind = resolveItemKind(item);
+        return InvoiceItemDTO.builder()
+                .id(item.getId())
+                .transactionId(item.getPurchaseId())
+                .purchaseId(item.getPurchaseId())
+                .date(item.getDate())
+                .name(item.getName())
+                .categoryName(resolveCategoryName(item))
+                .currentInstallment(item.getCurrentInstallment())
+                .totalInstallmentsPlan(item.getTotalInstallmentsPlan())
+                .type(item.getType())
+                .amount(item.getAmount())
+                .canEdit(!closedOrPaid && !Boolean.TRUE.equals(item.getPaid()) && "PURCHASE".equals(itemKind))
+                .itemKind(itemKind)
+                .build();
+    }
+
+    private String resolveCategoryName(InstallmentPlan item) {
+        if (item.getPurchaseId() == null || transactionRepository == null) return null;
+        return transactionRepository.findById(item.getPurchaseId())
+                .map(Transactions::getCategory)
+                .map(Category::getName)
+                .orElse(null);
+    }
+
+    private String resolveItemKind(InstallmentPlan item) {
+        String name = item.getName() != null ? item.getName() : "";
+        if (isPaymentItem(item)) return "PAYMENT";
+        if (name.startsWith("Estorno:")) return "REFUND";
+        if (name.contains("(Adiantada)") || "Desconto Adiantamento".equals(name)) return "INSTALLMENT_ADVANCED";
+        if (item.getAmount() != null && item.getAmount().compareTo(BigDecimal.ZERO) < 0) return "ADJUSTMENT";
+        return "PURCHASE";
+    }
+
+    private boolean isPaymentItem(InstallmentPlan item) {
+        String name = item.getName() != null ? item.getName() : "";
+        return name.startsWith("Pagamento Recebido");
+    }
+
+    private boolean isRefundableItem(InstallmentPlan item) {
+        return item.getDeletedAt() == null
+                && item.getAmount() != null
+                && item.getAmount().compareTo(BigDecimal.ZERO) > 0
+                && !Boolean.TRUE.equals(item.getPaid());
+    }
+
+    private InvoiceTotals calculateTotals(List<InstallmentPlan> items) {
+        BigDecimal totalAmount = BigDecimal.ZERO;
+        BigDecimal paidAmount = BigDecimal.ZERO;
+
+        for (InstallmentPlan item : items) {
+            if (item.getAmount() == null) continue;
+            if (isPaymentItem(item)) {
+                paidAmount = paidAmount.add(item.getAmount().abs());
+            } else {
+                totalAmount = totalAmount.add(item.getAmount());
+            }
+        }
+
+        BigDecimal openAmount = totalAmount.subtract(paidAmount);
+        if (openAmount.compareTo(BigDecimal.ZERO) < 0) {
+            openAmount = BigDecimal.ZERO;
+        }
+        return new InvoiceTotals(totalAmount, paidAmount, openAmount);
+    }
+
+    private boolean syncInvoiceOpenAmount(Invoices invoice, BigDecimal openAmount) {
+        boolean changed = false;
+        if (invoice.getAmount() == null || invoice.getAmount().compareTo(openAmount) != 0) {
+            invoice.setAmount(openAmount);
+            changed = true;
+        }
+        if (openAmount.compareTo(BigDecimal.ZERO) > 0 && Boolean.TRUE.equals(invoice.getPaid())) {
+            invoice.setPaid(false);
+            changed = true;
+        }
+        return changed;
+    }
+
+    private record InvoiceTotals(BigDecimal totalAmount, BigDecimal paidAmount, BigDecimal openAmount) {
     }
 
     @Override
@@ -170,15 +311,7 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         }
 
         // Calculate the close date epoch for the requested invoice month/year
-        LocalDate closeLocal;
-        try {
-            closeLocal = LocalDate.of(year, month, card.getCloseDay());
-        } catch (DateTimeException e) {
-            closeLocal = LocalDate.of(year, month, 1).with(TemporalAdjusters.lastDayOfMonth());
-        }
-        if (card.getCloseDay() > card.getBestDay()) {
-            closeLocal = closeLocal.minusMonths(1);
-        }
+        LocalDate closeLocal = calculateCloseDate(card, month, year);
         long closeEpoch = DateUtils.localDateToEpoch(closeLocal);
 
         // Use optimized repository method to fetch future unpaid invoices directly
@@ -206,6 +339,10 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
                             .purchaseId(purchaseId)
                             .name(name)
                             .maxInstallmentsAvailable(plans.size())
+                            .estimatedAmount(plans.stream()
+                                    .map(InstallmentPlan::getAmount)
+                                    .filter(amount -> amount != null && amount.compareTo(BigDecimal.ZERO) > 0)
+                                    .reduce(BigDecimal.ZERO, BigDecimal::add))
                             .build();
                 })
                 .sorted((a, b) -> a.getName().compareToIgnoreCase(b.getName()))
@@ -362,6 +499,151 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
 
         currentInvoice.setAmount(currentInvoice.getAmount().add(totalAdvanced));
         invoicesService.save(currentInvoice);
+    }
+
+    @Override
+    @Transactional
+    public InvoiceDetailsDTO processPayment(UUID invoiceId, InvoicePaymentRequestDTO request) {
+        Users currentUser = SecurityContextUtils.getCurrentUser();
+        Invoices invoice = invoicesService.findByIdOrThrow(invoiceId);
+
+        if (!invoice.getUser().getId().equals(currentUser.getId())) {
+            throw new BadRequestException("Acesso Negado", "Fatura não pertence ao usuário autenticado.");
+        }
+        if (request.getAccountId() == null) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Conta de pagamento não informada.");
+        }
+        if (request.getAmount() == null || request.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "O valor do pagamento deve ser maior que zero.");
+        }
+
+        List<InstallmentPlan> currentItems = installmentPlanService.findByInvoiceId(invoice.getId()).stream()
+                .filter(p -> p.getDeletedAt() == null)
+                .collect(Collectors.toList());
+        InvoiceTotals currentTotals = calculateTotals(currentItems);
+        if (currentTotals.openAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Fatura não possui saldo em aberto.");
+        }
+        if (request.getAmount().compareTo(currentTotals.openAmount()) > 0) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "O pagamento não pode ser maior que o saldo em aberto.");
+        }
+
+        Accounts sourceAccount = accountsService.findByIdOrThrow(request.getAccountId());
+        if (!sourceAccount.getUser().getId().equals(currentUser.getId())) {
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_ACCOUNT);
+        }
+        if (sourceAccount.getType() == AccountType.CREDIT_CARD) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "A conta de pagamento não pode ser uma conta de cartão de crédito.");
+        }
+
+        CreditCard card = invoice.getCreditCard();
+        Accounts cardAccount = card.getAccounts();
+        Category category = findPaymentCategory(currentUser);
+        long now = DateUtils.getEpochNow();
+        long paymentDate = request.getPaymentDate() != null ? request.getPaymentDate() : now;
+        String notes = request.getNotes() != null ? request.getNotes() : "";
+
+        Transactions paymentOut = Transactions.builder()
+                .id(ID.generate())
+                .name("Pagamento Fatura " + card.getName())
+                .description(notes)
+                .type(TransactionType.PAGAMENTO_FATURA)
+                .amount(request.getAmount())
+                .fixed(false)
+                .paid(true)
+                .enabled(true)
+                .createdAt(now)
+                .date(paymentDate)
+                .account(sourceAccount)
+                .category(category)
+                .user(currentUser)
+                .targetInvoice(invoice)
+                .creditCard(card)
+                .build();
+
+        Transactions paymentIn = Transactions.builder()
+                .id(ID.generate())
+                .name("Recebimento de Fatura")
+                .description(notes)
+                .type(TransactionType.TRANSFERENCIA_ENTRADA)
+                .amount(request.getAmount())
+                .fixed(false)
+                .paid(true)
+                .enabled(true)
+                .createdAt(now)
+                .date(paymentDate)
+                .account(cardAccount)
+                .category(category)
+                .user(currentUser)
+                .targetInvoice(invoice)
+                .creditCard(card)
+                .parentTransaction(paymentOut)
+                .build();
+
+        transactionRepository.saveAll(List.of(paymentOut, paymentIn));
+
+        sourceAccount.debit(request.getAmount());
+        accountsService.update(sourceAccount);
+        cardAccount.credit(request.getAmount());
+        accountsService.update(cardAccount);
+
+        card.restoreLimit(request.getAmount());
+        creditCardService.updateLimit(card);
+
+        InstallmentPlan paymentCredit = InstallmentPlan.builder()
+                .id(ID.generate())
+                .date(paymentDate)
+                .name("Pagamento Recebido")
+                .description(notes)
+                .type(TransactionType.RECEITA.name())
+                .amount(request.getAmount().abs().negate())
+                .totalInstallmentsPlan(1)
+                .currentInstallment(1)
+                .fixed(false)
+                .paid(true)
+                .purchaseId(paymentOut.getId())
+                .enabled(true)
+                .createdAt(now)
+                .user(currentUser)
+                .invoices(invoice)
+                .build();
+
+        installmentPlanService.save(paymentCredit);
+
+        List<InstallmentPlan> updatedItems = installmentPlanService.findByInvoiceId(invoice.getId()).stream()
+                .filter(p -> p.getDeletedAt() == null)
+                .collect(Collectors.toList());
+        if (updatedItems.stream().noneMatch(item -> item.getId().equals(paymentCredit.getId()))) {
+            updatedItems.add(paymentCredit);
+        }
+        InvoiceTotals updatedTotals = calculateTotals(updatedItems);
+
+        invoice.setAmount(updatedTotals.openAmount());
+        invoice.setTransaction(paymentOut);
+        if (updatedTotals.openAmount().compareTo(BigDecimal.ZERO) <= 0 && !isInvoiceOpenWindow(invoice)) {
+            invoice.setPaid(true);
+            updatedItems.forEach(inst -> inst.setPaid(true));
+            installmentPlanService.saveAll(updatedItems);
+        }
+        invoicesService.save(invoice);
+
+        return getInvoiceDetails(card.getId(), invoice.getMonth(), invoice.getYear())
+                .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Fatura não encontrada."));
+    }
+
+    private Category findPaymentCategory(Users user) {
+        try {
+            return categoryService.findCategoryByUserAndName(user, "Transfêrencia");
+        } catch (RuntimeException ignored) {
+            return categoryService.findCategoryByUserAndName(user, "Reajuste de Saldo");
+        }
+    }
+
+    private boolean isInvoiceOpenWindow(Invoices invoice) {
+        LocalDate today = LocalDate.now(DateUtils.zoneId);
+        LocalDate closeDate = calculateCloseDate(invoice.getCreditCard(), invoice.getMonth(), invoice.getYear());
+        LocalDate previousCloseDate = calculatePreviousCloseDate(invoice.getCreditCard(), invoice.getMonth(), invoice.getYear());
+        return !today.isBefore(previousCloseDate) && today.isBefore(closeDate);
     }
 }
 

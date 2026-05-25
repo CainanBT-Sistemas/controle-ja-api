@@ -41,6 +41,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -224,7 +225,17 @@ public class TransactionServiceImpl implements TransactionService {
             return resp;
         }
 
+        Optional<InstallmentPlan> instOpt = installmentPlanService.findById(id);
+        if (instOpt.isPresent()) {
+            return updateCreditCardInstallments(instOpt.get(), dto);
+        }
+
         Transactions current = findByIdOrThrow(id);
+        List<InstallmentPlan> installments = installmentPlanService.findByPurchaseId(current.getId());
+        if (current.getAccount().getType() == AccountType.CREDIT_CARD && !installments.isEmpty()) {
+            return updateCreditCardInstallments(current, installments, dto);
+        }
+
         if (isTransferSide(current)) {
             return TransactionResponseDTO.toDTO(updateTransferPair(current, dto, updateFuture));
         }
@@ -232,6 +243,257 @@ public class TransactionServiceImpl implements TransactionService {
         Transactions transaction = updateTransaction(id, dto, updateFuture);
 
         return TransactionResponseDTO.toDTO(transaction);
+    }
+
+    private TransactionResponseDTO updateCreditCardInstallments(InstallmentPlan reference, TransactionDTO dto) {
+        if (reference.getPurchaseId() == null) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Parcela sem compra vinculada.");
+        }
+
+        Transactions purchase = repository.findById(reference.getPurchaseId()).orElse(null);
+        List<InstallmentPlan> installments = installmentPlanService.findByPurchaseId(reference.getPurchaseId());
+        if (installments.isEmpty()) {
+            installments = List.of(reference);
+        }
+        return updateCreditCardInstallments(purchase, installments, dto);
+    }
+
+    private TransactionResponseDTO updateCreditCardInstallments(Transactions purchase, List<InstallmentPlan> installments, TransactionDTO dto) {
+        Users currentUser = SecurityContextUtils.getCurrentUser();
+        long dateNow = DateUtils.getEpochNow();
+
+        boolean ownsPurchase = purchase != null && purchase.getUser() != null && purchase.getUser().getId().equals(currentUser.getId());
+        boolean ownsInstallment = installments.stream().anyMatch(inst -> inst.getUser() != null && inst.getUser().getId().equals(currentUser.getId()));
+        if (!ownsPurchase && !ownsInstallment) {
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_TRANSACTION);
+        }
+
+        Map<UUID, Invoices> invoicesToUpdate = new HashMap<>();
+        List<InstallmentPlan> installmentsToUpdate = new ArrayList<>();
+
+        if (dto.getInstallments() != null) {
+            return updateCreditCardInstallmentCount(purchase, installments, dto, dateNow);
+        }
+        if (dto.getDate() != null) {
+            validateCreditCardPurchaseDateChange(purchase, installments, dto.getDate());
+        }
+
+        for (InstallmentPlan inst : installments) {
+            if (inst.getDeletedAt() != null || isPaidInvoiceInstallment(inst)) {
+                continue;
+            }
+
+            BigDecimal oldAmount = inst.getAmount();
+            boolean changed = false;
+
+            if (dto.getAmount() != null && dto.getAmount().compareTo(oldAmount) != 0) {
+                inst.setAmount(dto.getAmount());
+                changed = true;
+
+                Invoices invoice = invoicesToUpdate.getOrDefault(inst.getInvoices().getId(), inst.getInvoices());
+                invoice.setAmount(invoice.getAmount().add(dto.getAmount().subtract(oldAmount)));
+                invoice.setUpdatedAt(dateNow);
+                invoicesToUpdate.put(invoice.getId(), invoice);
+            }
+            if (dto.getName() != null) {
+                inst.setName(buildInstallmentName(dto.getName(), inst));
+                changed = true;
+            }
+            if (dto.getDescription() != null) {
+                inst.setDescription(dto.getDescription());
+                changed = true;
+            }
+            if (dto.getType() != null) {
+                inst.setType(dto.getType().name());
+                changed = true;
+            }
+
+            if (changed) {
+                inst.setUpdatedAt(dateNow);
+                installmentsToUpdate.add(inst);
+            }
+        }
+
+        if (!installmentsToUpdate.isEmpty()) {
+            installmentPlanService.saveAll(installmentsToUpdate);
+        }
+        if (!invoicesToUpdate.isEmpty()) {
+            invoicesService.saveAll(invoicesToUpdate.values().stream().toList());
+        }
+
+        if (purchase != null) {
+            if (purchase.getUser() == null || !purchase.getUser().getId().equals(currentUser.getId())) {
+                throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_TRANSACTION);
+            }
+            if (!installmentsToUpdate.isEmpty() && dto.getAmount() != null) {
+                BigDecimal activeTotal = installments.stream()
+                        .filter(inst -> inst.getDeletedAt() == null)
+                        .map(InstallmentPlan::getAmount)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                purchase.setAmount(activeTotal);
+            }
+            if (!installmentsToUpdate.isEmpty() && dto.getName() != null) purchase.setName(dto.getName());
+            if (!installmentsToUpdate.isEmpty() && dto.getDescription() != null)
+                purchase.setDescription(dto.getDescription());
+            if (!installmentsToUpdate.isEmpty() && dto.getType() != null) purchase.setType(dto.getType());
+            if (dto.getDate() != null) {
+                purchase.setDate(dto.getDate());
+            }
+            if (!installmentsToUpdate.isEmpty() || dto.getDate() != null) {
+                purchase.setUpdatedAt(dateNow);
+                purchase = repository.save(purchase);
+            }
+            return TransactionResponseDTO.toDTO(purchase);
+        }
+
+        return buildInstallmentResponse(installmentsToUpdate.stream().findFirst().orElse(installments.get(0)));
+    }
+
+    private TransactionResponseDTO updateCreditCardInstallmentCount(Transactions purchase, List<InstallmentPlan> installments, TransactionDTO dto, long dateNow) {
+        if (purchase == null) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Compra original não encontrada para recalcular as parcelas.");
+        }
+        if (dto.getInstallments() < 1) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "O número mínimo de parcelas é 1.");
+        }
+
+        List<InstallmentPlan> activeInstallments = installments.stream()
+                .filter(inst -> inst.getDeletedAt() == null)
+                .sorted((a, b) -> a.getCurrentInstallment().compareTo(b.getCurrentInstallment()))
+                .toList();
+
+        if (activeInstallments.isEmpty()) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Compra sem parcelas ativas para recalcular.");
+        }
+        if (activeInstallments.stream().anyMatch(this::isPaidInvoiceInstallment)) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Não é possível alterar o parcelamento porque a compra possui parcela em fatura paga.");
+        }
+        if (dto.getInstallments() > activeInstallments.size()) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Não é possível aumentar a quantidade de parcelas após a compra criada.");
+        }
+
+        BigDecimal installmentAmount = purchase.getAmount().divide(BigDecimal.valueOf(dto.getInstallments()), 2, RoundingMode.DOWN);
+        BigDecimal difference = purchase.getAmount().subtract(installmentAmount.multiply(BigDecimal.valueOf(dto.getInstallments())));
+        Map<UUID, Invoices> invoicesToUpdate = new HashMap<>();
+        List<InstallmentPlan> installmentsToUpdate = new ArrayList<>();
+        String baseName = dto.getName() != null ? dto.getName() : removeInstallmentSuffix(activeInstallments.get(0).getName());
+
+        for (int i = 0; i < activeInstallments.size(); i++) {
+            InstallmentPlan inst = activeInstallments.get(i);
+            Invoices invoice = invoicesToUpdate.getOrDefault(inst.getInvoices().getId(), inst.getInvoices());
+
+            if (i >= dto.getInstallments()) {
+                inst.setDeletedAt(dateNow);
+                inst.setUpdatedAt(dateNow);
+                invoice.setAmount(invoice.getAmount().subtract(inst.getAmount()));
+                invoice.setUpdatedAt(dateNow);
+                installmentsToUpdate.add(inst);
+                invoicesToUpdate.put(invoice.getId(), invoice);
+                continue;
+            }
+
+            BigDecimal oldAmount = inst.getAmount();
+            BigDecimal newAmount = i == 0 ? installmentAmount.add(difference) : installmentAmount;
+            inst.setAmount(newAmount);
+            inst.setTotalInstallmentsPlan(dto.getInstallments());
+            inst.setCurrentInstallment(i + 1);
+            inst.setName(buildInstallmentName(baseName, i + 1, dto.getInstallments()));
+            if (dto.getDescription() != null) {
+                inst.setDescription(dto.getDescription());
+            }
+            if (dto.getType() != null) {
+                inst.setType(dto.getType().name());
+            }
+            inst.setUpdatedAt(dateNow);
+
+            invoice.setAmount(invoice.getAmount().add(newAmount.subtract(oldAmount)));
+            invoice.setUpdatedAt(dateNow);
+            installmentsToUpdate.add(inst);
+            invoicesToUpdate.put(invoice.getId(), invoice);
+        }
+
+        installmentPlanService.saveAll(installmentsToUpdate);
+        invoicesService.saveAll(invoicesToUpdate.values().stream().toList());
+
+        if (dto.getName() != null) purchase.setName(dto.getName());
+        if (dto.getDescription() != null) purchase.setDescription(dto.getDescription());
+        if (dto.getType() != null) purchase.setType(dto.getType());
+        purchase.setUpdatedAt(dateNow);
+        purchase = repository.save(purchase);
+
+        return TransactionResponseDTO.toDTO(purchase);
+    }
+
+    private void validateCreditCardPurchaseDateChange(Transactions purchase, List<InstallmentPlan> installments, Long newDate) {
+        if (purchase == null) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Compra original não encontrada para validar a data.");
+        }
+
+        List<InstallmentPlan> activeInstallments = installments.stream()
+                .filter(inst -> inst.getDeletedAt() == null)
+                .toList();
+
+        if (activeInstallments.stream().anyMatch(this::isPaidInvoiceInstallment)) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Não é possível alterar a data porque a compra possui parcela em fatura paga.");
+        }
+
+        for (InstallmentPlan inst : activeInstallments) {
+            Invoices currentInvoice = inst.getInvoices();
+            if (currentInvoice == null || currentInvoice.getCreditCard() == null) {
+                throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Parcela sem fatura ou cartão vinculado para validar a data.");
+            }
+
+            LocalDateTime newPurchaseDate = DateUtils.epochToLocalDateTime(newDate);
+            LocalDateTime newInvoiceDate = helper.calculateInvoiceDate(
+                    newPurchaseDate.plusMonths(inst.getCurrentInstallment() - 1L),
+                    currentInvoice.getCreditCard().getCloseDay(),
+                    currentInvoice.getCreditCard().getBestDay()
+            );
+
+            if (currentInvoice.getMonth() == null
+                    || currentInvoice.getYear() == null
+                    || currentInvoice.getMonth() != newInvoiceDate.getMonthValue()
+                    || currentInvoice.getYear() != newInvoiceDate.getYear()) {
+                throw new BadRequestException(ConstsMessages.ERROR_TITLE, "A nova data altera a fatura da compra. Escolha uma data dentro do período da fatura atual.");
+            }
+        }
+    }
+
+    private boolean isPaidInvoiceInstallment(InstallmentPlan installment) {
+        return Boolean.TRUE.equals(installment.getPaid())
+                || (installment.getInvoices() != null && Boolean.TRUE.equals(installment.getInvoices().getPaid()));
+    }
+
+    private String buildInstallmentName(String name, InstallmentPlan installment) {
+        if (installment.getTotalInstallmentsPlan() > 1) {
+            return name + " (" + installment.getCurrentInstallment() + "/" + installment.getTotalInstallmentsPlan() + ")";
+        }
+        return name;
+    }
+
+    private String buildInstallmentName(String name, int currentInstallment, int totalInstallments) {
+        if (totalInstallments > 1) {
+            return name + " (" + currentInstallment + "/" + totalInstallments + ")";
+        }
+        return name;
+    }
+
+    private String removeInstallmentSuffix(String name) {
+        if (name == null) {
+            return null;
+        }
+        return name.replaceFirst("\\s*\\(\\d+/\\d+\\)$", "");
+    }
+
+    private TransactionResponseDTO buildInstallmentResponse(InstallmentPlan installment) {
+        TransactionResponseDTO response = new TransactionResponseDTO();
+        response.setId(installment.getId());
+        response.setName(installment.getName());
+        response.setAmount(installment.getAmount());
+        response.setDate(installment.getDate());
+        response.setPaid(installment.getPaid());
+        response.setType(TransactionType.valueOf(installment.getType()));
+        return response;
     }
 
     @Override
@@ -571,6 +833,9 @@ public class TransactionServiceImpl implements TransactionService {
             if (tx.getAccount().getType() == AccountType.CREDIT_CARD) {
                 List<InstallmentPlan> installments = installmentPlanService.findByPurchaseId(tx.getId());
                 for (InstallmentPlan inst : installments) {
+                    if (inst.getDeletedAt() != null || isPaidInvoiceInstallment(inst)) {
+                        continue;
+                    }
                     inst.setAmount(newAmount);
                     inst.setUpdatedAt(DateUtils.getEpochNow());
 

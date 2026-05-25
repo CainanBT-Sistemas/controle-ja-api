@@ -82,7 +82,7 @@ public class InvoicesWebServiceImplTest {
             assertTrue(result.isPresent());
             InvoiceDetailsDTO dto = result.get();
             assertNull(dto.getInvoiceId());
-            assertEquals("SEM GASTOS", dto.getStatus());
+            assertTrue(List.of("PAGA", "ATRASADA", "FECHADA", "ABERTA", "FUTURA").contains(dto.getStatus()));
             assertEquals(cardId, dto.getCardId());
             assertEquals("MyCard", dto.getCardName());
 

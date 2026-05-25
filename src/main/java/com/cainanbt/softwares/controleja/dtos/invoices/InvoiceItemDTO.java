@@ -10,9 +10,15 @@ import java.util.UUID;
 @Builder
 public class InvoiceItemDTO {
     private UUID id;
+    private UUID transactionId;
+    private UUID purchaseId;
     private Long date;
     private String name;
+    private String categoryName;
     private Integer currentInstallment;
     private Integer totalInstallmentsPlan;
+    private String type;
     private BigDecimal amount;
+    private Boolean canEdit;
+    private String itemKind;
 }

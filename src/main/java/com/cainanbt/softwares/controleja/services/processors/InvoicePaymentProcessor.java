@@ -23,6 +23,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 
 @Component
@@ -66,6 +67,9 @@ public class InvoicePaymentProcessor implements TransactionProcessor {
                     || !invoiceToPay.getCreditCard().getAccounts().getId().equals(cardAccount.getId())) {
                 throw new BadRequestException(ConstsMessages.ERROR_TITLE, "A conta de destino não pertence ao cartão da fatura.");
             }
+            if (invoiceToPay.getAmount() != null && dto.getAmount().compareTo(invoiceToPay.getAmount()) > 0) {
+                throw new BadRequestException(ConstsMessages.ERROR_TITLE, "O pagamento não pode ser maior que o saldo em aberto.");
+            }
         }
 
         long dateNow = DateUtils.getEpochNow();
@@ -104,7 +108,7 @@ public class InvoicePaymentProcessor implements TransactionProcessor {
                 // Create a credit installment in the invoice representing the payment received
                 InstallmentPlan paymentCredit = InstallmentPlan.builder()
                         .id(ID.generate())
-                        .date(DateUtils.getEpochNow())
+                        .date(dto.getDate())
                         .name("Pagamento Recebido")
                         .description(dto.getDescription())
                         .type(TransactionType.RECEITA.name())
@@ -125,8 +129,9 @@ public class InvoicePaymentProcessor implements TransactionProcessor {
                 // Subtract amount from invoice total
                 invoiceToPay.setAmount(invoiceToPay.getAmount().subtract(dto.getAmount()));
 
-                // If invoice is paid off or overpaid, mark as paid and set amount to zero and mark installments
-                if (invoiceToPay.getAmount() == null || invoiceToPay.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+                // If invoice is paid off after closing, mark as paid and mark installments.
+                if ((invoiceToPay.getAmount() == null || invoiceToPay.getAmount().compareTo(BigDecimal.ZERO) <= 0)
+                        && !isInvoiceOpenWindow(invoiceToPay)) {
                     invoiceToPay.setPaid(true);
                     invoiceToPay.setAmount(BigDecimal.ZERO);
 
@@ -141,5 +146,29 @@ public class InvoicePaymentProcessor implements TransactionProcessor {
             }
         }
         return paymentOut;
+    }
+
+    private boolean isInvoiceOpenWindow(Invoices invoice) {
+        if (invoice.getCreditCard() == null) return false;
+
+        LocalDate today = LocalDate.now(DateUtils.zoneId);
+        LocalDate closeDate = calculateCloseDate(invoice.getCreditCard().getCloseDay(), invoice.getCreditCard().getBestDay(), invoice.getMonth(), invoice.getYear());
+        LocalDate previousMonth = LocalDate.of(invoice.getYear(), invoice.getMonth(), 1).minusMonths(1);
+        LocalDate previousCloseDate = calculateCloseDate(invoice.getCreditCard().getCloseDay(), invoice.getCreditCard().getBestDay(), previousMonth.getMonthValue(), previousMonth.getYear());
+
+        return !today.isBefore(previousCloseDate) && today.isBefore(closeDate);
+    }
+
+    private LocalDate calculateCloseDate(int closeDay, int bestDay, Integer month, Integer year) {
+        int monthLength = LocalDate.of(year, month, 1).lengthOfMonth();
+        LocalDate closeDate = LocalDate.of(year, month, Math.min(closeDay, monthLength));
+        if (closeDay > bestDay) {
+            closeDate = closeDate.minusMonths(1);
+        }
+        while (closeDate.getDayOfWeek() == java.time.DayOfWeek.SATURDAY
+                || closeDate.getDayOfWeek() == java.time.DayOfWeek.SUNDAY) {
+            closeDate = closeDate.plusDays(1);
+        }
+        return closeDate;
     }
 }

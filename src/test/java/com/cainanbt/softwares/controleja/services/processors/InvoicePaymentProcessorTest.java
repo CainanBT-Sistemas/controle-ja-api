@@ -154,7 +154,7 @@ public class InvoicePaymentProcessorTest {
     }
 
     @Test
-    public void process_whenPaymentIsGreaterThanTotal_shouldMarkInvoiceAsPaid() {
+    public void process_whenPaymentIsGreaterThanTotal_shouldThrow() {
         TransactionDTO dto = new TransactionDTO();
         dto.setName("Pay");
         dto.setType(TransactionType.PAGAMENTO_FATURA);
@@ -170,12 +170,7 @@ public class InvoicePaymentProcessorTest {
         when(accountsService.findById(cardAccount.getId())).thenReturn(Optional.of(cardAccount));
         when(creditCardService.findByAccountId(cardAccount.getId())).thenReturn(card);
         when(invoicesService.findByIdOrThrow(invoice.getId())).thenReturn(invoice);
-        when(installmentPlanService.findByInvoiceId(invoice.getId())).thenReturn(List.of());
-
-        processor.process(dto, sourceAccount, null, user);
-
-        assertEquals(BigDecimal.ZERO, invoice.getAmount());
-        assertTrue(invoice.getPaid());
+        assertThrows(BadRequestException.class, () -> processor.process(dto, sourceAccount, null, user));
     }
 
     @Test

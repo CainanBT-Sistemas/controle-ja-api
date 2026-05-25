@@ -1,7 +1,9 @@
 package com.cainanbt.softwares.controleja.controller;
 
 import com.cainanbt.softwares.controleja.dtos.invoices.AdvanceRequestDTO;
+import com.cainanbt.softwares.controleja.dtos.invoices.AdvanceablePurchaseDTO;
 import com.cainanbt.softwares.controleja.dtos.invoices.InvoiceDetailsDTO;
+import com.cainanbt.softwares.controleja.dtos.invoices.InvoicePaymentRequestDTO;
 import com.cainanbt.softwares.controleja.dtos.invoices.RefundRequestDTO;
 import com.cainanbt.softwares.controleja.services.web.InvoicesWebService;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @RestController
@@ -24,14 +27,16 @@ public class InvoicesController {
 
     @GetMapping("/card/{cardId}/month/{month}/year/{year}")
     public ResponseEntity<InvoiceDetailsDTO> getInvoiceDetails(@PathVariable UUID cardId, @PathVariable Integer month, @PathVariable Integer year) {
-        return service.getInvoiceDetails(cardId, month, year)
-                .map(dto -> ResponseEntity.ok(dto))
-                .orElse(ResponseEntity.notFound().build());
+        Optional<InvoiceDetailsDTO> invoiceDetails = service.getInvoiceDetails(cardId, month, year);
+        if (invoiceDetails.isPresent()) {
+            return ResponseEntity.ok(invoiceDetails.get());
+        }
+        return ResponseEntity.notFound().build();
     }
 
     @GetMapping("/card/{cardId}/month/{month}/year/{year}/advanceable")
     public ResponseEntity<List<com.cainanbt.softwares.controleja.dtos.invoices.AdvanceablePurchaseDTO>> getAdvanceable(@PathVariable UUID cardId, @PathVariable Integer month, @PathVariable Integer year) {
-        List<com.cainanbt.softwares.controleja.dtos.invoices.AdvanceablePurchaseDTO> list = service.getAdvanceablePurchases(cardId, month, year);
+        List<AdvanceablePurchaseDTO> list = service.getAdvanceablePurchases(cardId, month, year);
         return ResponseEntity.ok(list);
     }
 
@@ -45,5 +50,10 @@ public class InvoicesController {
     public ResponseEntity<Void> advanceInstallments(@PathVariable UUID invoiceId, @RequestBody AdvanceRequestDTO request) {
         service.advanceInstallments(invoiceId, request);
         return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/{invoiceId}/payments")
+    public ResponseEntity<InvoiceDetailsDTO> processPayment(@PathVariable UUID invoiceId, @RequestBody InvoicePaymentRequestDTO request) {
+        return ResponseEntity.ok(service.processPayment(invoiceId, request));
     }
 }

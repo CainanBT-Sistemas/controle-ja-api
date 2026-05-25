@@ -3,6 +3,7 @@ package com.cainanbt.softwares.controleja.services.web;
 import com.cainanbt.softwares.controleja.dtos.invoices.AdvanceRequestDTO;
 import com.cainanbt.softwares.controleja.dtos.invoices.AdvanceablePurchaseDTO;
 import com.cainanbt.softwares.controleja.dtos.invoices.InvoiceDetailsDTO;
+import com.cainanbt.softwares.controleja.dtos.invoices.InvoicePaymentRequestDTO;
 import com.cainanbt.softwares.controleja.dtos.invoices.RefundRequestDTO;
 
 import java.util.List;
@@ -17,4 +18,6 @@ public interface InvoicesWebService {
     void processRefund(UUID invoiceId, RefundRequestDTO request);
 
     void advanceInstallments(UUID invoiceId, AdvanceRequestDTO request);
+
+    InvoiceDetailsDTO processPayment(UUID invoiceId, InvoicePaymentRequestDTO request);
 }

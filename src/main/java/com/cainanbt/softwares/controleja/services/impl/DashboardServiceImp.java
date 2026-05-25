@@ -22,9 +22,8 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.DateTimeException;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
-import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -127,12 +126,7 @@ public class DashboardServiceImp implements DashboardService {
         List<DashboardAlertDTO> pendingInvoices = new ArrayList<>();
 
         for (Invoices inv : rawInvoices) {
-            LocalDate closeDate;
-            try {
-                closeDate = LocalDate.of(inv.getYear(), inv.getMonth(), inv.getCreditCard().getCloseDay());
-            } catch (DateTimeException e) {
-                closeDate = LocalDate.of(inv.getYear(), inv.getMonth(), 1).with(TemporalAdjusters.lastDayOfMonth());
-            }
+            LocalDate closeDate = calculateCloseDate(inv);
 
             // Verifica se a fatura já fechou no mundo real
             boolean isPreviousMonth = (inv.getYear() < today.getYear()) || (inv.getYear() == today.getYear() && inv.getMonth() < today.getMonthValue());
@@ -200,5 +194,17 @@ public class DashboardServiceImp implements DashboardService {
 
     private UUID getUser() {
         return SecurityContextUtils.getCurrentUser().getId();
+    }
+
+    private LocalDate calculateCloseDate(Invoices invoice) {
+        int monthLength = LocalDate.of(invoice.getYear(), invoice.getMonth(), 1).lengthOfMonth();
+        LocalDate closeDate = LocalDate.of(invoice.getYear(), invoice.getMonth(), Math.min(invoice.getCreditCard().getCloseDay(), monthLength));
+        if (invoice.getCreditCard().getCloseDay() > invoice.getCreditCard().getBestDay()) {
+            closeDate = closeDate.minusMonths(1);
+        }
+        while (closeDate.getDayOfWeek() == DayOfWeek.SATURDAY || closeDate.getDayOfWeek() == DayOfWeek.SUNDAY) {
+            closeDate = closeDate.plusDays(1);
+        }
+        return closeDate;
     }
 }

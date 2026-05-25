@@ -22,6 +22,7 @@ import com.cainanbt.softwares.controleja.utils.ID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.time.DayOfWeek;
 import java.time.LocalDateTime;
 
 @Component
@@ -112,7 +113,8 @@ public class TransactionHelper {
     }
 
     public LocalDateTime calculateInvoiceDate(LocalDateTime refDate, int closeDay, int bestDay) {
-        if (refDate.getDayOfMonth() >= closeDay) {
+        int closeDayInMonth = Math.min(closeDay, refDate.toLocalDate().lengthOfMonth());
+        if (refDate.getDayOfMonth() >= closeDayInMonth) {
             refDate = refDate.plusMonths(1);
         }
 
@@ -122,6 +124,10 @@ public class TransactionHelper {
         int maxDays = refDate.toLocalDate().lengthOfMonth();
         int finalDay = Math.min(bestDay, maxDays);
 
-        return LocalDateTime.of(year, month, finalDay, 23, 59, 59);
+        LocalDateTime dueDate = LocalDateTime.of(year, month, finalDay, 23, 59, 59);
+        while (dueDate.getDayOfWeek() == DayOfWeek.SATURDAY || dueDate.getDayOfWeek() == DayOfWeek.SUNDAY) {
+            dueDate = dueDate.plusDays(1);
+        }
+        return dueDate;
     }
 }
