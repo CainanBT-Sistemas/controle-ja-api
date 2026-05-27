@@ -270,6 +270,10 @@ public class TransactionServiceImpl implements TransactionService {
 
         Map<UUID, Invoices> invoicesToUpdate = new HashMap<>();
         List<InstallmentPlan> installmentsToUpdate = new ArrayList<>();
+        BigDecimal totalBeforeAmountChange = installments.stream()
+                .filter(inst -> inst.getDeletedAt() == null)
+                .map(InstallmentPlan::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         if (dto.getInstallments() != null) {
             return updateCreditCardInstallmentCount(purchase, installments, dto, dateNow);
@@ -343,10 +347,28 @@ public class TransactionServiceImpl implements TransactionService {
                 purchase.setUpdatedAt(dateNow);
                 purchase = repository.save(purchase);
             }
+            if (!installmentsToUpdate.isEmpty() && dto.getAmount() != null && purchase.getCreditCard() != null) {
+                BigDecimal activeTotal = installments.stream()
+                        .filter(inst -> inst.getDeletedAt() == null)
+                        .map(InstallmentPlan::getAmount)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                adjustCreditCardLimitForPurchaseAmountChange(purchase.getCreditCard(), totalBeforeAmountChange, activeTotal);
+            }
             return TransactionResponseDTO.toDTO(purchase);
         }
 
         return buildInstallmentResponse(installmentsToUpdate.stream().findFirst().orElse(installments.get(0)));
+    }
+
+    private void adjustCreditCardLimitForPurchaseAmountChange(CreditCard card, BigDecimal oldTotal, BigDecimal newTotal) {
+        BigDecimal difference = newTotal.subtract(oldTotal);
+        if (difference.compareTo(BigDecimal.ZERO) > 0) {
+            card.consumeLimit(difference);
+            creditCardService.updateLimit(card);
+        } else if (difference.compareTo(BigDecimal.ZERO) < 0) {
+            card.restoreLimit(difference.abs());
+            creditCardService.updateLimit(card);
+        }
     }
 
     private TransactionResponseDTO updateCreditCardInstallmentCount(Transactions purchase, List<InstallmentPlan> installments, TransactionDTO dto, long dateNow) {
@@ -519,12 +541,22 @@ public class TransactionServiceImpl implements TransactionService {
 
         if (instOpt.isPresent()) {
             InstallmentPlan inst = instOpt.get();
+            Users currentUser = SecurityContextUtils.getCurrentUser();
+            if (inst.getUser() == null || !inst.getUser().getId().equals(currentUser.getId())) {
+                throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_TRANSACTION);
+            }
             inst.setDeletedAt(DateUtils.getEpochNow());
             installmentPlanService.save(inst);
 
             Invoices inv = inst.getInvoices();
             inv.setAmount(inv.getAmount().subtract(inst.getAmount()));
             invoicesService.save(inv);
+
+            if (inv.getCreditCard() != null && inst.getAmount() != null && inst.getAmount().compareTo(BigDecimal.ZERO) > 0) {
+                CreditCard card = inv.getCreditCard();
+                card.restoreLimit(inst.getAmount());
+                creditCardService.updateLimit(card);
+            }
             return;
         }
 

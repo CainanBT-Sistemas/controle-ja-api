@@ -1,13 +1,17 @@
 package com.cainanbt.softwares.controleja.controller.controle_ja_api.v1.invoices;
 
+import com.cainanbt.softwares.controleja.configs.SecurityFilter;
 import com.cainanbt.softwares.controleja.controller.InvoicesController;
 import com.cainanbt.softwares.controleja.dtos.invoices.AdvanceRequestDTO;
 import com.cainanbt.softwares.controleja.dtos.invoices.InvoiceDetailsDTO;
 import com.cainanbt.softwares.controleja.dtos.invoices.RefundRequestDTO;
+import com.cainanbt.softwares.controleja.repositories.UsersRepository;
+import com.cainanbt.softwares.controleja.services.impl.JwtServiceImp;
 import com.cainanbt.softwares.controleja.services.web.InvoicesWebService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
@@ -29,6 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(controllers = InvoicesController.class)
+@AutoConfigureMockMvc(addFilters = false)
 public class InvoicesControllerTest {
 
     @Autowired
@@ -36,6 +41,15 @@ public class InvoicesControllerTest {
 
     @MockBean
     private InvoicesWebService service;
+
+    @MockBean
+    private JwtServiceImp jwtService;
+
+    @MockBean
+    private UsersRepository usersRepository;
+
+    @MockBean
+    private SecurityFilter securityFilter;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -90,5 +104,24 @@ public class InvoicesControllerTest {
                 .andExpect(status().isOk());
 
         verify(service).advanceInstallments(eq(invoiceId), any(AdvanceRequestDTO.class));
+    }
+
+    @Test
+    public void cancelPayment_callsServiceAndReturns200() throws Exception {
+        UUID paymentTransactionId = UUID.randomUUID();
+        InvoiceDetailsDTO dto = InvoiceDetailsDTO.builder()
+                .invoiceId(UUID.randomUUID())
+                .cardName("Card")
+                .openAmount(new BigDecimal("100.00"))
+                .build();
+
+        when(service.cancelPayment(paymentTransactionId)).thenReturn(dto);
+
+        mockMvc.perform(post("/controle_ja_api/v1/invoices/payments/" + paymentTransactionId + "/cancel"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.invoiceId").exists())
+                .andExpect(jsonPath("$.openAmount").value(100.00));
+
+        verify(service).cancelPayment(paymentTransactionId);
     }
 }

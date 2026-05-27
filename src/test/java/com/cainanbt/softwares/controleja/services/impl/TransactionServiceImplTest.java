@@ -1,11 +1,13 @@
 package com.cainanbt.softwares.controleja.services.impl;
 
 import com.cainanbt.softwares.controleja.dtos.TransactionDTO;
+import com.cainanbt.softwares.controleja.entities.Accounts;
 import com.cainanbt.softwares.controleja.entities.CreditCard;
 import com.cainanbt.softwares.controleja.entities.InstallmentPlan;
 import com.cainanbt.softwares.controleja.entities.Invoices;
 import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.entities.Users;
+import com.cainanbt.softwares.controleja.enums.AccountType;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
@@ -355,6 +357,73 @@ class TransactionServiceImplTest {
             assertEquals(1000L, purchase.getDate());
             verify(installmentPlanService, never()).saveAll(anyList());
             verify(invoicesService, never()).saveAll(anyList());
+        }
+    }
+
+    @Test
+    void updateTransactionDTO_whenCreditCardPurchaseAmountChanges_shouldAdjustCardLimit() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            UUID purchaseId = UUID.randomUUID();
+            Accounts cardAccount = Accounts.builder().id(UUID.randomUUID()).type(AccountType.CREDIT_CARD).user(currentUser).build();
+            CreditCard card = CreditCard.builder()
+                    .id(UUID.randomUUID())
+                    .currentLimit(new BigDecimal("400.00"))
+                    .totalLimit(new BigDecimal("500.00"))
+                    .accounts(cardAccount)
+                    .build();
+            Invoices openInvoice = invoice(false, "100.00", card, 5, 2026);
+            InstallmentPlan installment = installment(purchaseId, openInvoice, 1, "100.00", false);
+            Transactions purchase = Transactions.builder()
+                    .id(purchaseId)
+                    .name("Compra")
+                    .type(TransactionType.DESPESA)
+                    .amount(new BigDecimal("100.00"))
+                    .creditCard(card)
+                    .user(currentUser)
+                    .build();
+            TransactionDTO dto = new TransactionDTO();
+            dto.setAmount(new BigDecimal("70.00"));
+
+            when(invoicesService.findById(installment.getId())).thenReturn(Optional.empty());
+            when(installmentPlanService.findById(installment.getId())).thenReturn(Optional.of(installment));
+            when(repository.findById(purchaseId)).thenReturn(Optional.of(purchase));
+            when(installmentPlanService.findByPurchaseId(purchaseId)).thenReturn(List.of(installment));
+            when(repository.save(purchase)).thenReturn(purchase);
+
+            service.updateTransactionDTO(installment.getId(), dto, false);
+
+            assertEquals(new BigDecimal("70.00"), openInvoice.getAmount());
+            assertEquals(new BigDecimal("70.00"), purchase.getAmount());
+            assertEquals(new BigDecimal("430.00"), card.getCurrentLimit());
+            verify(creditCardService).updateLimit(card);
+        }
+    }
+
+    @Test
+    void softDelete_whenDeletingCreditCardInstallment_shouldRestoreCardLimitAndInvoiceAmount() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            UUID purchaseId = UUID.randomUUID();
+            CreditCard card = CreditCard.builder()
+                    .id(UUID.randomUUID())
+                    .currentLimit(new BigDecimal("300.00"))
+                    .totalLimit(new BigDecimal("500.00"))
+                    .build();
+            Invoices openInvoice = invoice(false, "100.00", card, 5, 2026);
+            InstallmentPlan installment = installment(purchaseId, openInvoice, 1, "100.00", false);
+
+            when(installmentPlanService.findById(installment.getId())).thenReturn(Optional.of(installment));
+
+            service.softDelete(installment.getId(), false);
+
+            assertEquals(BigDecimal.ZERO.setScale(2), openInvoice.getAmount());
+            assertEquals(new BigDecimal("400.00"), card.getCurrentLimit());
+            verify(installmentPlanService).save(installment);
+            verify(invoicesService).save(openInvoice);
+            verify(creditCardService).updateLimit(card);
         }
     }
 

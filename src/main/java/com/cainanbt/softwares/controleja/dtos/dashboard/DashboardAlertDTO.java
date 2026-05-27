@@ -14,10 +14,13 @@ import java.util.UUID;
 @NoArgsConstructor
 public class DashboardAlertDTO {
     private UUID id;
+    private UUID referenceId;
     private String description;
     private BigDecimal amount;
     private Long dueDate;
     private String icon;
     private String color;
     private String type;
+    private Integer month;
+    private Integer year;
 }

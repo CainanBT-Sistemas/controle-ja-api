@@ -23,6 +23,7 @@ public class DashboardFullSummaryDTO {
     private List<DashboardAlertDTO> pendingPayables;
     private List<DashboardAlertDTO> pendingReceivables;
     private List<DashboardAlertDTO> pendingInvoices;
+    private List<DashboardAlertDTO> overdueReceivables;
 
     // Snapshot fields
     private List<AccountResponseDTO> accounts;

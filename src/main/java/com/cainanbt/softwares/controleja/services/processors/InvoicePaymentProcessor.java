@@ -43,6 +43,9 @@ public class InvoicePaymentProcessor implements TransactionProcessor {
 
     @Override
     public Transactions process(TransactionDTO dto, Accounts sourceAccount, Category category, Users user) {
+        if (sourceAccount.getType() == AccountType.CREDIT_CARD) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "A conta de pagamento não pode ser uma conta de cartão de crédito.");
+        }
         if (dto.getTargetAccountId() == null) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.INVOICE_MISSING_TARGET);
         }
@@ -150,6 +153,7 @@ public class InvoicePaymentProcessor implements TransactionProcessor {
 
     private boolean isInvoiceOpenWindow(Invoices invoice) {
         if (invoice.getCreditCard() == null) return false;
+        if (invoice.getMonth() == null || invoice.getYear() == null) return false;
 
         LocalDate today = LocalDate.now(DateUtils.zoneId);
         LocalDate closeDate = calculateCloseDate(invoice.getCreditCard().getCloseDay(), invoice.getCreditCard().getBestDay(), invoice.getMonth(), invoice.getYear());

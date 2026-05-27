@@ -42,7 +42,7 @@ public class DashboardServiceImp implements DashboardService {
 
     @Override
     public List<ChartDataDTO> getExpensesByCategory(Long start, Long end) {
-        return repository.getExpensesByCategory(getUser(), start, end, TransactionType.DESPESA);
+        return repository.getGeneralExpensesByCategory(getUser(), start, end, TransactionType.DESPESA);
     }
 
     @Override
@@ -119,7 +119,17 @@ public class DashboardServiceImp implements DashboardService {
             }
         }
 
-        List<DashboardAlertDTO> pendingReceivables = receivables.stream().map(this::mapToAlertDTO).toList();
+        List<DashboardAlertDTO> overdueReceivables = new ArrayList<>();
+        List<DashboardAlertDTO> pendingReceivables = new ArrayList<>();
+
+        for (Transactions t : receivables) {
+            DashboardAlertDTO alert = mapToAlertDTO(t);
+            if (t.getDate() < todayEpoch) {
+                overdueReceivables.add(alert);
+            } else {
+                pendingReceivables.add(alert);
+            }
+        }
 
         // 4. SEPARAÇÃO: Faturas Atrasadas vs Abertas
         List<DashboardAlertDTO> overdueInvoices = new ArrayList<>();
@@ -134,12 +144,15 @@ public class DashboardServiceImp implements DashboardService {
             if (isPreviousMonth || !today.isBefore(closeDate)) {
                 DashboardAlertDTO alert = DashboardAlertDTO.builder()
                         .id(inv.getId())
+                        .referenceId(inv.getCreditCard() != null ? inv.getCreditCard().getId() : null)
                         .description("Fatura " + (inv.getCreditCard() != null ? inv.getCreditCard().getName() : ""))
                         .amount(inv.getAmount())
                         .dueDate(inv.getExpirationDate())
                         .icon(inv.getCreditCard() != null ? inv.getCreditCard().getIcon() : null)
                         .color(inv.getCreditCard() != null ? inv.getCreditCard().getColor() : null)
                         .type("FATURA")
+                        .month(inv.getMonth())
+                        .year(inv.getYear())
                         .build();
 
                 if (inv.getExpirationDate() < todayEpoch) {
@@ -156,7 +169,8 @@ public class DashboardServiceImp implements DashboardService {
                 .add(overdueInvoices.stream().map(DashboardAlertDTO::getAmount).filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add))
                 .add(pendingInvoices.stream().map(DashboardAlertDTO::getAmount).filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add));
 
-        BigDecimal projectedReceivables = pendingReceivables.stream().map(DashboardAlertDTO::getAmount).filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal projectedReceivables = overdueReceivables.stream().map(DashboardAlertDTO::getAmount).filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add)
+                .add(pendingReceivables.stream().map(DashboardAlertDTO::getAmount).filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add));
 
         long startThreeMonthsAgo = Math.max(0L, nowEpoch - (90L * 24 * 60 * 60 * 1000));
         BigDecimal totalLast3Months = repository.getTotalByType(userId, TransactionType.DESPESA, startThreeMonthsAgo, nowEpoch);
@@ -173,6 +187,7 @@ public class DashboardServiceImp implements DashboardService {
                 .pendingPayables(pendingPayables)
                 .pendingReceivables(pendingReceivables)
                 .pendingInvoices(pendingInvoices)
+                .overdueReceivables(overdueReceivables)
                 .accounts(accounts)                 // Listas formatadas
                 .creditCards(creditCards)
                 .overduePayables(overduePayables)

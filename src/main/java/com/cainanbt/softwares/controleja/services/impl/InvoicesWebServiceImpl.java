@@ -524,8 +524,8 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         if (currentTotals.openAmount().compareTo(BigDecimal.ZERO) <= 0) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Fatura não possui saldo em aberto.");
         }
-        if (request.getAmount().compareTo(currentTotals.openAmount()) > 0) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "O pagamento não pode ser maior que o saldo em aberto.");
+        if (request.getAmount().compareTo(currentTotals.openAmount()) < 0) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "O pagamento não pode ser menor que o saldo em aberto.");
         }
 
         Accounts sourceAccount = accountsService.findByIdOrThrow(request.getAccountId());
@@ -541,7 +541,12 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         Category category = findPaymentCategory(currentUser);
         long now = DateUtils.getEpochNow();
         long paymentDate = request.getPaymentDate() != null ? request.getPaymentDate() : now;
+        BigDecimal surchargeAmount = request.getAmount().subtract(currentTotals.openAmount());
         String notes = request.getNotes() != null ? request.getNotes() : "";
+        if (surchargeAmount.compareTo(BigDecimal.ZERO) > 0) {
+            notes = (notes.isBlank() ? "" : notes + " | ")
+                    + "Acréscimo por juros/multa: R$ " + surchargeAmount;
+        }
 
         Transactions paymentOut = Transactions.builder()
                 .id(ID.generate())
@@ -629,6 +634,122 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
 
         return getInvoiceDetails(card.getId(), invoice.getMonth(), invoice.getYear())
                 .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Fatura não encontrada."));
+    }
+
+    @Override
+    @Transactional
+    public InvoiceDetailsDTO cancelPayment(UUID paymentTransactionId) {
+        Users currentUser = SecurityContextUtils.getCurrentUser();
+        Transactions payment = findInvoicePaymentTransaction(paymentTransactionId);
+
+        if (payment.getDeletedAt() != null) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Este pagamento já foi cancelado.");
+        }
+        if (!payment.getUser().getId().equals(currentUser.getId())) {
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_TRANSACTION);
+        }
+        if (payment.getType() != TransactionType.PAGAMENTO_FATURA || payment.getTargetInvoice() == null) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Este lançamento não é um pagamento de fatura.");
+        }
+
+        Invoices invoice = payment.getTargetInvoice();
+        if (invoice.getDeletedAt() != null) {
+            throw new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Fatura vinculada não encontrada.");
+        }
+        if (!invoice.getUser().getId().equals(currentUser.getId())) {
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, "Fatura não pertence ao usuário autenticado.");
+        }
+        if (payment.getAccount() == null || payment.getAccount().getDeletedAt() != null) {
+            throw new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Conta vinculada não encontrada.");
+        }
+
+        Transactions paymentIn = transactionRepository.findTransferChildByParentId(payment.getId())
+                .orElse(null);
+        if (paymentIn != null && (paymentIn.getAccount() == null || paymentIn.getAccount().getDeletedAt() != null)) {
+            throw new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Conta vinculada não encontrada.");
+        }
+
+        try {
+            long now = DateUtils.getEpochNow();
+            reversePaymentBalance(payment, paymentIn);
+
+            installmentPlanService.findByPurchaseId(payment.getId()).stream()
+                    .filter(this::isPaymentItem)
+                    .filter(item -> item.getDeletedAt() == null)
+                    .forEach(item -> item.setDeletedAt(now));
+
+            List<InstallmentPlan> invoiceItems = installmentPlanService.findByInvoiceId(invoice.getId());
+            installmentPlanService.saveAll(invoiceItems);
+
+            payment.setDeletedAt(now);
+            if (paymentIn != null) {
+                paymentIn.setDeletedAt(now);
+                transactionRepository.saveAll(List.of(payment, paymentIn));
+            } else {
+                transactionRepository.save(payment);
+            }
+
+            List<InstallmentPlan> activeItems = invoiceItems.stream()
+                    .filter(item -> item.getDeletedAt() == null)
+                    .collect(Collectors.toList());
+            InvoiceTotals totals = calculateTotals(activeItems);
+
+            invoice.setAmount(totals.openAmount());
+            if (invoice.getTransaction() != null && invoice.getTransaction().getId().equals(payment.getId())) {
+                invoice.setTransaction(null);
+            }
+            invoice.setPaid(totals.openAmount().compareTo(BigDecimal.ZERO) <= 0 && !isInvoiceOpenWindow(invoice));
+            invoicesService.save(invoice);
+
+            return getInvoiceDetails(invoice.getCreditCard().getId(), invoice.getMonth(), invoice.getYear())
+                    .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Fatura não encontrada."));
+        } catch (BadRequestException | EntityNotFoundException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Não foi possível cancelar o pagamento da fatura.");
+        }
+    }
+
+    private Transactions findInvoicePaymentTransaction(UUID paymentOrInstallmentId) {
+        Optional<Transactions> transaction = transactionRepository.findByIdIncludingDeleted(paymentOrInstallmentId);
+        if (transaction.isPresent()) {
+            return transaction.get();
+        }
+
+        InstallmentPlan paymentItem = installmentPlanService.findById(paymentOrInstallmentId)
+                .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Pagamento de fatura não encontrado."));
+
+        if (!isPaymentItem(paymentItem) || paymentItem.getPurchaseId() == null) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Este lançamento não é um pagamento de fatura.");
+        }
+
+        return transactionRepository.findByIdIncludingDeleted(paymentItem.getPurchaseId())
+                .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Pagamento de fatura não encontrado."));
+    }
+
+    private void reversePaymentBalance(Transactions payment, Transactions paymentIn) {
+        BigDecimal amount = payment.getAmount() != null ? payment.getAmount() : BigDecimal.ZERO;
+
+        if (Boolean.TRUE.equals(payment.getPaid())) {
+            Accounts sourceAccount = payment.getAccount();
+            sourceAccount.credit(amount);
+            accountsService.update(sourceAccount);
+        }
+
+        if (paymentIn != null && Boolean.TRUE.equals(paymentIn.getPaid())) {
+            Accounts cardAccount = paymentIn.getAccount();
+            cardAccount.debit(amount);
+            accountsService.update(cardAccount);
+        }
+
+        CreditCard card = payment.getCreditCard() != null ? payment.getCreditCard() : payment.getTargetInvoice().getCreditCard();
+        if (card == null || card.getDeletedAt() != null) {
+            throw new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Fatura vinculada não encontrada.");
+        }
+        if (Boolean.TRUE.equals(payment.getPaid())) {
+            card.setCurrentLimit(card.getCurrentLimit().subtract(amount));
+            creditCardService.updateLimit(card);
+        }
     }
 
     private Category findPaymentCategory(Users user) {

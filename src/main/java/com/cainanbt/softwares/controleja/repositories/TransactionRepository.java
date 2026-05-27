@@ -25,26 +25,26 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
     @Query("SELECT t FROM Transactions t WHERE t.user.id = :userId AND t.deletedAt IS NULL ORDER BY t.date DESC")
     List<Transactions> findByUserIdOrderByDateDesc(@Param("userId") UUID userId);
 
-    @Query("SELECT c.name AS label, SUM(t.amount) AS value, c.color AS color " +
-            "FROM Transactions t JOIN t.category c " +
+    @Query("SELECT COALESCE(parentCategory.name, c.name) AS label, SUM(t.amount) AS value, COALESCE(parentCategory.color, c.color) AS color " +
+            "FROM Transactions t JOIN t.category c LEFT JOIN c.subCategory parentCategory " +
             "WHERE t.user.id = :userId AND t.type = :type AND t.account.type != com.cainanbt.softwares.controleja.enums.AccountType.CREDIT_CARD " +
-            "AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
-            "GROUP BY c.name, c.color ORDER BY value DESC")
+            "AND t.paid = true AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
+            "GROUP BY COALESCE(parentCategory.name, c.name), COALESCE(parentCategory.color, c.color) ORDER BY value DESC")
     List<ChartDataDTO> getGeneralExpensesByCategory(@Param("userId") UUID userId, @Param("start") Long start, @Param("end") Long end, @Param("type") TransactionType type);
 
-    @Query("SELECT c.name AS label, SUM(i.amount) AS value, c.color AS color " +
-            "FROM InstallmentPlan i, Transactions t JOIN t.category c " +
+    @Query("SELECT COALESCE(parentCategory.name, c.name) AS label, SUM(i.amount) AS value, COALESCE(parentCategory.color, c.color) AS color " +
+            "FROM InstallmentPlan i, Transactions t JOIN t.category c LEFT JOIN c.subCategory parentCategory " +
             "WHERE i.purchaseId = t.id AND i.user.id = :userId " +
             "AND t.type = :type " +
             "AND i.date BETWEEN :start AND :end " +
             "AND i.deletedAt IS NULL AND t.deletedAt IS NULL " +
-            "GROUP BY c.name, c.color ORDER BY value DESC")
+            "GROUP BY COALESCE(parentCategory.name, c.name), COALESCE(parentCategory.color, c.color) ORDER BY value DESC")
     List<ChartDataDTO> getCreditCardExpensesByCategory(@Param("userId") UUID userId, @Param("start") Long start, @Param("end") Long end, @Param("type") TransactionType type);
 
-    @Query("SELECT c.name AS label, SUM(t.amount) AS value, c.color AS color " +
-            "FROM Transactions t JOIN t.category c " +
-            "WHERE t.user.id = :userId AND t.type = :type AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
-            "GROUP BY c.name, c.color ORDER BY value DESC")
+    @Query("SELECT COALESCE(parentCategory.name, c.name) AS label, SUM(t.amount) AS value, COALESCE(parentCategory.color, c.color) AS color " +
+            "FROM Transactions t JOIN t.category c LEFT JOIN c.subCategory parentCategory " +
+            "WHERE t.user.id = :userId AND t.type = :type AND t.paid = true AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
+            "GROUP BY COALESCE(parentCategory.name, c.name), COALESCE(parentCategory.color, c.color) ORDER BY value DESC")
     List<ChartDataDTO> getExpensesByCategory(@Param("userId") UUID userId, @Param("start") Long start, @Param("end") Long end, @Param("type") TransactionType type);
 
     @Query("SELECT CAST(t.fuelType AS string) AS label, SUM(t.amount) AS value, '#FF9800' AS color " +
@@ -70,6 +70,9 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
 
     @Query("SELECT t FROM Transactions t WHERE t.id = :id AND t.deletedAt IS NULL")
     Optional<Transactions> findByIdAndNotDeleted(@Param("id") UUID id);
+
+    @Query(value = "SELECT * FROM transactions WHERE id = :id", nativeQuery = true)
+    Optional<Transactions> findByIdIncludingDeleted(@Param("id") UUID id);
 
     @Query("SELECT t FROM Transactions t WHERE t.user.id = :userId " +
             "AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +

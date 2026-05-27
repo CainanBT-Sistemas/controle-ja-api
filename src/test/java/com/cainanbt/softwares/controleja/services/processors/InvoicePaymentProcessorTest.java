@@ -195,4 +195,17 @@ public class InvoicePaymentProcessorTest {
 
         assertThrows(BadRequestException.class, () -> processor.process(dto, sourceAccount, null, user));
     }
+
+    @Test
+    public void process_whenSourceAccountIsCreditCard_shouldThrow() {
+        TransactionDTO dto = new TransactionDTO();
+        dto.setName("Pay");
+        dto.setType(TransactionType.PAGAMENTO_FATURA);
+        dto.setAmount(new BigDecimal("100.00"));
+        dto.setDate(DateUtils.getEpochNow());
+        dto.setTargetAccountId(cardAccount.getId());
+        dto.setPaid(true);
+
+        assertThrows(BadRequestException.class, () -> processor.process(dto, cardAccount, null, user));
+    }
 }

@@ -20,4 +20,6 @@ public interface InvoicesWebService {
     void advanceInstallments(UUID invoiceId, AdvanceRequestDTO request);
 
     InvoiceDetailsDTO processPayment(UUID invoiceId, InvoicePaymentRequestDTO request);
+
+    InvoiceDetailsDTO cancelPayment(UUID paymentTransactionId);
 }

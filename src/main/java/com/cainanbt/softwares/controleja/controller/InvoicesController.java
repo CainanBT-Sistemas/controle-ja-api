@@ -56,4 +56,9 @@ public class InvoicesController {
     public ResponseEntity<InvoiceDetailsDTO> processPayment(@PathVariable UUID invoiceId, @RequestBody InvoicePaymentRequestDTO request) {
         return ResponseEntity.ok(service.processPayment(invoiceId, request));
     }
+
+    @PostMapping("/payments/{paymentTransactionId}/cancel")
+    public ResponseEntity<InvoiceDetailsDTO> cancelPayment(@PathVariable UUID paymentTransactionId) {
+        return ResponseEntity.ok(service.cancelPayment(paymentTransactionId));
+    }
 }

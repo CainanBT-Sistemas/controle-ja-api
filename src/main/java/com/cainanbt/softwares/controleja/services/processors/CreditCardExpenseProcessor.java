@@ -107,9 +107,6 @@ public class CreditCardExpenseProcessor implements TransactionProcessor {
             installmentPlanService.save(installment);
         }
 
-        account.debit(dto.getAmount());
-        accountsService.update(account);
-
         return purchaseTransaction;
     }
 }
