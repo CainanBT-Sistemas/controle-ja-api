@@ -1,0 +1,52 @@
+name: controleja-mvp
+
+services:
+  postgres-mvp:
+    image: postgres:16-alpine
+    container_name: controleja-postgres-mvp
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${MVP_POSTGRES_DB}
+      POSTGRES_USER: ${MVP_DB_USERNAME}
+      POSTGRES_PASSWORD: ${MVP_DB_PASSWORD}
+    ports:
+      - "${MVP_DB_PORT:-5433}:5432"
+    volumes:
+      - controleja_mvp_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - controleja-mvp
+
+  api-mvp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: controleja-api:mvp
+    container_name: controleja-api-mvp
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: mvp
+      MVP_DB_URL: jdbc:postgresql://postgres-mvp:5432/${MVP_POSTGRES_DB}
+      MVP_DB_USERNAME: ${MVP_DB_USERNAME}
+      MVP_DB_PASSWORD: ${MVP_DB_PASSWORD}
+      MVP_SERVER_PORT: ${MVP_SERVER_PORT:-8080}
+      MVP_JWT_SECRET: ${MVP_JWT_SECRET}
+      MVP_GOOGLE_CLIENT_ID: ${MVP_GOOGLE_CLIENT_ID}
+      MVP_GOOGLE_CLIENT_SECRET: ${MVP_GOOGLE_CLIENT_SECRET}
+    ports:
+      - "${MVP_API_PORT:-8081}:8080"
+    depends_on:
+      postgres-mvp:
+        condition: service_healthy
+    networks:
+      - controleja-mvp
+
+volumes:
+  controleja_mvp_postgres_data:
+
+networks:
+  controleja-mvp:

@@ -1,0 +1,27 @@
+spring:
+  datasource:
+    url: ${MVP_DB_URL}
+    username: ${MVP_DB_USERNAME}
+    password: ${MVP_DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${MVP_GOOGLE_CLIENT_ID}
+            client-secret: ${MVP_GOOGLE_CLIENT_SECRET}
+
+app:
+  config:
+    jwt:
+      secret: ${MVP_JWT_SECRET}
+
+server:
+  address: 0.0.0.0
+  port: ${MVP_SERVER_PORT:8080}

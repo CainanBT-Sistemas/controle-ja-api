@@ -1,16 +1,11 @@
 spring:
   application:
     name: controleja
-  datasource:
-    url: ${DB_URL}
-    username: ${DB_USERNAME}
-    password: ${DB_PASSWORD}
-    driver-class-name: org.postgresql.Driver
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
   jpa:
     hibernate:
       ddl-auto: none
-      format_sql: true
-    show-sql: true
 
   security:
     oauth2:

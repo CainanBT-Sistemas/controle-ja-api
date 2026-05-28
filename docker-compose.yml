@@ -4,11 +4,11 @@ services:
   db:
     image: postgres:15
     environment:
-      POSTGRES_DB: postgres_local
-      POSTGRES_USER: cainanbt
-      POSTGRES_PASSWORD: CBeltr@me1994
+      POSTGRES_DB: ${DEV_POSTGRES_DB}
+      POSTGRES_USER: ${DEV_DB_USERNAME}
+      POSTGRES_PASSWORD: ${DEV_DB_PASSWORD}
     ports:
-      - "5432:5432"
+      - "${DEV_DB_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
 
