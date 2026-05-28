@@ -1,10 +1,9 @@
 package com.cainanbt.softwares.controleja;
 
+import com.cainanbt.softwares.controleja.config.BaseIntegrationTest;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 
-@SpringBootTest
-class ControlejaApplicationTests {
+class ControlejaApplicationTests extends BaseIntegrationTest {
 
 	@Test
 	void contextLoads() {
