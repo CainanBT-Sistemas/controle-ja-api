@@ -1,46 +1,183 @@
 package com.cainanbt.softwares.controleja.services.impl;
 
 import com.cainanbt.softwares.controleja.dtos.CreditCardDTO;
+import com.cainanbt.softwares.controleja.entities.Accounts;
 import com.cainanbt.softwares.controleja.entities.CreditCard;
 import com.cainanbt.softwares.controleja.entities.Users;
+import com.cainanbt.softwares.controleja.enums.AccountType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
+import com.cainanbt.softwares.controleja.exceptions.models.EntityNotFoundException;
+import com.cainanbt.softwares.controleja.repositories.AccountsRepository;
 import com.cainanbt.softwares.controleja.repositories.CreditCardRepository;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
+import com.cainanbt.softwares.controleja.utils.ConstsMessages;
+import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+@RequiredArgsConstructor
 @Service
 public class CreditCardServiceImpl implements CreditCardService {
-    private final CreditCardRepository creditCardRepository;
 
-    public CreditCardServiceImpl(CreditCardRepository creditCardRepository) {
-        this.creditCardRepository = creditCardRepository;
-    }
+    private final CreditCardRepository creditCardRepository;
+    private final AccountsRepository accountsRepository;
 
     @Override
+    @Transactional
     public CreditCard createCard(CreditCardDTO dto) {
-        Users user = SecurityContextUtils.getUserLogged()
-                .orElseThrow(() -> new BadRequestException("Acesso Negado", "Usuário não autenticado"));
+        Users user = SecurityContextUtils.getCurrentUser();
+        long now = DateUtils.getEpochNow();
 
         long totalCards = creditCardRepository.countByUserId(user.getId());
-
         if (totalCards >= 2) {
-            throw new BadRequestException("Limite Atingido", "Usuários Free só podem ter 2 cartões de crédito. Assine o Premium!");
+            throw new BadRequestException(ConstsMessages.LIMIT_REACHED_TITLE, ConstsMessages.LIMIT_REACHED_CARDS);
         }
+
+        Accounts cardAccount = Accounts.builder()
+                .id(ID.generate())
+                .name(dto.getName() + " (Fatura)")
+                .type(AccountType.CREDIT_CARD)
+                .institution(dto.getName() != null && !dto.getName().trim().isEmpty() ? dto.getName() : "")
+                .currency("BRL")
+                .currentBalance(BigDecimal.ZERO)
+                .initialBalance(BigDecimal.ZERO)
+                .calculateBalance(false)
+                .enabled(true)
+                .user(user)
+                .createdAt(now)
+                .icon(dto.getIcon() != null ? dto.getIcon() : "credit_card")
+                .color(dto.getColor() != null ? dto.getColor() : "#9C27B0")
+                .build();
+
+        Accounts savedAccount = accountsRepository.save(cardAccount);
 
         CreditCard card = CreditCard.builder()
                 .id(ID.generate())
                 .name(dto.getName())
-                .totalLimit(dto.getLimit())
-                .currentLimit(dto.getLimit())
+                .totalLimit(dto.getTotalLimit()) // Ajustado para getTotalLimit()
+                .currentLimit(dto.getTotalLimit()) // Ajustado para getTotalLimit()
                 .closeDay(dto.getCloseDay())
                 .bestDay(dto.getBestDay())
                 .user(user)
+                .accounts(savedAccount)
                 .enabled(true)
-                .createdAt(System.currentTimeMillis())
+                .createdAt(now)
+                .icon(dto.getIcon() != null ? dto.getIcon() : "credit_card")
+                .color(dto.getColor() != null ? dto.getColor() : "#9C27B0")
                 .build();
 
         return creditCardRepository.save(card);
+    }
+
+    @Override
+    public List<CreditCard> listMyCards() {
+        Users user = SecurityContextUtils.getCurrentUser();
+        return creditCardRepository.findByUserId(user.getId());
+    }
+
+    @Override
+    public CreditCard findByAccountId(UUID accountId) {
+        return creditCardRepository.findByAccountsId(accountId)
+                .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.CARD_ACCOUNT_NOT_FOUND));
+    }
+
+    @Override
+    public void updateLimit(CreditCard card) {
+        creditCardRepository.save(card);
+    }
+
+    @Override
+    public Optional<CreditCard> findById(UUID id) {
+        return creditCardRepository.findByIdAndNotDeleted(id);
+    }
+
+    @Override
+    public CreditCard findByIdOrThrow(UUID id) {
+        return findById(id)
+                .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.ERROR_TITLE, ConstsMessages.CREDIT_CARD_NOT_FOUND));
+    }
+
+    @Override
+    @Transactional
+    public CreditCard updateCard(UUID id, CreditCardDTO dto) {
+        CreditCard card = findByIdOrThrow(id);
+        Users currentUser = SecurityContextUtils.getCurrentUser();
+
+        if (!card.getUser().getId().equals(currentUser.getId())) {
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_CARD);
+        }
+
+        // --- VALIDAÇÃO DE SEGURANÇA DO LIMITE ---
+        if (dto.getTotalLimit() != null) {
+            // Valor já utilizado = Limite Total - Limite Disponível
+            BigDecimal usedAmount = card.getTotalLimit().subtract(card.getCurrentLimit());
+
+            // Se o novo limite total for menor que o que já foi gasto, barramos.
+            if (dto.getTotalLimit().compareTo(usedAmount) < 0) {
+                throw new BadRequestException(
+                        "Limite Inválido",
+                        "O novo limite não pode ser menor que o valor já utilizado na fatura (R$ " + usedAmount + ")."
+                );
+            }
+
+            // Calcula a diferença para ajustar o limite atual livre
+            BigDecimal difference = dto.getTotalLimit().subtract(card.getTotalLimit());
+            card.setTotalLimit(dto.getTotalLimit());
+            card.setCurrentLimit(card.getCurrentLimit().add(difference));
+        }
+
+        // Atualização da conta vinculada
+        if (card.getAccounts() != null) {
+            Accounts account = card.getAccounts();
+            if (dto.getName() != null) {
+                account.setName(dto.getName() + " (Fatura)");
+                account.setInstitution(dto.getName());
+            }
+            if (dto.getIcon() != null) account.setIcon(dto.getIcon());
+            if (dto.getColor() != null) account.setColor(dto.getColor());
+            accountsRepository.save(account);
+        }
+
+        if (dto.getName() != null) card.setName(dto.getName());
+        if (dto.getCloseDay() > 0) card.setCloseDay(dto.getCloseDay());
+        if (dto.getBestDay() > 0) card.setBestDay(dto.getBestDay());
+        if (dto.getIcon() != null) card.setIcon(dto.getIcon());
+        if (dto.getColor() != null) card.setColor(dto.getColor());
+
+        card.setUpdatedAt(DateUtils.getEpochNow());
+
+        return creditCardRepository.save(card);
+    }
+
+    @Override
+    @Transactional
+    public void softDelete(UUID id) {
+        CreditCard card = findByIdOrThrow(id);
+        Users currentUser = SecurityContextUtils.getCurrentUser();
+
+        if (!card.getUser().getId().equals(currentUser.getId())) {
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_CARD);
+        }
+
+        if (card.getDeletedAt() != null) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.ENTITY_ALREADY_DELETED);
+        }
+
+        if (card.getAccounts() != null) {
+            Accounts account = card.getAccounts();
+            account.setDeletedAt(DateUtils.getEpochNow());
+            accountsRepository.save(account);
+        }
+
+        card.setDeletedAt(DateUtils.getEpochNow());
+        creditCardRepository.save(card);
     }
 }

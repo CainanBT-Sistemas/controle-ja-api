@@ -15,6 +15,8 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
 import org.hibernate.annotations.DynamicUpdate;
+import org.hibernate.annotations.SQLDelete;
+import org.hibernate.annotations.Where;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -29,6 +31,8 @@ import java.util.UUID;
 @DynamicUpdate
 @Setter
 @ToString
+@SQLDelete(sql = "UPDATE category SET deleted_at = EXTRACT(EPOCH FROM NOW()) * 1000 WHERE id = ?")
+@Where(clause = "deleted_at IS NULL")
 public class Category {
     @Id
     private UUID id;
@@ -42,6 +46,15 @@ public class Category {
     private Boolean isSubCategory;
     @Column(nullable = false)
     private Long createdAt;
+    @Column(nullable = true)
+    private String icon;
+    @Column(nullable = true)
+    private String color;
+
+    @Builder.Default
+    @Column(name = "is_default", columnDefinition = "boolean default false not null")
+    private Boolean isDefault = false;
+
     @Column(nullable = true)
     private Long updatedAt;
     @Column(nullable = true)

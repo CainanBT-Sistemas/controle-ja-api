@@ -1,13 +1,26 @@
 package com.cainanbt.softwares.controleja.repositories;
 
 import com.cainanbt.softwares.controleja.entities.Accounts;
+import com.cainanbt.softwares.controleja.enums.AccountType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Repository
 public interface AccountsRepository extends JpaRepository<Accounts, UUID> {
+    @Query("SELECT a FROM Accounts a WHERE a.user.id = :userId AND a.deletedAt IS NULL AND a.type <> com.cainanbt.softwares.controleja.enums.AccountType.CREDIT_CARD")
     List<Accounts> findByUserId(UUID userId);
+    
+    @Query("SELECT a FROM Accounts a WHERE a.id = :id AND a.deletedAt IS NULL")
+    Optional<Accounts> findByIdAndNotDeleted(UUID id);
+
+    @Query("SELECT a FROM Accounts a WHERE a.user.id = :userId AND a.name = :name AND a.type = :type AND a.deletedAt IS NULL")
+    Optional<Accounts> findByUserIdAndNameAndType(UUID userId, String name, AccountType type);
+
+    @Query("SELECT COALESCE(SUM(a.currentBalance), 0) FROM Accounts a WHERE a.user.id = :userId AND a.deletedAt IS NULL AND (a.type = com.cainanbt.softwares.controleja.enums.AccountType.WALLET OR a.type = com.cainanbt.softwares.controleja.enums.AccountType.BANK)")
+    java.math.BigDecimal getAvailableBalanceByUserId(UUID userId);
 }

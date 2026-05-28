@@ -1,6 +1,6 @@
 package com.cainanbt.softwares.controleja.entities;
 
-import jakarta.persistence.CascadeType;
+import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -15,12 +15,14 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
 import org.hibernate.annotations.DynamicUpdate;
+import org.hibernate.annotations.SQLDelete;
+import org.hibernate.annotations.Where;
 
 import java.math.BigDecimal;
 import java.util.UUID;
 
 @Entity
-@Table(name = "accounts")
+@Table(name = "credit_cards")
 @Getter
 @Builder
 @AllArgsConstructor
@@ -28,6 +30,8 @@ import java.util.UUID;
 @DynamicUpdate
 @Setter
 @ToString
+@SQLDelete(sql = "UPDATE credit_cards SET deleted_at = EXTRACT(EPOCH FROM NOW()) * 1000 WHERE id = ?")
+@Where(clause = "deleted_at IS NULL")
 public class CreditCard {
     @Id
     private UUID id;
@@ -43,6 +47,10 @@ public class CreditCard {
     private int closeDay;
     @Column(nullable = false)
     private int bestDay;
+    @Column(name = "icon")
+    private String icon;
+    @Column(name = "color")
+    private String color;
     @Column(nullable = false)
     private Boolean enabled;
     @Column(nullable = false)
@@ -57,4 +65,18 @@ public class CreditCard {
     @OneToOne
     @JoinColumn(name = "account_id", nullable = false)
     private Accounts accounts;
+
+    public void consumeLimit(BigDecimal amount) {
+        if (this.currentLimit.compareTo(amount) < 0) {
+            throw new BadRequestException("Erro", "Limite insuficiente.");
+        }
+        this.currentLimit = this.currentLimit.subtract(amount);
+    }
+
+    public void restoreLimit(BigDecimal amount) {
+        this.currentLimit = this.currentLimit.add(amount);
+        if (this.currentLimit.compareTo(this.totalLimit) > 0) {
+            this.currentLimit = this.totalLimit;
+        }
+    }
 }

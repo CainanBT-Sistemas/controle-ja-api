@@ -42,9 +42,13 @@ public class InstallmentPlan {
     @Column(nullable = false)
     private int totalInstallmentsPlan;
     @Column(nullable = false)
+    private Integer currentInstallment;
+    @Column(nullable = false)
     private Boolean fixed;
     @Column(nullable = false)
     private Boolean paid;
+    @Column(nullable = false)
+    private UUID purchaseId;
     @Column(nullable = false)
     private Boolean enabled;
     @Column(nullable = false)
