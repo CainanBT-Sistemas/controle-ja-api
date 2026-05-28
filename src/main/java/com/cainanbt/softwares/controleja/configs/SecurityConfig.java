@@ -23,6 +23,10 @@ public class SecurityConfig {
     private final String URL_LOGIN_API_GOOGLE = URL_LOGIN_API + "/google";
     private final String URL_LOGIN_API_AUTO = URL_LOGIN_API + "/auto-login";
     private final String URL_REGISTER_API = URL_API+"/users/register";
+    private final String URL_HEALTH_API = URL_API + "/health";
+    private final String URL_HEALTH = "/health";
+    private final String URL_ACTUATOR_HEALTH = "/actuator/health";
+    private final String URL_SWAGGER_v3_DOCS = "/v3/api-docs";
     private final String URL_SWAGGER_v3 = "/v3/api-docs/**";
     private final String URL_SWAGGER_UI = "/swagger-ui/**";
     private final String URL_SWAGGER_HTML = "/swagger-ui.html";
@@ -37,6 +41,10 @@ public class SecurityConfig {
             URL_REGISTER_API,
             URL_LOGIN_API_GOOGLE,
             URL_LOGIN_API_AUTO,
+            URL_HEALTH_API,
+            URL_HEALTH,
+            URL_ACTUATOR_HEALTH,
+            URL_SWAGGER_v3_DOCS,
             URL_SWAGGER_v3,
             URL_SWAGGER_UI,
             URL_SWAGGER_HTML,
@@ -64,6 +72,11 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         return http
                 .csrf(csrf -> csrf.disable())
+                .exceptionHandling(exception -> exception
+                        .authenticationEntryPoint((request, response, authException) ->
+                                SecurityErrorResponseWriter.writeUnauthorized(response))
+                        .accessDeniedHandler((request, response, accessDeniedException) ->
+                                SecurityErrorResponseWriter.writeForbidden(response)))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(PUBLIC).permitAll()
                         .anyRequest().authenticated())
