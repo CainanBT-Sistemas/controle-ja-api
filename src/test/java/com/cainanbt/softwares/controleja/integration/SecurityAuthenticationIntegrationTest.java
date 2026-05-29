@@ -83,6 +83,20 @@ public class SecurityAuthenticationIntegrationTest extends BaseTest {
                 .body("id", notNullValue());
     }
 
+    @Test
+    @DisplayName("Preflight CORS deve passar em rota protegida sem token")
+    void shouldAllowCorsPreflightForProtectedRouteWithoutToken() {
+        given()
+                .header("Origin", "http://localhost:51038")
+                .header("Access-Control-Request-Method", "PUT")
+                .header("Access-Control-Request-Headers", "Authorization, Content-Type")
+                .when().options("/accounts/" + UUID.randomUUID())
+                .then().statusCode(200)
+                .header("Access-Control-Allow-Origin", "http://localhost:51038")
+                .header("Access-Control-Allow-Methods", org.hamcrest.Matchers.containsString("PUT"))
+                .header("Access-Control-Allow-Headers", org.hamcrest.Matchers.containsString("Authorization"));
+    }
+
     private String registerAndLogin(String email, String username) {
         given().contentType(ContentType.JSON).body(buildUser(email, username))
                 .post("/users/register")
