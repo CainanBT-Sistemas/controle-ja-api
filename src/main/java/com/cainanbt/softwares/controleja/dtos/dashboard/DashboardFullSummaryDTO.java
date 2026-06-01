@@ -25,9 +25,8 @@ public class DashboardFullSummaryDTO {
     private List<DashboardAlertDTO> pendingInvoices;
     private List<DashboardAlertDTO> overdueReceivables;
 
-    // Snapshot fields
     private List<AccountResponseDTO> accounts;
     private List<CreditCardResponseDTO> creditCards;
-    private List<DashboardAlertDTO> overduePayables; // Contas atrasadas
-    private List<DashboardAlertDTO> overdueInvoices; // Faturas vencidas
+    private List<DashboardAlertDTO> overduePayables;
+    private List<DashboardAlertDTO> overdueInvoices;
 }

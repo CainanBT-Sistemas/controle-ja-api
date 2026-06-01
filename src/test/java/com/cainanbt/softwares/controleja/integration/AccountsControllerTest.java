@@ -80,4 +80,55 @@ public class AccountsControllerTest extends BaseTest {
                 .then().statusCode(200)
                 .body("message", is("Registro excluído com sucesso."));
     }
+
+    @Test
+    @DisplayName("Não deve permitir consultar conta de outro usuário")
+    void shouldNotAllowAccessToAccountFromAnotherUser() {
+        AccountDTO account = new AccountDTO();
+        account.setName("Conta Privada");
+        account.setType(AccountType.BANK);
+        account.setInitialBalance(new BigDecimal("300.00"));
+        account.setInstitution("Banco");
+
+        String accountId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(account)
+                .when().post("/accounts")
+                .then().statusCode(200)
+                .extract().path("id");
+
+        InsertUpdateUserDTO otherUser = new InsertUpdateUserDTO();
+        otherUser.setUsername("account_intruder");
+        otherUser.setEmail("intruder@bank.com");
+        otherUser.setPassword("123456");
+        given().contentType(ContentType.JSON).body(otherUser).post("/users/register");
+
+        UserLoginDTO otherLogin = UserLoginDTO.builder().email("intruder@bank.com").password("123456").build();
+        String otherToken = given().contentType(ContentType.JSON).body(otherLogin).post("/auth").then().extract().path("tokens.accessToken");
+
+        given().header("Authorization", "Bearer " + otherToken)
+                .when().get("/accounts/" + accountId)
+                .then().statusCode(400)
+                .body("message", is("Conta inválida (Não pertence ao usuário)."));
+    }
+
+    @Test
+    @DisplayName("Não deve criar conta duplicada com mesmo nome e tipo")
+    void shouldNotCreateDuplicatedAccountWithSameNameAndType() {
+        AccountDTO account = new AccountDTO();
+        account.setName("Conta Duplicada");
+        account.setType(AccountType.WALLET);
+        account.setInitialBalance(new BigDecimal("10.00"));
+        account.setInstitution("");
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(account)
+                .when().post("/accounts")
+                .then().statusCode(200);
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(account)
+                .when().post("/accounts")
+                .then().statusCode(400)
+                .body("message", is("Este nome de conta já esta cadastrada"));
+    }
 }

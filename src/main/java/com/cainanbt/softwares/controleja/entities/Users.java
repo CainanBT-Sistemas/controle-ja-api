@@ -3,6 +3,7 @@ package com.cainanbt.softwares.controleja.entities;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -17,7 +18,10 @@ import org.hibernate.annotations.Where;
 import java.util.UUID;
 
 @Entity
-@Table(name = "users")
+@Table(name = "users", indexes = {
+        @Index(name = "idx_users_email_deleted", columnList = "email, deletedAt"),
+        @Index(name = "idx_users_enabled_locked_deleted", columnList = "enabled, accountNonLocked, deletedAt")
+})
 @Getter
 @Builder
 @AllArgsConstructor

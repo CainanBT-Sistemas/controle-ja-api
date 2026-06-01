@@ -13,19 +13,43 @@ import java.util.UUID;
 
 public interface UsersService extends UserDetailsService {
 
-    public Optional<Users> getUserByEmailAndId(String email, UUID id);
+    /**
+     * Busca um usuario ativo pelo par email e identificador.
+     */
+    Optional<Users> getUserByEmailAndId(String email, UUID id);
 
-    public Optional<Users> getUserByEmail(String email);
+    /**
+     * Busca usuario por email ignorando diferenca entre maiusculas e minusculas.
+     */
+    Optional<Users> getUserByEmail(String email);
 
-    public Users updateTokens(UserUpdateTokenDTO adapter);
+    /**
+     * Persiste o refresh token vigente do usuario autenticado.
+     */
+    Users updateTokens(UserUpdateTokenDTO adapter);
 
-    public Users createNewUser(InsertUpdateUserDTO user,HttpServletRequest request);
-    
-    public void changePassword(PasswordChangeDTO passwordChangeDTO);
+    /**
+     * Cria a conta do usuario e os dados iniciais obrigatorios.
+     */
+    Users createNewUser(InsertUpdateUserDTO user, HttpServletRequest request);
 
+    /**
+     * Troca a senha do usuario autenticado depois de confirmar a senha atual.
+     */
+    void changePassword(PasswordChangeDTO passwordChangeDTO);
+
+    /**
+     * Atualiza informacoes publicas do perfil do usuario autenticado.
+     */
     Users updateProfile(UpdateProfileDTO updateProfileDTO);
 
+    /**
+     * Desativa a propria conta do usuario autenticado.
+     */
     boolean deleteUser(UUID id);
 
+    /**
+     * Remove dados operacionais e recria a estrutura inicial do usuario.
+     */
     Users resetUser(UUID uuid);
 }

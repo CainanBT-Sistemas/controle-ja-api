@@ -3,6 +3,7 @@ package com.cainanbt.softwares.controleja.controller;
 import com.cainanbt.softwares.controleja.dtos.VehicleDTO;
 import com.cainanbt.softwares.controleja.dtos.dashboard.VehicleDashboardDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.VehicleResponseDTO;
+import com.cainanbt.softwares.controleja.entities.Vehicle;
 import com.cainanbt.softwares.controleja.services.VehicleDashboardService;
 import com.cainanbt.softwares.controleja.services.VehicleService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
@@ -36,26 +37,41 @@ public class VehicleController {
         this.dashboardService = dashboardService;
     }
 
+    /**
+     * Cadastra um veículo para o usuário autenticado.
+     */
     @PostMapping
     public ResponseEntity<VehicleResponseDTO> create(@RequestBody @Valid VehicleDTO dto) {
         return ResponseEntity.ok(VehicleResponseDTO.toDTO(vehicleService.createVehicle(dto)));
     }
 
+    /**
+     * Lista os veículos ativos do usuário autenticado.
+     */
     @GetMapping
     public ResponseEntity<List<VehicleResponseDTO>> listAll() {
         return ResponseEntity.ok(vehicleService.listMyVehicles().stream().map(VehicleResponseDTO::toDTO).toList());
     }
-    
+
+    /**
+     * Consulta um veículo ativo do usuário autenticado.
+     */
     @GetMapping("/{id}")
     public ResponseEntity<VehicleResponseDTO> getById(@PathVariable UUID id) {
-        return ResponseEntity.ok(VehicleResponseDTO.toDTO(vehicleService.findByIdOrThrow(id)));
+        return ResponseEntity.ok(VehicleResponseDTO.toDTO(vehicleService.findMyVehicleById(id)));
     }
-    
+
+    /**
+     * Atualiza campos editáveis do veículo.
+     */
     @PutMapping("/{id}")
     public ResponseEntity<VehicleResponseDTO> update(@PathVariable UUID id, @RequestBody @Valid VehicleDTO dto) {
         return ResponseEntity.ok(VehicleResponseDTO.toDTO(vehicleService.updateVehicle(id, dto)));
     }
-    
+
+    /**
+     * Remove logicamente o veículo do usuário autenticado.
+     */
     @DeleteMapping("/{id}")
     public ResponseEntity<?> delete(@PathVariable UUID id) {
         vehicleService.softDelete(id);
@@ -64,12 +80,16 @@ public class VehicleController {
         return ResponseEntity.ok(response);
     }
 
+    /**
+     * Retorna indicadores financeiros e de consumo do veículo no período informado.
+     */
     @GetMapping("/{id}/dashboard")
     public ResponseEntity<VehicleDashboardDTO> getDashboard(
             @PathVariable UUID id,
             @RequestParam Long start,
             @RequestParam Long end) {
-        return ResponseEntity.ok(dashboardService.getDashboard(id, start, end));
+        Vehicle vehicle = vehicleService.findMyVehicleById(id);
+        return ResponseEntity.ok(dashboardService.getDashboard(vehicle, start, end));
     }
 
 }

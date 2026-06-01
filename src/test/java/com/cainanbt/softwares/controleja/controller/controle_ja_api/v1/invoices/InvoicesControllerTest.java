@@ -2,9 +2,14 @@ package com.cainanbt.softwares.controleja.controller.controle_ja_api.v1.invoices
 
 import com.cainanbt.softwares.controleja.configs.SecurityFilter;
 import com.cainanbt.softwares.controleja.controller.InvoicesController;
+import com.cainanbt.softwares.controleja.dtos.TransactionDTO;
 import com.cainanbt.softwares.controleja.dtos.invoices.AdvanceRequestDTO;
+import com.cainanbt.softwares.controleja.dtos.invoices.AdvanceablePurchaseDTO;
 import com.cainanbt.softwares.controleja.dtos.invoices.InvoiceDetailsDTO;
+import com.cainanbt.softwares.controleja.dtos.invoices.InvoicePaymentRequestDTO;
 import com.cainanbt.softwares.controleja.dtos.invoices.RefundRequestDTO;
+import com.cainanbt.softwares.controleja.enums.OperationScope;
+import com.cainanbt.softwares.controleja.enums.TransactionType;
 import com.cainanbt.softwares.controleja.repositories.UsersRepository;
 import com.cainanbt.softwares.controleja.services.impl.JwtServiceImp;
 import com.cainanbt.softwares.controleja.services.web.InvoicesWebService;
@@ -18,6 +23,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -26,8 +32,10 @@ import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -77,6 +85,25 @@ public class InvoicesControllerTest {
     }
 
     @Test
+    public void getAdvanceable_returns200AndBody() throws Exception {
+        UUID cardId = UUID.randomUUID();
+        UUID purchaseId = UUID.randomUUID();
+        AdvanceablePurchaseDTO dto = AdvanceablePurchaseDTO.builder()
+                .purchaseId(purchaseId)
+                .name("Notebook")
+                .maxInstallmentsAvailable(2)
+                .estimatedAmount(new BigDecimal("300.00"))
+                .build();
+        when(service.getAdvanceablePurchases(eq(cardId), eq(1), eq(2023))).thenReturn(List.of(dto));
+
+        mockMvc.perform(get("/controle_ja_api/v1/invoices/card/" + cardId + "/month/1/year/2023/advanceable"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].purchaseId").value(purchaseId.toString()))
+                .andExpect(jsonPath("$[0].name").value("Notebook"))
+                .andExpect(jsonPath("$[0].maxInstallmentsAvailable").value(2));
+    }
+
+    @Test
     public void processRefund_callsServiceAndReturns200() throws Exception {
         UUID invoiceId = UUID.randomUUID();
         RefundRequestDTO req = RefundRequestDTO.builder().installmentId(UUID.randomUUID()).refundAmount(new BigDecimal("10.00")).build();
@@ -92,6 +119,16 @@ public class InvoicesControllerTest {
     }
 
     @Test
+    public void processRefund_whenInvalidBody_returns400() throws Exception {
+        UUID invoiceId = UUID.randomUUID();
+
+        mockMvc.perform(post("/controle_ja_api/v1/invoices/" + invoiceId + "/refund")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refundAmount\":0}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     public void advanceInstallments_callsServiceAndReturns200() throws Exception {
         UUID invoiceId = UUID.randomUUID();
         AdvanceRequestDTO req = AdvanceRequestDTO.builder().purchaseId(UUID.randomUUID()).quantityToAdvance(1).discountAmount(new BigDecimal("5.00")).build();
@@ -104,6 +141,103 @@ public class InvoicesControllerTest {
                 .andExpect(status().isOk());
 
         verify(service).advanceInstallments(eq(invoiceId), any(AdvanceRequestDTO.class));
+    }
+
+    @Test
+    public void advanceInstallments_whenInvalidBody_returns400() throws Exception {
+        UUID invoiceId = UUID.randomUUID();
+
+        mockMvc.perform(post("/controle_ja_api/v1/invoices/" + invoiceId + "/advance")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"quantityToAdvance\":0,\"discountAmount\":-1}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    public void updateInvoiceItem_callsServiceAndReturns200() throws Exception {
+        UUID invoiceId = UUID.randomUUID();
+        UUID installmentId = UUID.randomUUID();
+        TransactionDTO request = new TransactionDTO();
+        request.setName("Compra ajustada");
+        request.setType(TransactionType.DESPESA);
+        request.setAmount(new BigDecimal("120.00"));
+        request.setDate(1717100000000L);
+        request.setAccountId(UUID.randomUUID());
+        request.setCategoryId(UUID.randomUUID());
+        request.setPaid(false);
+        request.setIsFixed(false);
+
+        InvoiceDetailsDTO dto = InvoiceDetailsDTO.builder().invoiceId(invoiceId).openAmount(new BigDecimal("120.00")).build();
+        when(service.updateInvoiceItem(eq(invoiceId), eq(installmentId), any(TransactionDTO.class), eq(OperationScope.FROM_THIS_FORWARD))).thenReturn(dto);
+
+        mockMvc.perform(put("/controle_ja_api/v1/invoices/" + invoiceId + "/items/" + installmentId + "?operationScope=FROM_THIS_FORWARD")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.invoiceId").value(invoiceId.toString()))
+                .andExpect(jsonPath("$.openAmount").value(120.00));
+
+        verify(service).updateInvoiceItem(eq(invoiceId), eq(installmentId), any(TransactionDTO.class), eq(OperationScope.FROM_THIS_FORWARD));
+    }
+
+    @Test
+    public void deleteInvoiceItem_callsServiceAndReturns200() throws Exception {
+        UUID invoiceId = UUID.randomUUID();
+        UUID installmentId = UUID.randomUUID();
+        InvoiceDetailsDTO dto = InvoiceDetailsDTO.builder().invoiceId(invoiceId).openAmount(BigDecimal.ZERO).build();
+        when(service.deleteInvoiceItem(invoiceId, installmentId, OperationScope.ONLY_THIS)).thenReturn(dto);
+
+        mockMvc.perform(delete("/controle_ja_api/v1/invoices/" + invoiceId + "/items/" + installmentId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.invoiceId").value(invoiceId.toString()));
+
+        verify(service).deleteInvoiceItem(invoiceId, installmentId, OperationScope.ONLY_THIS);
+    }
+
+    @Test
+    public void cancelPurchase_callsServiceAndReturns200() throws Exception {
+        UUID invoiceId = UUID.randomUUID();
+        UUID purchaseId = UUID.randomUUID();
+        InvoiceDetailsDTO dto = InvoiceDetailsDTO.builder().invoiceId(invoiceId).openAmount(BigDecimal.ZERO).build();
+        when(service.cancelPurchase(invoiceId, purchaseId)).thenReturn(dto);
+
+        mockMvc.perform(delete("/controle_ja_api/v1/invoices/" + invoiceId + "/purchases/" + purchaseId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.invoiceId").value(invoiceId.toString()));
+
+        verify(service).cancelPurchase(invoiceId, purchaseId);
+    }
+
+    @Test
+    public void processPayment_callsServiceAndReturns200() throws Exception {
+        UUID invoiceId = UUID.randomUUID();
+        InvoicePaymentRequestDTO request = new InvoicePaymentRequestDTO();
+        request.setAccountId(UUID.randomUUID());
+        request.setAmount(new BigDecimal("100.00"));
+        InvoiceDetailsDTO dto = InvoiceDetailsDTO.builder()
+                .invoiceId(invoiceId)
+                .openAmount(BigDecimal.ZERO)
+                .build();
+        when(service.processPayment(eq(invoiceId), any(InvoicePaymentRequestDTO.class))).thenReturn(dto);
+
+        mockMvc.perform(post("/controle_ja_api/v1/invoices/" + invoiceId + "/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.invoiceId").value(invoiceId.toString()))
+                .andExpect(jsonPath("$.openAmount").value(0));
+
+        verify(service).processPayment(eq(invoiceId), any(InvoicePaymentRequestDTO.class));
+    }
+
+    @Test
+    public void processPayment_whenInvalidBody_returns400() throws Exception {
+        UUID invoiceId = UUID.randomUUID();
+
+        mockMvc.perform(post("/controle_ja_api/v1/invoices/" + invoiceId + "/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":0}"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

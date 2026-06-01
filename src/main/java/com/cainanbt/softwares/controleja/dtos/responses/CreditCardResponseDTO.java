@@ -19,10 +19,13 @@ public class CreditCardResponseDTO {
     private String icon;
     private String color;
 
+    /**
+     * Converte a entidade de cartão para o contrato público retornado pela API.
+     */
     public static CreditCardResponseDTO toDTO(CreditCard entity) {
         CreditCardResponseDTO dto = new CreditCardResponseDTO();
         dto.setId(entity.getId());
-        dto.setAccountId(entity.getAccounts().getId());
+        dto.setAccountId(entity.getAccounts() != null ? entity.getAccounts().getId() : null);
         dto.setName(entity.getName());
         dto.setTotalLimit(entity.getTotalLimit());
         dto.setCurrentLimit(entity.getCurrentLimit());

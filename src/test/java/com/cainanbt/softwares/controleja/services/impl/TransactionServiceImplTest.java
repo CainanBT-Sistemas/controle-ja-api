@@ -8,6 +8,7 @@ import com.cainanbt.softwares.controleja.entities.Invoices;
 import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.enums.AccountType;
+import com.cainanbt.softwares.controleja.enums.OperationScope;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
@@ -88,18 +89,18 @@ class TransactionServiceImplTest {
     }
 
     @Test
-    void updateTransactionDTO_whenInstallmentBelongsToPaidInvoice_skipsPaidInvoiceAndUpdatesOthers() {
+    void updateTransactionDTO_fromThisForwardChangesOnlyCurrentAndFutureInstallments() {
         try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
             mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
 
             UUID purchaseId = UUID.randomUUID();
             Invoices openInvoice1 = invoice(false, "100.00");
-            Invoices paidInvoice = invoice(true, "100.00");
             Invoices openInvoice2 = invoice(false, "100.00");
+            Invoices openInvoice3 = invoice(false, "100.00");
 
             InstallmentPlan installment1 = installment(purchaseId, openInvoice1, 1, "100.00", false);
-            InstallmentPlan installment2 = installment(purchaseId, paidInvoice, 2, "100.00", true);
-            InstallmentPlan installment3 = installment(purchaseId, openInvoice2, 3, "100.00", false);
+            InstallmentPlan installment2 = installment(purchaseId, openInvoice2, 2, "100.00", false);
+            InstallmentPlan installment3 = installment(purchaseId, openInvoice3, 3, "100.00", false);
 
             Transactions purchase = Transactions.builder()
                     .id(purchaseId)
@@ -112,25 +113,25 @@ class TransactionServiceImplTest {
             TransactionDTO dto = new TransactionDTO();
             dto.setAmount(new BigDecimal("120.00"));
 
-            when(invoicesService.findById(installment1.getId())).thenReturn(Optional.empty());
-            when(installmentPlanService.findById(installment1.getId())).thenReturn(Optional.of(installment1));
+            when(invoicesService.findById(installment2.getId())).thenReturn(Optional.empty());
+            when(installmentPlanService.findById(installment2.getId())).thenReturn(Optional.of(installment2));
             when(repository.findById(purchaseId)).thenReturn(Optional.of(purchase));
             when(installmentPlanService.findByPurchaseId(purchaseId)).thenReturn(List.of(installment1, installment2, installment3));
             when(repository.save(purchase)).thenReturn(purchase);
 
-            service.updateTransactionDTO(installment1.getId(), dto, false);
+            service.updateTransactionDTO(installment2.getId(), dto, OperationScope.FROM_THIS_FORWARD);
 
-            assertEquals(new BigDecimal("120.00"), installment1.getAmount());
-            assertEquals(new BigDecimal("100.00"), installment2.getAmount());
+            assertEquals(new BigDecimal("100.00"), installment1.getAmount());
+            assertEquals(new BigDecimal("120.00"), installment2.getAmount());
             assertEquals(new BigDecimal("120.00"), installment3.getAmount());
-            assertEquals(new BigDecimal("120.00"), openInvoice1.getAmount());
-            assertEquals(new BigDecimal("100.00"), paidInvoice.getAmount());
+            assertEquals(new BigDecimal("100.00"), openInvoice1.getAmount());
             assertEquals(new BigDecimal("120.00"), openInvoice2.getAmount());
+            assertEquals(new BigDecimal("120.00"), openInvoice3.getAmount());
             assertEquals(new BigDecimal("340.00"), purchase.getAmount());
 
             ArgumentCaptor<List<InstallmentPlan>> installmentsCaptor = ArgumentCaptor.forClass(List.class);
             verify(installmentPlanService).saveAll(installmentsCaptor.capture());
-            assertEquals(List.of(installment1, installment3), installmentsCaptor.getValue());
+            assertEquals(List.of(installment2, installment3), installmentsCaptor.getValue());
 
             ArgumentCaptor<List<Invoices>> invoicesCaptor = ArgumentCaptor.forClass(List.class);
             verify(invoicesService).saveAll(invoicesCaptor.capture());
@@ -163,7 +164,7 @@ class TransactionServiceImplTest {
             when(repository.findById(purchaseId)).thenReturn(Optional.of(purchase));
             when(installmentPlanService.findByPurchaseId(purchaseId)).thenReturn(List.of(installment));
 
-            service.updateTransactionDTO(installment.getId(), dto, false);
+            assertThrows(BadRequestException.class, () -> service.updateTransactionDTO(installment.getId(), dto, OperationScope.ONLY_THIS));
 
             assertEquals(new BigDecimal("100.00"), installment.getAmount());
             assertEquals(new BigDecimal("100.00"), paidInvoice.getAmount());
@@ -200,7 +201,7 @@ class TransactionServiceImplTest {
             when(installmentPlanService.findByPurchaseId(purchaseId)).thenReturn(installments);
             when(repository.save(purchase)).thenReturn(purchase);
 
-            service.updateTransactionDTO(installments.get(0).getId(), dto, false);
+            service.updateTransactionDTO(installments.get(0).getId(), dto, OperationScope.ALL);
 
             for (int i = 0; i < 10; i++) {
                 assertEquals(new BigDecimal("120.00"), installments.get(i).getAmount());
@@ -248,7 +249,7 @@ class TransactionServiceImplTest {
             when(repository.findById(purchaseId)).thenReturn(Optional.of(purchase));
             when(installmentPlanService.findByPurchaseId(purchaseId)).thenReturn(installments);
 
-            assertThrows(BadRequestException.class, () -> service.updateTransactionDTO(installments.get(0).getId(), dto, false));
+            assertThrows(BadRequestException.class, () -> service.updateTransactionDTO(installments.get(0).getId(), dto, OperationScope.ALL));
 
             verify(installmentPlanService, never()).saveAll(anyList());
             verify(invoicesService, never()).saveAll(anyList());
@@ -283,22 +284,23 @@ class TransactionServiceImplTest {
             when(helper.calculateInvoiceDate(any(LocalDateTime.class), eq(25), eq(10))).thenReturn(LocalDateTime.of(2026, 5, 10, 23, 59, 59));
             when(repository.save(purchase)).thenReturn(purchase);
 
-            service.updateTransactionDTO(installment.getId(), dto, false);
+            service.updateTransactionDTO(installment.getId(), dto, OperationScope.ONLY_THIS);
 
             assertEquals(2000L, purchase.getDate());
-            verify(installmentPlanService, never()).saveAll(anyList());
+            verify(installmentPlanService).saveAll(anyList());
             verify(invoicesService, never()).saveAll(anyList());
         }
     }
 
     @Test
-    void updateTransactionDTO_whenChangingDateToAnotherInvoice_shouldThrow() {
+    void updateTransactionDTO_whenChangingDateToAnotherInvoice_movesInstallmentAndRecalculatesInvoices() {
         try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
             mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
 
             UUID purchaseId = UUID.randomUUID();
             CreditCard card = CreditCard.builder().id(UUID.randomUUID()).closeDay(25).bestDay(10).build();
             Invoices invoice = invoice(false, "100.00", card, 5, 2026);
+            Invoices newInvoice = invoice(false, "0.00", card, 6, 2026);
             InstallmentPlan installment = installment(purchaseId, invoice, 1, "100.00", false);
             Transactions purchase = Transactions.builder()
                     .id(purchaseId)
@@ -317,12 +319,16 @@ class TransactionServiceImplTest {
             when(repository.findById(purchaseId)).thenReturn(Optional.of(purchase));
             when(installmentPlanService.findByPurchaseId(purchaseId)).thenReturn(List.of(installment));
             when(helper.calculateInvoiceDate(any(LocalDateTime.class), eq(25), eq(10))).thenReturn(LocalDateTime.of(2026, 6, 10, 23, 59, 59));
+            when(invoicesService.findByCreditCardIdAndMonthAndYear(card.getId(), 6, 2026)).thenReturn(Optional.of(newInvoice));
+            when(repository.save(purchase)).thenReturn(purchase);
 
-            assertThrows(BadRequestException.class, () -> service.updateTransactionDTO(installment.getId(), dto, false));
+            service.updateTransactionDTO(installment.getId(), dto, OperationScope.ONLY_THIS);
 
-            assertEquals(1000L, purchase.getDate());
-            verify(installmentPlanService, never()).saveAll(anyList());
-            verify(invoicesService, never()).saveAll(anyList());
+            assertEquals(BigDecimal.ZERO.setScale(2), invoice.getAmount());
+            assertEquals(new BigDecimal("100.00"), newInvoice.getAmount());
+            assertEquals(newInvoice, installment.getInvoices());
+            verify(installmentPlanService).saveAll(anyList());
+            verify(invoicesService).saveAll(anyList());
         }
     }
 
@@ -352,7 +358,7 @@ class TransactionServiceImplTest {
             when(repository.findById(purchaseId)).thenReturn(Optional.of(purchase));
             when(installmentPlanService.findByPurchaseId(purchaseId)).thenReturn(List.of(installment));
 
-            assertThrows(BadRequestException.class, () -> service.updateTransactionDTO(installment.getId(), dto, false));
+            assertThrows(BadRequestException.class, () -> service.updateTransactionDTO(installment.getId(), dto, OperationScope.ONLY_THIS));
 
             assertEquals(1000L, purchase.getDate());
             verify(installmentPlanService, never()).saveAll(anyList());
@@ -392,7 +398,7 @@ class TransactionServiceImplTest {
             when(installmentPlanService.findByPurchaseId(purchaseId)).thenReturn(List.of(installment));
             when(repository.save(purchase)).thenReturn(purchase);
 
-            service.updateTransactionDTO(installment.getId(), dto, false);
+            service.updateTransactionDTO(installment.getId(), dto, OperationScope.ONLY_THIS);
 
             assertEquals(new BigDecimal("70.00"), openInvoice.getAmount());
             assertEquals(new BigDecimal("70.00"), purchase.getAmount());
@@ -417,12 +423,12 @@ class TransactionServiceImplTest {
 
             when(installmentPlanService.findById(installment.getId())).thenReturn(Optional.of(installment));
 
-            service.softDelete(installment.getId(), false);
+            service.softDelete(installment.getId(), OperationScope.ONLY_THIS);
 
             assertEquals(BigDecimal.ZERO.setScale(2), openInvoice.getAmount());
             assertEquals(new BigDecimal("400.00"), card.getCurrentLimit());
-            verify(installmentPlanService).save(installment);
-            verify(invoicesService).save(openInvoice);
+            verify(installmentPlanService).saveAll(List.of(installment));
+            verify(invoicesService).saveAll(List.of(openInvoice));
             verify(creditCardService).updateLimit(card);
         }
     }

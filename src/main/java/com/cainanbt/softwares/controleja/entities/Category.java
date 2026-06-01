@@ -4,6 +4,7 @@ import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
@@ -23,7 +24,11 @@ import java.util.List;
 import java.util.UUID;
 
 @Entity
-@Table(name = "category")
+@Table(name = "category", indexes = {
+        @Index(name = "idx_category_user_deleted_type", columnList = "user_id, deletedAt, categoryType"),
+        @Index(name = "idx_category_parent_deleted", columnList = "sub_category_id, deletedAt"),
+        @Index(name = "idx_category_user_name_deleted", columnList = "user_id, name, deletedAt")
+})
 @Getter
 @Builder
 @AllArgsConstructor
@@ -62,6 +67,7 @@ public class Category {
     @ManyToOne
     @JoinColumn(name = "user_id",nullable = false)
     private Users user;
+    @Builder.Default
     @OneToMany(mappedBy = "subCategory", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Category> subCategories = new ArrayList<>();
     @ManyToOne

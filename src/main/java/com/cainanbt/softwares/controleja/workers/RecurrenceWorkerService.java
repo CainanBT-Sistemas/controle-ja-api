@@ -1,8 +1,7 @@
 package com.cainanbt.softwares.controleja.workers;
 
 import com.cainanbt.softwares.controleja.entities.RecurrenceRule;
-import com.cainanbt.softwares.controleja.enums.RuleStatus;
-import com.cainanbt.softwares.controleja.repositories.RecurrenceRuleRepository;
+import com.cainanbt.softwares.controleja.services.RecurrenceRuleService;
 import com.cainanbt.softwares.controleja.services.TransactionService;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import lombok.RequiredArgsConstructor;
@@ -18,29 +17,28 @@ import java.util.List;
 @Service
 @EnableScheduling
 public class RecurrenceWorkerService {
-    private final RecurrenceRuleRepository recurrenceRuleRepository;
+    private final RecurrenceRuleService recurrenceRuleService;
     private final TransactionService transactionService;
 
+    /**
+     * Projeta lancamentos futuros para regras ativas, mantendo cada erro isolado por regra.
+     */
     public void processProjections() {
-        log.info("Iniciando Motor de Projeção de Recorrências...");
+        log.info("Iniciando motor de projecao de recorrencias");
 
-        // Busca todas as regras de todos os usuários que estão ativas
-        List<RecurrenceRule> activeRules = recurrenceRuleRepository.findByStatusAndDeletedAtIsNull(RuleStatus.ACTIVE);
-
-        // Nossa janela de visão: 1 ano para o futuro (usa DateUtils.zoneId)
+        List<RecurrenceRule> activeRules = recurrenceRuleService.findAllActiveRules();
         LocalDate projectionLimit = LocalDate.now(DateUtils.zoneId).plusYears(1);
 
         int processed = 0;
         for (RecurrenceRule rule : activeRules) {
             try {
-                // A inteligência ignora o que já foi criado e foca apenas nos meses faltantes
                 transactionService.generateProjectionsForRule(rule, projectionLimit);
                 processed++;
             } catch (Exception e) {
-                log.error("Erro ao processar projeção para a regra ID: {}", rule.getId(), e);
+                log.error("Erro ao projetar recorrencia ruleId={}", rule.getId(), e);
             }
         }
 
-        log.info("Motor de Projeção concluído. {} Regras validadas/projetadas com sucesso.", processed);
+        log.info("Motor de projecao de recorrencias concluido. rulesProcessed={}", processed);
     }
 }

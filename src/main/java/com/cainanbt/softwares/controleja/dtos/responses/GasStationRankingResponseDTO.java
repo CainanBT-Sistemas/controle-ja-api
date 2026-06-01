@@ -24,11 +24,14 @@ public class GasStationRankingResponseDTO {
     private BigDecimal lastPricePerLiter;
     private Double score;
 
+    /**
+     * Converte o ranking acumulado do posto para o contrato público da API.
+     */
     public static GasStationRankingResponseDTO toDTO(GasStationRanking entity) {
         return GasStationRankingResponseDTO.builder()
                 .id(entity.getId())
-                .gasStationName(entity.getGasStation().getName())
-                .fuelType(entity.getFuelType().name())
+                .gasStationName(entity.getGasStation() != null ? entity.getGasStation().getName() : null)
+                .fuelType(entity.getFuelType() != null ? entity.getFuelType().name() : null)
                 .totalLiters(entity.getTotalLiters())
                 .refuelCount(entity.getRefuelCount())
                 .cityRefuelCount(entity.getCityRefuelCount())

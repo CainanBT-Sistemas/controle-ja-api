@@ -4,8 +4,10 @@ import com.cainanbt.softwares.controleja.dtos.TransactionDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.TransactionResponseDTO;
 import com.cainanbt.softwares.controleja.entities.RecurrenceRule;
 import com.cainanbt.softwares.controleja.entities.Transactions;
+import com.cainanbt.softwares.controleja.enums.OperationScope;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -19,21 +21,21 @@ public interface TransactionService {
 
     Transactions findByIdOrThrow(UUID id);
 
-    Transactions updateTransaction(UUID id, TransactionDTO dto, Boolean updateFuture);
+    Transactions updateTransaction(UUID id, TransactionDTO dto, OperationScope operationScope);
 
-    void softDelete(UUID id, Boolean cancelFuture);
+    void softDelete(UUID id, OperationScope operationScope);
 
     void cascadeRuleUpdate(UUID ruleId, BigDecimal newAmount);
 
-    void generateProjectionsForRule(RecurrenceRule rule, java.time.LocalDate limitDate);
+    void generateProjectionsForRule(RecurrenceRule rule, LocalDate limitDate);
 
     void adjustBalance(UUID accountId, BigDecimal newBalance);
 
-    void generateProjectionsByRuleId(UUID ruleId, java.time.LocalDate limitDate);
+    void generateProjectionsByRuleId(UUID ruleId, LocalDate limitDate);
 
     List<TransactionResponseDTO> listLastTransactionsDTO(Long start, Long end);
 
-    TransactionResponseDTO updateTransactionDTO(UUID id, TransactionDTO dto, Boolean updateFuture);
+    TransactionResponseDTO updateTransactionDTO(UUID id, TransactionDTO dto, OperationScope operationScope);
 
     List<TransactionResponseDTO> getTransactionsTypeVehicle(Long start, Long end);
 }

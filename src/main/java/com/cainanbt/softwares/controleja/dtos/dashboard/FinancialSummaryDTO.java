@@ -12,7 +12,7 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 @NoArgsConstructor
 public class FinancialSummaryDTO {
-    private BigDecimal totalIncome;    // Receita
-    private BigDecimal totalExpense;   // Despesa
-    private BigDecimal balance;        // Saldo (Economia)
+    private BigDecimal totalIncome;
+    private BigDecimal totalExpense;
+    private BigDecimal balance;
 }

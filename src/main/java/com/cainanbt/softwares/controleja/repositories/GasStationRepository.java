@@ -10,7 +10,13 @@ import java.util.UUID;
 
 @Repository
 public interface GasStationRepository extends JpaRepository<GasStation, UUID> {
+    /**
+     * Lista postos ativos pertencentes ao usuário.
+     */
     List<GasStation> findByUserIdAndDeletedAtIsNull(UUID userId);
 
+    /**
+     * Busca posto ativo por id ignorando registros removidos logicamente.
+     */
     Optional<GasStation> findByIdAndDeletedAtIsNull(UUID id);
 }

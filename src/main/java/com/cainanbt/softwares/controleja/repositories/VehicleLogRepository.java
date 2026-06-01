@@ -13,18 +13,39 @@ import java.util.UUID;
 
 @Repository
 public interface VehicleLogRepository extends JpaRepository<VehicleLog, UUID> {
+    /**
+     * Busca leituras do veículo da mais recente para a mais antiga.
+     */
     List<VehicleLog> findByVehicleIdOrderByDateDesc(UUID vehicleId);
 
+    /**
+     * Busca a primeira leitura registrada do veículo.
+     */
     Optional<VehicleLog> findFirstByVehicleIdOrderByDateAsc(UUID vehicleId);
 
+    /**
+     * Busca a primeira leitura registrada até uma data limite.
+     */
     Optional<VehicleLog> findFirstByVehicleIdAndDateLessThanEqualOrderByDateAsc(UUID vehicleId, Long date);
 
+    /**
+     * Busca leituras do veículo em período, da mais recente para a mais antiga.
+     */
     List<VehicleLog> findByVehicleIdAndDateBetweenOrderByDateDesc(UUID vehicleId, Long start, Long end);
 
+    /**
+     * Busca leituras do veículo em período, da mais antiga para a mais recente.
+     */
     List<VehicleLog> findByVehicleIdAndDateBetweenOrderByDateAsc(UUID vehicleId, Long start, Long end);
 
+    /**
+     * Busca a última leitura registrada até uma data limite.
+     */
     Optional<VehicleLog> findFirstByVehicleIdAndDateLessThanEqualOrderByDateDesc(UUID vehicleId, Long date);
 
+    /**
+     * Busca a maior leitura de odômetro já registrada no diário de bordo.
+     */
     @Query("SELECT MAX(l.odometerReading) FROM VehicleLog l WHERE l.vehicle.id = :vehicleId " +
             "AND l.odometerReading IS NOT NULL AND l.odometerReading > 0")
     BigDecimal findMaxOdometerReadingByVehicleId(@Param("vehicleId") UUID vehicleId);

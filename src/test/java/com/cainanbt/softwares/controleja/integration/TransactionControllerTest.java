@@ -63,7 +63,7 @@ public class TransactionControllerTest extends BaseTest {
                 .then().statusCode(200).extract().as(CategoryResponseDTO.class).getId();
 
         AccountDTO acc1 = new AccountDTO();
-        acc1.setName("Minha Carteira");
+        acc1.setName("Carteira Teste " + unique);
         acc1.setType(AccountType.WALLET);
         acc1.setInitialBalance(new BigDecimal("1000.00"));
         walletId = given().header("Authorization", "Bearer " + token)
@@ -71,7 +71,7 @@ public class TransactionControllerTest extends BaseTest {
                 .then().statusCode(200).extract().as(AccountResponseDTO.class).getId();
 
         AccountDTO acc2 = new AccountDTO();
-        acc2.setName("Conta Itaú");
+        acc2.setName("Conta Itau " + unique);
         acc2.setType(AccountType.BANK);
         acc2.setInitialBalance(new BigDecimal("0.00"));
         bankId = given().header("Authorization", "Bearer " + token)
@@ -345,7 +345,7 @@ public class TransactionControllerTest extends BaseTest {
         dto.setAmount(new BigDecimal("25.00"));
         given().header("Authorization", "Bearer " + token)
                 .contentType(ContentType.JSON).body(dto)
-                .put("/transactions/" + txId + "?updateFuture=true")
+                .put("/transactions/" + txId + "?operationScope=FROM_THIS_FORWARD")
                 .then().statusCode(200);
 
         given().header("Authorization", "Bearer " + token)
@@ -355,7 +355,7 @@ public class TransactionControllerTest extends BaseTest {
                 .body("findAll { it.name == 'Spotify Premium' && it.amount == 25.0f }", hasSize(greaterThanOrEqualTo(12)));
 
         given().header("Authorization", "Bearer " + token)
-                .delete("/transactions/" + txId + "?cancelFuture=true")
+                .delete("/transactions/" + txId + "?operationScope=FROM_THIS_FORWARD")
                 .then().statusCode(200);
 
         given().header("Authorization", "Bearer " + token)
@@ -395,7 +395,7 @@ public class TransactionControllerTest extends BaseTest {
                 .body("findAll { it.name.contains('Financiamento Moto') }", hasSize(3));
 
         given().header("Authorization", "Bearer " + token)
-                .delete("/transactions/" + primeiraParcelaId + "?cancelFuture=true")
+                .delete("/transactions/" + primeiraParcelaId + "?operationScope=FROM_THIS_FORWARD")
                 .then().statusCode(200);
 
         given().header("Authorization", "Bearer " + token)

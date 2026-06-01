@@ -16,19 +16,27 @@ import com.cainanbt.softwares.controleja.services.AccountsService;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
 import com.cainanbt.softwares.controleja.services.InstallmentPlanService;
 import com.cainanbt.softwares.controleja.services.InvoicesService;
+import com.cainanbt.softwares.controleja.services.invoices.InvoiceDateService;
+import com.cainanbt.softwares.controleja.services.invoices.InvoiceDomainValidator;
+import com.cainanbt.softwares.controleja.services.invoices.InvoiceTotalsCalculator;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.util.List;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class InvoicePaymentProcessor implements TransactionProcessor {
+
+    private final InvoiceDateService invoiceDateService = new InvoiceDateService();
+    private final InvoiceTotalsCalculator invoiceTotalsCalculator = new InvoiceTotalsCalculator();
+    private final InvoiceDomainValidator invoiceDomainValidator = new InvoiceDomainValidator();
 
     private final AccountsService accountsService;
     private final CreditCardService creditCardService;
@@ -41,11 +49,12 @@ public class InvoicePaymentProcessor implements TransactionProcessor {
         return dto.getType() == TransactionType.PAGAMENTO_FATURA;
     }
 
+    /**
+     * Cria as transações contábeis de pagamento de fatura e atualiza saldos quando o pagamento já está confirmado.
+     */
     @Override
     public Transactions process(TransactionDTO dto, Accounts sourceAccount, Category category, Users user) {
-        if (sourceAccount.getType() == AccountType.CREDIT_CARD) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "A conta de pagamento não pode ser uma conta de cartão de crédito.");
-        }
+        invoiceDomainValidator.validatePaymentSourceAccount(sourceAccount, user);
         if (dto.getTargetAccountId() == null) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.INVOICE_MISSING_TARGET);
         }
@@ -66,6 +75,7 @@ public class InvoicePaymentProcessor implements TransactionProcessor {
             if (!invoiceToPay.getUser().getId().equals(user.getId())) {
                 throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, "Fatura não pertence ao usuário autenticado.");
             }
+            invoiceDomainValidator.validateEditableInvoice(invoiceToPay);
             if (invoiceToPay.getCreditCard() == null
                     || !invoiceToPay.getCreditCard().getAccounts().getId().equals(cardAccount.getId())) {
                 throw new BadRequestException(ConstsMessages.ERROR_TITLE, "A conta de destino não pertence ao cartão da fatura.");
@@ -108,14 +118,13 @@ public class InvoicePaymentProcessor implements TransactionProcessor {
             creditCardService.updateLimit(card);
 
             if (invoiceToPay != null) {
-                // Create a credit installment in the invoice representing the payment received
                 InstallmentPlan paymentCredit = InstallmentPlan.builder()
                         .id(ID.generate())
                         .date(dto.getDate())
                         .name("Pagamento Recebido")
                         .description(dto.getDescription())
                         .type(TransactionType.RECEITA.name())
-                        .amount(dto.getAmount().abs().negate()) // force negative
+                        .amount(dto.getAmount().abs().negate())
                         .totalInstallmentsPlan(1)
                         .currentInstallment(1)
                         .fixed(false)
@@ -129,12 +138,10 @@ public class InvoicePaymentProcessor implements TransactionProcessor {
 
                 installmentPlanService.save(paymentCredit);
 
-                // Subtract amount from invoice total
-                invoiceToPay.setAmount(invoiceToPay.getAmount().subtract(dto.getAmount()));
+                invoiceToPay.setAmount(invoiceTotalsCalculator.valueOrZero(invoiceToPay.getAmount()).subtract(dto.getAmount()));
 
-                // If invoice is paid off after closing, mark as paid and mark installments.
                 if ((invoiceToPay.getAmount() == null || invoiceToPay.getAmount().compareTo(BigDecimal.ZERO) <= 0)
-                        && !isInvoiceOpenWindow(invoiceToPay)) {
+                        && !invoiceDateService.isInvoiceOpenWindow(invoiceToPay)) {
                     invoiceToPay.setPaid(true);
                     invoiceToPay.setAmount(BigDecimal.ZERO);
 
@@ -143,36 +150,11 @@ public class InvoicePaymentProcessor implements TransactionProcessor {
                     installmentPlanService.saveAll(installmentPlans);
                 }
 
-                // Associate payment transaction
                 invoiceToPay.setTransaction(paymentOut);
                 invoicesService.save(invoiceToPay);
+                log.info("Invoice payment transaction processed: invoiceId={}, transactionId={}, amount={}", invoiceToPay.getId(), paymentOut.getId(), dto.getAmount());
             }
         }
         return paymentOut;
-    }
-
-    private boolean isInvoiceOpenWindow(Invoices invoice) {
-        if (invoice.getCreditCard() == null) return false;
-        if (invoice.getMonth() == null || invoice.getYear() == null) return false;
-
-        LocalDate today = LocalDate.now(DateUtils.zoneId);
-        LocalDate closeDate = calculateCloseDate(invoice.getCreditCard().getCloseDay(), invoice.getCreditCard().getBestDay(), invoice.getMonth(), invoice.getYear());
-        LocalDate previousMonth = LocalDate.of(invoice.getYear(), invoice.getMonth(), 1).minusMonths(1);
-        LocalDate previousCloseDate = calculateCloseDate(invoice.getCreditCard().getCloseDay(), invoice.getCreditCard().getBestDay(), previousMonth.getMonthValue(), previousMonth.getYear());
-
-        return !today.isBefore(previousCloseDate) && today.isBefore(closeDate);
-    }
-
-    private LocalDate calculateCloseDate(int closeDay, int bestDay, Integer month, Integer year) {
-        int monthLength = LocalDate.of(year, month, 1).lengthOfMonth();
-        LocalDate closeDate = LocalDate.of(year, month, Math.min(closeDay, monthLength));
-        if (closeDay > bestDay) {
-            closeDate = closeDate.minusMonths(1);
-        }
-        while (closeDate.getDayOfWeek() == java.time.DayOfWeek.SATURDAY
-                || closeDate.getDayOfWeek() == java.time.DayOfWeek.SUNDAY) {
-            closeDate = closeDate.plusDays(1);
-        }
-        return closeDate;
     }
 }

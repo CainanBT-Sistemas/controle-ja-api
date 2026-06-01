@@ -9,6 +9,8 @@ import java.util.List;
 import java.util.UUID;
 
 public interface RecurrenceRuleRepository extends JpaRepository<RecurrenceRule, UUID> {
+
+    @EntityGraph(attributePaths = {"account", "targetAccount", "category", "user"})
     List<RecurrenceRule> findByUserIdAndStatusAndDeletedAtIsNull(UUID userId, RuleStatus status);
 
     @EntityGraph(attributePaths = {"account", "targetAccount", "category", "user"})

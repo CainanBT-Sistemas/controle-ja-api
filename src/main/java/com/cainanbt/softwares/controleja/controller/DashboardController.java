@@ -23,27 +23,41 @@ public class DashboardController {
         this.service = service;
     }
 
+    /**
+     * Lista despesas gerais pagas agrupadas por categoria no período.
+     */
     @GetMapping("/expenses-category")
     public ResponseEntity<List<ChartDataDTO>> getExpensesByCategory(@RequestParam Long start, @RequestParam Long end) {
         return ResponseEntity.ok(service.getExpensesByCategory(start, end));
     }
 
-    // === A ROTA QUE FALTAVA AQUI ===
+    /**
+     * Lista despesas de cartão de crédito agrupadas por categoria no período.
+     */
     @GetMapping("/credit-expenses-category")
     public ResponseEntity<List<ChartDataDTO>> getCreditCardExpensesByCategory(@RequestParam Long start, @RequestParam Long end) {
         return ResponseEntity.ok(service.getCreditCardExpensesByCategory(start, end));
     }
 
+    /**
+     * Lista receitas pagas agrupadas por categoria no período.
+     */
     @GetMapping("/incomes-category")
     public ResponseEntity<List<ChartDataDTO>> getIncomesByCategory(@RequestParam Long start, @RequestParam Long end) {
         return ResponseEntity.ok(service.getIncomesByCategory(start, end));
     }
 
+    /**
+     * Lista gastos veiculares agrupados por tipo de combustível.
+     */
     @GetMapping("/fuel-comparison")
     public ResponseEntity<List<ChartDataDTO>> getFuelComparison(@RequestParam Long start, @RequestParam Long end) {
         return ResponseEntity.ok(service.getFuelComparison(start, end));
     }
 
+    /**
+     * Lista evolução das despesas do período, opcionalmente filtrada por categoria.
+     */
     @GetMapping("/evolution")
     public ResponseEntity<List<ChartDataDTO>> getEvolution(
             @RequestParam Long start,
@@ -52,11 +66,17 @@ public class DashboardController {
         return ResponseEntity.ok(service.getEvolution(start, end, categoryId));
     }
 
+    /**
+     * Retorna totais simples de receitas, despesas e saldo do período.
+     */
     @GetMapping("/summary")
     public ResponseEntity<FinancialSummaryDTO> getSummary(@RequestParam Long start, @RequestParam Long end) {
         return ResponseEntity.ok(service.getSummary(start, end));
     }
 
+    /**
+     * Retorna visão consolidada com saldos, alertas de vencimento e projeções.
+     */
     @GetMapping("/full-summary")
     public ResponseEntity<DashboardFullSummaryDTO> getFullSummary(@RequestParam Long start, @RequestParam Long end) {
         return ResponseEntity.ok(service.getFullSummary(start, end));

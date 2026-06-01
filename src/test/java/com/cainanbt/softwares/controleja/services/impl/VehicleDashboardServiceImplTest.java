@@ -5,6 +5,7 @@ import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.entities.Vehicle;
 import com.cainanbt.softwares.controleja.entities.VehicleLog;
 import com.cainanbt.softwares.controleja.enums.FuelType;
+import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.repositories.VehicleLogRepository;
 import com.cainanbt.softwares.controleja.services.VehicleService;
@@ -25,6 +26,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -509,6 +511,19 @@ public class VehicleDashboardServiceImplTest {
         assertNull(dto.getLastRefuelDistanceKm());
         assertNull(dto.getLastRefuelKml());
         assertNull(dto.getLastRefuelFuelType());
+    }
+
+    @Test
+    void getDashboard_whenPeriodIsInvalid_shouldRejectBeforeQueryingHeavyData() {
+        UUID vehicleId = UUID.randomUUID();
+        Vehicle vehicle = vehicle(vehicleId, "1250.00");
+        long start = epoch(2026, 6, 30);
+        long end = epoch(2026, 6, 1);
+
+        when(vehicleService.findByIdOrThrow(vehicleId)).thenReturn(vehicle);
+
+        assertThrows(BadRequestException.class, () -> service.getDashboard(vehicleId, start, end));
+        verify(transactionRepository, never()).getNetVehicleCost(eq(vehicleId), anyLong(), anyLong());
     }
 
     private void stubCommon(UUID vehicleId, Vehicle vehicle, long start, long end, BigDecimal monthlyCost, BigDecimal yearlyCost) {

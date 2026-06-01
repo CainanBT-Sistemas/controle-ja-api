@@ -23,11 +23,17 @@ import java.util.UUID;
 public class VehicleLogController {
     private final VehicleLogService service;
 
+    /**
+     * Cria uma leitura de diário de bordo para o veículo autenticado.
+     */
     @PostMapping
     public ResponseEntity<VehicleLogResponseDTO> create(@RequestBody @Valid VehicleLogDTO dto) {
         return ResponseEntity.ok(VehicleLogResponseDTO.toDTO(service.createLog(dto)));
     }
 
+    /**
+     * Lista leituras do diário de bordo, com filtro opcional por período.
+     */
     @GetMapping("/{vehicleId}")
     public ResponseEntity<List<VehicleLogResponseDTO>> listByVehicle(
             @PathVariable UUID vehicleId,

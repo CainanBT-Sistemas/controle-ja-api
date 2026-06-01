@@ -1,0 +1,183 @@
+### Vehicles and Vehicle Logs API Contract
+### Base URL
+@baseUrl = http://localhost:8080/controle_ja_api/v1
+@token = replace-with-access-token
+@vehicleId = replace-with-vehicle-id
+@start = 1717100000000
+@end = 1748636000000
+
+### Controller summary
+### VehicleController gerencia cadastro, edição, exclusão e dashboard de veículos.
+### VehicleLogController registra e consulta leituras do diário de bordo.
+
+### Existing controller decisions
+### - Toda rota exige Authorization Bearer token.
+### - GET /vehicles/{id}, PUT, DELETE, dashboard e logs validam que o veículo pertence ao usuário.
+### - currentOdometer inicial é obrigatório no cadastro do veículo.
+### - Atualizar odômetro exige valor maior que o atual e passa por validação de salto plausível.
+### - Diário de bordo exige odometerReading e também atualiza o odômetro atual do veículo.
+### - dashboardKml do log é opcional; quando informado deve ser maior que zero.
+### - Dashboard usa o Vehicle já autorizado pelo controller para evitar buscar o mesmo veículo duas vezes.
+### - Dashboard calcula custo mensal, anual, custo por km, média de consumo e previsão quando houver dados confiáveis.
+
+### Common error contract
+### 400 Bad Request
+### {
+###   "code": 400,
+###   "title": "Erro | Acesso negado | Erro de Validação",
+###   "message": "Mensagem de regra ou validação"
+### }
+###
+### 404 Not Found
+### {
+###   "code": "404",
+###   "title": "Erro",
+###   "message": "Veículo não encontrado ou já foi excluído."
+### }
+
+### Vehicle request contract
+### {
+###   "name": "string obrigatório",
+###   "brand": "string obrigatório",
+###   "model": "string obrigatório",
+###   "year": "integer obrigatório, mínimo 1900",
+###   "plate": "string opcional",
+###   "currentOdometer": "decimal obrigatório",
+###   "tankCapacity": "decimal opcional, maior que zero quando informado"
+### }
+
+### Vehicle response contract
+### {
+###   "id": "uuid",
+###   "name": "string",
+###   "brand": "string",
+###   "model": "string",
+###   "currentOdometer": "decimal",
+###   "avgGasoline": "decimal|null",
+###   "avgEthanol": "decimal|null",
+###   "year": "integer",
+###   "plate": "string|null",
+###   "tankCapacity": "decimal|null"
+### }
+
+### Vehicle log request contract
+### {
+###   "vehicleId": "uuid obrigatório",
+###   "date": "epoch milliseconds obrigatório",
+###   "odometerReading": "decimal obrigatório",
+###   "dashboardKml": "decimal opcional, maior que zero",
+###   "drivingPredominance": "CITY | HIGHWAY | MIXED opcional"
+### }
+
+### Vehicle log response contract
+### {
+###   "id": "uuid",
+###   "date": "epoch milliseconds",
+###   "odometerReading": "decimal",
+###   "dashboardKml": "decimal|null",
+###   "drivingPredominance": "CITY | HIGHWAY | MIXED | null",
+###   "vehicleName": "string"
+### }
+
+### Create vehicle
+POST {{baseUrl}}/vehicles
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Meu carro",
+  "brand": "Toyota",
+  "model": "Corolla",
+  "year": 2022,
+  "plate": "ABC1D23",
+  "currentOdometer": 50000,
+  "tankCapacity": 50.0
+}
+
+### Expected 200 response
+### Vehicle response contract.
+
+### List my vehicles
+GET {{baseUrl}}/vehicles
+Authorization: Bearer {{token}}
+
+### Expected 200 response
+### [ Vehicle response contract ]
+
+### Get my vehicle by id
+GET {{baseUrl}}/vehicles/{{vehicleId}}
+Authorization: Bearer {{token}}
+
+### Expected 200 response
+### Vehicle response contract.
+
+### Update my vehicle
+PUT {{baseUrl}}/vehicles/{{vehicleId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Meu carro",
+  "brand": "Toyota",
+  "model": "Corolla",
+  "year": 2022,
+  "plate": "ABC1D23",
+  "currentOdometer": 51000,
+  "tankCapacity": 50.0
+}
+
+### Expected 200 response
+### Vehicle response contract.
+
+### Delete my vehicle
+DELETE {{baseUrl}}/vehicles/{{vehicleId}}
+Authorization: Bearer {{token}}
+
+### Expected 200 response
+### {
+###   "message": "Registro excluído com sucesso."
+### }
+
+### Get vehicle dashboard by period
+GET {{baseUrl}}/vehicles/{{vehicleId}}/dashboard?start={{start}}&end={{end}}
+Authorization: Bearer {{token}}
+
+### Expected 200 response
+### {
+###   "monthlyCost": "decimal",
+###   "yearlyCost": "decimal",
+###   "costPerKm": "decimal",
+###   "currentAvgKml": "decimal|null",
+###   "remainingKms": "decimal|null",
+###   "estimatedNextRefuelDate": "epoch milliseconds|null",
+###   "estimatedNextRefuelCost": "decimal",
+###   "estimatedNextCost": "decimal",
+###   "lastRefuelAmount": "decimal|null",
+###   "lastFuelPricePerLiter": "decimal|null",
+###   "lastRefuelDistanceKm": "decimal|null",
+###   "lastRefuelKml": "decimal|null",
+###   "lastRefuelFuelType": "GASOLINA | ETANOL | null"
+### }
+
+### Create vehicle log
+POST {{baseUrl}}/vehicles/logs
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "vehicleId": "{{vehicleId}}",
+  "date": 1717100000000,
+  "odometerReading": 51250,
+  "dashboardKml": 11.8,
+  "drivingPredominance": "CITY"
+}
+
+### Expected 200 response
+### Vehicle log response contract.
+
+### List vehicle logs by period
+GET {{baseUrl}}/vehicles/logs/{{vehicleId}}?start={{start}}&end={{end}}
+Authorization: Bearer {{token}}
+
+### Expected 200 response
+### [ Vehicle log response contract ]

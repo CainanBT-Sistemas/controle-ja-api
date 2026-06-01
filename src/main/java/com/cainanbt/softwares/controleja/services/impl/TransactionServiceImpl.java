@@ -12,6 +12,7 @@ import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.entities.Vehicle;
 import com.cainanbt.softwares.controleja.enums.AccountType;
+import com.cainanbt.softwares.controleja.enums.OperationScope;
 import com.cainanbt.softwares.controleja.enums.RecurrenceFrequency;
 import com.cainanbt.softwares.controleja.enums.RuleStatus;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
@@ -34,6 +35,7 @@ import com.cainanbt.softwares.controleja.services.processors.TransactionProcesso
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
+import com.cainanbt.softwares.controleja.utils.OdometerValidator;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -88,6 +90,8 @@ public class TransactionServiceImpl implements TransactionService {
 
         Category category = categoryService.findById(dto.getCategoryId())
                 .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.CATEGORY_NOT_FOUND));
+        validateCategoryForTransaction(category);
+        validateVehicleOdometerOnCreate(dto, user);
 
         TransactionProcessor processor = processorFactory.getProcessor(dto, account);
 
@@ -108,11 +112,6 @@ public class TransactionServiceImpl implements TransactionService {
 
     private void processVehicleMetricsIfApplicable(Transactions tx, TransactionDTO dto) {
         if (tx.getVehicle() != null) {
-            // Se informou odômetro, atualiza no cadastro do veículo
-            if (dto.getCurrentOdometer() != null) {
-                vehicleService.updateOdometer(tx.getVehicle(), dto.getCurrentOdometer());
-            }
-
             // Se for abastecimento (tem posto e litros), atualiza o ranking de postos
             if (tx.getGasStation() != null && tx.getLiters() != null && tx.getLiters() > 0) {
                 // Como você já tem a lógica prontinha no GasStationRankingService!
@@ -200,7 +199,8 @@ public class TransactionServiceImpl implements TransactionService {
 
     @Override
     @Transactional
-    public TransactionResponseDTO updateTransactionDTO(UUID id, TransactionDTO dto, Boolean updateFuture) {
+    public TransactionResponseDTO updateTransactionDTO(UUID id, TransactionDTO dto, OperationScope operationScope) {
+        OperationScope scope = normalizeScope(operationScope);
         Optional<Invoices> invOpt = invoicesService.findById(id);
 
         if (invOpt.isPresent()) {
@@ -227,25 +227,29 @@ public class TransactionServiceImpl implements TransactionService {
 
         Optional<InstallmentPlan> instOpt = installmentPlanService.findById(id);
         if (instOpt.isPresent()) {
-            return updateCreditCardInstallments(instOpt.get(), dto);
+            return updateCreditCardInstallments(instOpt.get(), dto, scope);
         }
 
         Transactions current = findByIdOrThrow(id);
         List<InstallmentPlan> installments = installmentPlanService.findByPurchaseId(current.getId());
         if (current.getAccount().getType() == AccountType.CREDIT_CARD && !installments.isEmpty()) {
-            return updateCreditCardInstallments(current, installments, dto);
+            return updateCreditCardInstallments(current, installments, dto, scope, null);
         }
 
         if (isTransferSide(current)) {
-            return TransactionResponseDTO.toDTO(updateTransferPair(current, dto, updateFuture));
+            return TransactionResponseDTO.toDTO(updateTransferPair(current, dto, scope));
         }
 
-        Transactions transaction = updateTransaction(id, dto, updateFuture);
+        Transactions transaction = updateTransaction(id, dto, scope);
 
         return TransactionResponseDTO.toDTO(transaction);
     }
 
     private TransactionResponseDTO updateCreditCardInstallments(InstallmentPlan reference, TransactionDTO dto) {
+        return updateCreditCardInstallments(reference, dto, OperationScope.ONLY_THIS);
+    }
+
+    private TransactionResponseDTO updateCreditCardInstallments(InstallmentPlan reference, TransactionDTO dto, OperationScope scope) {
         if (reference.getPurchaseId() == null) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Parcela sem compra vinculada.");
         }
@@ -255,10 +259,14 @@ public class TransactionServiceImpl implements TransactionService {
         if (installments.isEmpty()) {
             installments = List.of(reference);
         }
-        return updateCreditCardInstallments(purchase, installments, dto);
+        return updateCreditCardInstallments(purchase, installments, dto, scope, reference);
     }
 
     private TransactionResponseDTO updateCreditCardInstallments(Transactions purchase, List<InstallmentPlan> installments, TransactionDTO dto) {
+        return updateCreditCardInstallments(purchase, installments, dto, OperationScope.ALL, null);
+    }
+
+    private TransactionResponseDTO updateCreditCardInstallments(Transactions purchase, List<InstallmentPlan> installments, TransactionDTO dto, OperationScope scope, InstallmentPlan reference) {
         Users currentUser = SecurityContextUtils.getCurrentUser();
         long dateNow = DateUtils.getEpochNow();
 
@@ -268,7 +276,17 @@ public class TransactionServiceImpl implements TransactionService {
             throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_TRANSACTION);
         }
 
-        Map<UUID, Invoices> invoicesToUpdate = new HashMap<>();
+        List<InstallmentPlan> activeInstallments = installments.stream()
+                .filter(inst -> inst.getDeletedAt() == null)
+                .sorted((a, b) -> a.getCurrentInstallment().compareTo(b.getCurrentInstallment()))
+                .toList();
+        if (activeInstallments.isEmpty()) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Compra sem parcelas ativas para atualizar.");
+        }
+
+        List<InstallmentPlan> scopedInstallments = selectInstallmentsForScope(activeInstallments, scope, reference);
+        validateEditableInstallments(scopedInstallments);
+
         List<InstallmentPlan> installmentsToUpdate = new ArrayList<>();
         BigDecimal totalBeforeAmountChange = installments.stream()
                 .filter(inst -> inst.getDeletedAt() == null)
@@ -276,17 +294,19 @@ public class TransactionServiceImpl implements TransactionService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         if (dto.getInstallments() != null) {
+            if (scope != OperationScope.ALL) {
+                throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Alteração da quantidade de parcelas só pode ser aplicada ao lançamento inteiro.");
+            }
             return updateCreditCardInstallmentCount(purchase, installments, dto, dateNow);
         }
-        if (dto.getDate() != null) {
-            validateCreditCardPurchaseDateChange(purchase, installments, dto.getDate());
-        }
 
-        for (InstallmentPlan inst : installments) {
-            if (inst.getDeletedAt() != null || isPaidInvoiceInstallment(inst)) {
-                continue;
-            }
+        CreditCard targetCard = resolveTargetCard(dto, purchase, activeInstallments);
+        Map<UUID, Invoices> invoicesToUpdate = new HashMap<>();
+        int referenceInstallment = reference != null
+                ? reference.getCurrentInstallment()
+                : activeInstallments.get(0).getCurrentInstallment();
 
+        for (InstallmentPlan inst : scopedInstallments) {
             BigDecimal oldAmount = inst.getAmount();
             boolean changed = false;
 
@@ -294,10 +314,7 @@ public class TransactionServiceImpl implements TransactionService {
                 inst.setAmount(dto.getAmount());
                 changed = true;
 
-                Invoices invoice = invoicesToUpdate.getOrDefault(inst.getInvoices().getId(), inst.getInvoices());
-                invoice.setAmount(invoice.getAmount().add(dto.getAmount().subtract(oldAmount)));
-                invoice.setUpdatedAt(dateNow);
-                invoicesToUpdate.put(invoice.getId(), invoice);
+                applyInvoiceDelta(invoicesToUpdate, inst.getInvoices(), dto.getAmount().subtract(oldAmount), dateNow);
             }
             if (dto.getName() != null) {
                 inst.setName(buildInstallmentName(dto.getName(), inst));
@@ -309,6 +326,12 @@ public class TransactionServiceImpl implements TransactionService {
             }
             if (dto.getType() != null) {
                 inst.setType(dto.getType().name());
+                changed = true;
+            }
+            if (dto.getDate() != null || targetCardChanged(targetCard, inst)) {
+                LocalDateTime referenceDate = DateUtils.epochToLocalDateTime(dto.getDate() != null ? dto.getDate() : purchase.getDate());
+                int monthsToAdd = scope == OperationScope.ONLY_THIS ? 0 : inst.getCurrentInstallment() - referenceInstallment;
+                moveInstallmentToInvoice(inst, targetCard, referenceDate.plusMonths(monthsToAdd), invoicesToUpdate, dateNow);
                 changed = true;
             }
 
@@ -336,10 +359,20 @@ public class TransactionServiceImpl implements TransactionService {
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
                 purchase.setAmount(activeTotal);
             }
-            if (!installmentsToUpdate.isEmpty() && dto.getName() != null) purchase.setName(dto.getName());
+            if (scope == OperationScope.ALL && !installmentsToUpdate.isEmpty() && dto.getName() != null)
+                purchase.setName(dto.getName());
             if (!installmentsToUpdate.isEmpty() && dto.getDescription() != null)
                 purchase.setDescription(dto.getDescription());
             if (!installmentsToUpdate.isEmpty() && dto.getType() != null) purchase.setType(dto.getType());
+            if (scope == OperationScope.ALL && dto.getCategoryId() != null) {
+                Category category = categoryService.findByIdOrThrow(dto.getCategoryId());
+                validateCategoryForTransaction(category);
+                purchase.setCategory(category);
+            }
+            if (targetCard != null && purchase.getCreditCard() != null && !targetCard.getId().equals(purchase.getCreditCard().getId())) {
+                purchase.setCreditCard(targetCard);
+                purchase.setAccount(targetCard.getAccounts());
+            }
             if (dto.getDate() != null) {
                 purchase.setDate(dto.getDate());
             }
@@ -486,6 +519,121 @@ public class TransactionServiceImpl implements TransactionService {
                 || (installment.getInvoices() != null && Boolean.TRUE.equals(installment.getInvoices().getPaid()));
     }
 
+    private OperationScope normalizeScope(OperationScope scope) {
+        if (scope != null) {
+            return scope;
+        }
+        return OperationScope.ONLY_THIS;
+    }
+
+    private List<InstallmentPlan> selectInstallmentsForScope(List<InstallmentPlan> installments, OperationScope scope, InstallmentPlan reference) {
+        if (scope == OperationScope.ALL) {
+            return installments;
+        }
+        if (reference == null) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Informe a parcela de referência para aplicar este escopo.");
+        }
+        int current = reference.getCurrentInstallment();
+        if (scope == OperationScope.FROM_THIS_FORWARD) {
+            return installments.stream()
+                    .filter(inst -> inst.getCurrentInstallment() >= current)
+                    .toList();
+        }
+        return installments.stream()
+                .filter(inst -> inst.getId().equals(reference.getId()))
+                .toList();
+    }
+
+    private void validateEditableInstallments(List<InstallmentPlan> installments) {
+        for (InstallmentPlan inst : installments) {
+            Invoices invoice = inst.getInvoices();
+            if (Boolean.TRUE.equals(inst.getPaid())
+                    || invoice == null
+                    || Boolean.TRUE.equals(invoice.getPaid())
+                    || Boolean.FALSE.equals(invoice.getEnabled())
+                    || invoice.getDeletedAt() != null) {
+                throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Não é possível alterar parcela vinculada a fatura paga, fechada ou bloqueada.");
+            }
+        }
+    }
+
+    private CreditCard resolveTargetCard(TransactionDTO dto, Transactions purchase, List<InstallmentPlan> installments) {
+        if (dto.getCreditCardId() != null) {
+            return creditCardService.findByIdOrThrow(dto.getCreditCardId());
+        }
+        if (dto.getAccountId() != null) {
+            return creditCardService.findByAccountId(dto.getAccountId());
+        }
+        if (purchase != null && purchase.getCreditCard() != null) {
+            return purchase.getCreditCard();
+        }
+        return installments.get(0).getInvoices().getCreditCard();
+    }
+
+    private boolean targetCardChanged(CreditCard targetCard, InstallmentPlan installment) {
+        return targetCard != null
+                && installment.getInvoices() != null
+                && installment.getInvoices().getCreditCard() != null
+                && !targetCard.getId().equals(installment.getInvoices().getCreditCard().getId());
+    }
+
+    private void moveInstallmentToInvoice(InstallmentPlan inst, CreditCard targetCard, LocalDateTime purchaseDate, Map<UUID, Invoices> invoicesToUpdate, long dateNow) {
+        Invoices oldInvoice = inst.getInvoices();
+        validateEditableInvoice(oldInvoice);
+
+        LocalDateTime newInvoiceDate = helper.calculateInvoiceDate(
+                purchaseDate,
+                targetCard.getCloseDay(),
+                targetCard.getBestDay()
+        );
+        if (oldInvoice.getCreditCard() != null
+                && oldInvoice.getCreditCard().getId().equals(targetCard.getId())
+                && oldInvoice.getMonth() != null
+                && oldInvoice.getYear() != null
+                && oldInvoice.getMonth() == newInvoiceDate.getMonthValue()
+                && oldInvoice.getYear() == newInvoiceDate.getYear()) {
+            inst.setDate(oldInvoice.getExpirationDate());
+            return;
+        }
+        Invoices newInvoice = invoicesService.findByCreditCardIdAndMonthAndYear(targetCard.getId(), newInvoiceDate.getMonthValue(), newInvoiceDate.getYear())
+                .orElseGet(() -> invoicesService.save(Invoices.builder()
+                        .id(ID.generate())
+                        .month(newInvoiceDate.getMonthValue())
+                        .year(newInvoiceDate.getYear())
+                        .amount(BigDecimal.ZERO)
+                        .expirationDate(DateUtils.localDateTimeToEpoch(newInvoiceDate))
+                        .paid(false)
+                        .enabled(true)
+                        .createdAt(dateNow)
+                        .creditCard(targetCard)
+                        .user(inst.getUser())
+                        .build()));
+        validateEditableInvoice(newInvoice);
+
+        if (!oldInvoice.getId().equals(newInvoice.getId())) {
+            applyInvoiceDelta(invoicesToUpdate, oldInvoice, inst.getAmount().negate(), dateNow);
+            applyInvoiceDelta(invoicesToUpdate, newInvoice, inst.getAmount(), dateNow);
+            inst.setInvoices(newInvoice);
+        }
+        inst.setDate(newInvoice.getExpirationDate());
+    }
+
+    private void validateEditableInvoice(Invoices invoice) {
+        if (invoice == null
+                || Boolean.TRUE.equals(invoice.getPaid())
+                || Boolean.FALSE.equals(invoice.getEnabled())
+                || invoice.getDeletedAt() != null) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Não é possível alterar fatura paga, fechada ou bloqueada para edição.");
+        }
+    }
+
+    private void applyInvoiceDelta(Map<UUID, Invoices> invoicesToUpdate, Invoices invoice, BigDecimal delta, long dateNow) {
+        Invoices target = invoicesToUpdate.getOrDefault(invoice.getId(), invoice);
+        target.setAmount(target.getAmount().add(delta));
+        target.setUpdatedAt(dateNow);
+        invoicesToUpdate.put(target.getId(), target);
+    }
+
     private String buildInstallmentName(String name, InstallmentPlan installment) {
         if (installment.getTotalInstallmentsPlan() > 1) {
             return name + " (" + installment.getCurrentInstallment() + "/" + installment.getTotalInstallmentsPlan() + ")";
@@ -536,7 +684,8 @@ public class TransactionServiceImpl implements TransactionService {
 
     @Override
     @Transactional
-    public void softDelete(UUID id, Boolean cancelFuture) {
+    public void softDelete(UUID id, OperationScope operationScope) {
+        OperationScope scope = normalizeScope(operationScope);
         Optional<InstallmentPlan> instOpt = installmentPlanService.findById(id);
 
         if (instOpt.isPresent()) {
@@ -545,18 +694,7 @@ public class TransactionServiceImpl implements TransactionService {
             if (inst.getUser() == null || !inst.getUser().getId().equals(currentUser.getId())) {
                 throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_TRANSACTION);
             }
-            inst.setDeletedAt(DateUtils.getEpochNow());
-            installmentPlanService.save(inst);
-
-            Invoices inv = inst.getInvoices();
-            inv.setAmount(inv.getAmount().subtract(inst.getAmount()));
-            invoicesService.save(inv);
-
-            if (inv.getCreditCard() != null && inst.getAmount() != null && inst.getAmount().compareTo(BigDecimal.ZERO) > 0) {
-                CreditCard card = inv.getCreditCard();
-                card.restoreLimit(inst.getAmount());
-                creditCardService.updateLimit(card);
-            }
+            deleteScopedInstallments(inst, scope, DateUtils.getEpochNow());
             return;
         }
 
@@ -569,7 +707,7 @@ public class TransactionServiceImpl implements TransactionService {
         }
 
         if (isTransferSide(transaction)) {
-            deleteTransferPair(transaction, cancelFuture, dateNow, currentUser);
+            deleteTransferPair(transaction, scope, dateNow, currentUser);
             return;
         }
 
@@ -577,7 +715,7 @@ public class TransactionServiceImpl implements TransactionService {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.ENTITY_ALREADY_DELETED);
         }
 
-        if (Boolean.TRUE.equals(cancelFuture)) {
+        if (scope == OperationScope.FROM_THIS_FORWARD) {
             if (transaction.getRecurrenceRule() != null) {
                 RecurrenceRule rule = transaction.getRecurrenceRule();
                 rule.setStatus(RuleStatus.CANCELED);
@@ -613,6 +751,52 @@ public class TransactionServiceImpl implements TransactionService {
 
         transaction.setDeletedAt(dateNow);
         repository.save(transaction);
+
+        if (transaction.getVehicle() != null && transaction.getCurrentOdometer() != null) {
+            recalculateVehicleCurrentOdometer(transaction.getVehicle());
+        }
+    }
+
+    private void deleteScopedInstallments(InstallmentPlan reference, OperationScope scope, long dateNow) {
+        List<InstallmentPlan> installments = installmentPlanService.findByPurchaseId(reference.getPurchaseId()).stream()
+                .filter(inst -> inst.getDeletedAt() == null)
+                .sorted((a, b) -> a.getCurrentInstallment().compareTo(b.getCurrentInstallment()))
+                .toList();
+        if (installments.isEmpty()) {
+            installments = List.of(reference);
+        }
+        List<InstallmentPlan> scopedInstallments = selectInstallmentsForScope(installments, scope, reference);
+        validateEditableInstallments(scopedInstallments);
+
+        Map<UUID, Invoices> invoicesToUpdate = new HashMap<>();
+        Map<UUID, CreditCard> cardsToUpdate = new HashMap<>();
+        for (InstallmentPlan inst : scopedInstallments) {
+            inst.setDeletedAt(dateNow);
+            inst.setUpdatedAt(dateNow);
+            applyInvoiceDelta(invoicesToUpdate, inst.getInvoices(), inst.getAmount().negate(), dateNow);
+            if (inst.getInvoices().getCreditCard() != null && inst.getAmount() != null && inst.getAmount().compareTo(BigDecimal.ZERO) > 0) {
+                CreditCard card = inst.getInvoices().getCreditCard();
+                card.restoreLimit(inst.getAmount());
+                cardsToUpdate.put(card.getId(), card);
+            }
+        }
+
+        installmentPlanService.saveAll(scopedInstallments);
+        invoicesService.saveAll(invoicesToUpdate.values().stream().toList());
+        cardsToUpdate.values().forEach(creditCardService::updateLimit);
+
+        BigDecimal remainingTotal = installments.stream()
+                .filter(inst -> inst.getDeletedAt() == null)
+                .map(InstallmentPlan::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        repository.findById(reference.getPurchaseId()).ifPresent(purchase -> {
+            purchase.setAmount(remainingTotal);
+            purchase.setUpdatedAt(dateNow);
+            if (scope == OperationScope.ALL || remainingTotal.compareTo(BigDecimal.ZERO) == 0) {
+                purchase.setDeletedAt(dateNow);
+            }
+            repository.save(purchase);
+        });
     }
 
     @Override
@@ -637,7 +821,7 @@ public class TransactionServiceImpl implements TransactionService {
 
     @Override
     @Transactional
-    public Transactions updateTransaction(UUID id, TransactionDTO dto, Boolean updateFuture) {
+    public Transactions updateTransaction(UUID id, TransactionDTO dto, OperationScope operationScope) {
         Transactions transaction = findByIdOrThrow(id);
         Users currentUser = SecurityContextUtils.getCurrentUser();
         long dateNow = DateUtils.getEpochNow();
@@ -663,19 +847,6 @@ public class TransactionServiceImpl implements TransactionService {
 
         if (dto.getAmount() != null) {
             transaction.setAmount(dto.getAmount());
-
-            // O Efeito Cascata funciona paralelo porque a regra JÁ existe no banco há tempos.
-            if (Boolean.TRUE.equals(updateFuture) && transaction.getRecurrenceRule() != null) {
-                UUID ruleId = transaction.getRecurrenceRule().getId();
-                BigDecimal newAmount = dto.getAmount();
-                CompletableFuture.runAsync(() -> {
-                    try {
-                        cascadeRuleUpdate(ruleId, newAmount);
-                    } catch (Exception e) {
-                        log.error("Erro ao aplicar efeito cascata na regra: " + ruleId, e);
-                    }
-                });
-            }
         }
 
         if (dto.getDate() != null) transaction.setDate(dto.getDate());
@@ -722,9 +893,15 @@ public class TransactionServiceImpl implements TransactionService {
             transaction.setAccount(currentAccount);
         }
 
+        Category currentCategory = transaction.getCategory();
         if (dto.getCategoryId() != null) {
-            Category category = categoryService.findByIdOrThrow(dto.getCategoryId());
-            transaction.setCategory(category);
+            currentCategory = categoryService.findByIdOrThrow(dto.getCategoryId());
+        }
+        validateCategoryForTransaction(currentCategory);
+        transaction.setCategory(currentCategory);
+
+        if (operationScope == OperationScope.FROM_THIS_FORWARD && transaction.getRecurrenceRule() != null) {
+            splitRecurringRuleFromTransactionForward(transaction, dto, dateNow, currentUser, currentAccount);
         }
 
         boolean shouldRecalculateVehicleOdometer = applyVehicleFieldsOnUpdate(transaction, dto, currentUser);
@@ -775,8 +952,11 @@ public class TransactionServiceImpl implements TransactionService {
         boolean shouldRecalculateVehicleOdometer = false;
         if (dto.getCurrentOdometer() != null) {
             validateOdometerTimelineOnUpdate(transaction, vehicle, dto.getCurrentOdometer());
-            transaction.setCurrentOdometer(dto.getCurrentOdometer());
-            shouldRecalculateVehicleOdometer = true;
+            shouldRecalculateVehicleOdometer = transaction.getCurrentOdometer() == null
+                    || dto.getCurrentOdometer().compareTo(transaction.getCurrentOdometer()) != 0;
+            if (shouldRecalculateVehicleOdometer) {
+                transaction.setCurrentOdometer(dto.getCurrentOdometer());
+            }
         }
         if (dto.getLiters() != null) {
             transaction.setLiters(dto.getLiters());
@@ -793,7 +973,97 @@ public class TransactionServiceImpl implements TransactionService {
         return shouldRecalculateVehicleOdometer;
     }
 
+    private void splitRecurringRuleFromTransactionForward(Transactions transaction, TransactionDTO dto, long dateNow, Users currentUser, Accounts account) {
+        RecurrenceRule oldRule = transaction.getRecurrenceRule();
+        if (oldRule == null) {
+            return;
+        }
+
+        Long previousEnd = DateUtils.localDateToEpoch(DateUtils.epochToLocalDate(transaction.getDate()).minusDays(1));
+        oldRule.setEndDate(previousEnd);
+        oldRule.setUpdatedAt(dateNow);
+        recurrenceRuleService.save(oldRule);
+
+        RecurrenceRule newRule = RecurrenceRule.builder()
+                .id(ID.generate())
+                .name(dto.getName() != null ? dto.getName() : transaction.getName())
+                .description(dto.getDescription() != null ? dto.getDescription() : transaction.getDescription())
+                .baseAmount(dto.getAmount() != null ? dto.getAmount() : transaction.getAmount())
+                .type(dto.getType() != null ? dto.getType() : transaction.getType())
+                .frequency(dto.getRecurrenceFrequency() != null ? dto.getRecurrenceFrequency() : oldRule.getFrequency())
+                .startDate(transaction.getDate())
+                .endDate(dto.getRecurrenceEndDate() != null ? dto.getRecurrenceEndDate() : oldRule.getEndDate())
+                .status(RuleStatus.ACTIVE)
+                .createdAt(dateNow)
+                .user(currentUser)
+                .category(transaction.getCategory())
+                .account(account)
+                .targetAccount(oldRule.getTargetAccount())
+                .build();
+        newRule = recurrenceRuleService.save(newRule);
+        transaction.setRecurrenceRule(newRule);
+
+        List<Transactions> futureUnpaidTx = repository.findFutureUnpaidByRuleId(oldRule.getId(), transaction.getDate());
+        Map<UUID, Invoices> invoicesToUpdate = new HashMap<>();
+
+        for (Transactions tx : futureUnpaidTx) {
+            tx.setRecurrenceRule(newRule);
+            if (dto.getName() != null) tx.setName(dto.getName());
+            if (dto.getDescription() != null) tx.setDescription(dto.getDescription());
+            if (dto.getType() != null) tx.setType(dto.getType());
+            if (dto.getAmount() != null) tx.setAmount(dto.getAmount());
+            tx.setUpdatedAt(dateNow);
+
+            if (tx.getAccount().getType() == AccountType.CREDIT_CARD) {
+                updateFutureCreditCardOccurrenceInstallments(tx, dto, invoicesToUpdate, dateNow);
+            }
+        }
+        if (!futureUnpaidTx.isEmpty()) {
+            repository.saveAll(futureUnpaidTx);
+        }
+        if (!invoicesToUpdate.isEmpty()) {
+            invoicesService.saveAll(invoicesToUpdate.values().stream().toList());
+        }
+    }
+
+    private void updateFutureCreditCardOccurrenceInstallments(Transactions tx, TransactionDTO dto, Map<UUID, Invoices> invoicesToUpdate, long dateNow) {
+        List<InstallmentPlan> installments = installmentPlanService.findByPurchaseId(tx.getId());
+        List<InstallmentPlan> changed = new ArrayList<>();
+        for (InstallmentPlan inst : installments) {
+            if (inst.getDeletedAt() != null || isPaidInvoiceInstallment(inst)) {
+                continue;
+            }
+            BigDecimal oldAmount = inst.getAmount();
+            boolean shouldSave = false;
+            if (dto.getAmount() != null && dto.getAmount().compareTo(oldAmount) != 0) {
+                inst.setAmount(dto.getAmount());
+                applyInvoiceDelta(invoicesToUpdate, inst.getInvoices(), dto.getAmount().subtract(oldAmount), dateNow);
+                shouldSave = true;
+            }
+            if (dto.getName() != null) {
+                inst.setName(buildInstallmentName(dto.getName(), inst));
+                shouldSave = true;
+            }
+            if (dto.getDescription() != null) {
+                inst.setDescription(dto.getDescription());
+                shouldSave = true;
+            }
+            if (dto.getType() != null) {
+                inst.setType(dto.getType().name());
+                shouldSave = true;
+            }
+            if (shouldSave) {
+                inst.setUpdatedAt(dateNow);
+                changed.add(inst);
+            }
+        }
+        if (!changed.isEmpty()) {
+            installmentPlanService.saveAll(changed);
+        }
+    }
+
     private void validateOdometerTimelineOnUpdate(Transactions transaction, Vehicle vehicle, BigDecimal newOdometer) {
+        OdometerValidator.validateValue(newOdometer);
         long createdAt = transaction.getCreatedAt() != null ? transaction.getCreatedAt() : 0L;
         Long date = transaction.getDate();
         if (date == null) {
@@ -804,6 +1074,10 @@ public class TransactionServiceImpl implements TransactionService {
                 .findPreviousOdometerTransactions(vehicle.getId(), transaction.getId(), date, createdAt)
                 .stream()
                 .findFirst();
+        BigDecimal previousOdometer = previousOpt
+                .map(Transactions::getCurrentOdometer)
+                .orElse(vehicle.getInitialOdometer());
+
         if (previousOpt.isPresent()
                 && previousOpt.get().getCurrentOdometer() != null
                 && newOdometer.compareTo(previousOpt.get().getCurrentOdometer()) < 0) {
@@ -812,6 +1086,7 @@ public class TransactionServiceImpl implements TransactionService {
                     "Odômetro não pode ser menor que o lançamento anterior do veículo."
             );
         }
+        OdometerValidator.validateJump(previousOdometer, newOdometer);
 
         Optional<Transactions> nextOpt = repository
                 .findNextOdometerTransactions(vehicle.getId(), transaction.getId(), date, createdAt)
@@ -825,6 +1100,40 @@ public class TransactionServiceImpl implements TransactionService {
                     "Odômetro não pode ser maior que o próximo lançamento do veículo."
             );
         }
+    }
+
+    private void validateVehicleOdometerOnCreate(TransactionDTO dto, Users user) {
+        if (dto.getVehicleId() == null || dto.getCurrentOdometer() == null) {
+            return;
+        }
+
+        Vehicle vehicle = vehicleService.findById(dto.getVehicleId());
+        if (!vehicle.getUser().getId().equals(user.getId())) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_VEHICLE);
+        }
+
+        OdometerValidator.validateValue(dto.getCurrentOdometer());
+        if (dto.getCurrentOdometer().compareTo(vehicle.getCurrentOdometer()) < 0) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Odômetro não pode ser menor que o odômetro atual do veículo.");
+        }
+        OdometerValidator.validateJump(vehicle.getCurrentOdometer(), dto.getCurrentOdometer());
+    }
+
+    private void validateCategoryForTransaction(Category category) {
+        if (category == null || Boolean.TRUE.equals(category.getIsSubCategory())) {
+            return;
+        }
+        if (isVehicleParentCategory(category)) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Selecione uma subcategoria de veículo.");
+        }
+    }
+
+    private boolean isVehicleParentCategory(Category category) {
+        if (category.getName() == null) {
+            return false;
+        }
+        String normalizedName = category.getName().trim().toLowerCase(Locale.ROOT);
+        return normalizedName.equals("veículo") || normalizedName.equals("veiculos") || normalizedName.equals("veículos");
     }
 
     private void recalculateVehicleCurrentOdometer(Vehicle vehicle) {
@@ -964,7 +1273,7 @@ public class TransactionServiceImpl implements TransactionService {
     }
 
     @Transactional
-    protected Transactions updateTransferPair(Transactions current, TransactionDTO dto, Boolean updateFuture) {
+    protected Transactions updateTransferPair(Transactions current, TransactionDTO dto, OperationScope operationScope) {
         Users currentUser = SecurityContextUtils.getCurrentUser();
         TransferPair pair = findTransferPair(current);
         validateTransferPairOwner(pair, currentUser);
@@ -1043,7 +1352,7 @@ public class TransactionServiceImpl implements TransactionService {
         addUniqueAccount(accountsToUpdate, newDest);
         accountsToUpdate.forEach(accountsService::update);
 
-        if (Boolean.TRUE.equals(updateFuture) && transferOut.getRecurrenceRule() != null) {
+        if (operationScope == OperationScope.FROM_THIS_FORWARD && transferOut.getRecurrenceRule() != null) {
             cascadeRuleUpdate(transferOut.getRecurrenceRule().getId(), amount);
         }
 
@@ -1051,14 +1360,14 @@ public class TransactionServiceImpl implements TransactionService {
         return transferOut;
     }
 
-    private void deleteTransferPair(Transactions current, Boolean cancelFuture, long dateNow, Users currentUser) {
+    private void deleteTransferPair(Transactions current, OperationScope operationScope, long dateNow, Users currentUser) {
         TransferPair pair = findTransferPair(current);
         validateTransferPairOwner(pair, currentUser);
 
         Transactions transferOut = pair.out();
         Transactions transferIn = pair.in();
 
-        if (Boolean.TRUE.equals(cancelFuture) && transferOut.getRecurrenceRule() != null) {
+        if (operationScope == OperationScope.FROM_THIS_FORWARD && transferOut.getRecurrenceRule() != null) {
             RecurrenceRule rule = transferOut.getRecurrenceRule();
             rule.setStatus(RuleStatus.CANCELED);
             rule.setUpdatedAt(dateNow);

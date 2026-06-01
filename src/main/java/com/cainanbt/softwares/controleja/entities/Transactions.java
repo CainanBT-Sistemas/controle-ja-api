@@ -1,7 +1,7 @@
 package com.cainanbt.softwares.controleja.entities;
 
-import com.cainanbt.softwares.controleja.enums.FuelType;
 import com.cainanbt.softwares.controleja.enums.DrivingPredominance;
+import com.cainanbt.softwares.controleja.enums.FuelType;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -9,6 +9,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -26,7 +27,15 @@ import java.math.BigDecimal;
 import java.util.UUID;
 
 @Entity
-@Table(name = "transactions")
+@Table(name = "transactions", indexes = {
+        @Index(name = "idx_transactions_user_deleted_date", columnList = "user_id, deletedAt, date"),
+        @Index(name = "idx_transactions_user_type_paid_date", columnList = "user_id, type, paid, date"),
+        @Index(name = "idx_transactions_recurrence_paid_date", columnList = "recurrence_rule_id, paid, date"),
+        @Index(name = "idx_transactions_parent_deleted", columnList = "parent_transaction_id, deletedAt"),
+        @Index(name = "idx_transactions_vehicle_date", columnList = "vehicle_id, date"),
+        @Index(name = "idx_transactions_credit_card_date", columnList = "credit_card_id, date"),
+        @Index(name = "idx_transactions_target_invoice", columnList = "target_invoice_id")
+})
 @Getter
 @Builder
 @AllArgsConstructor
