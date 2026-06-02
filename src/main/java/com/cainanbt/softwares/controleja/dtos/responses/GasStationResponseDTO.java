@@ -13,6 +13,9 @@ public class GasStationResponseDTO {
     private String city;
     private String state;
 
+    /**
+     * Converte a entidade de posto para o contrato público da API.
+     */
     public static GasStationResponseDTO toDTO(GasStation entity) {
         GasStationResponseDTO dto = new GasStationResponseDTO();
         dto.setId(entity.getId());

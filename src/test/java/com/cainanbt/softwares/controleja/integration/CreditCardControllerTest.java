@@ -105,14 +105,62 @@ public class CreditCardControllerTest extends BaseTest {
                 .body("title", is("Limite Atingido"));
     }
 
-    private void createCardAux(String name) {
+    @Test
+    @DisplayName("Deve bloquear acesso a cartão de outro usuário")
+    void shouldBlockAccessToAnotherUsersCard() {
+        String firstUserCardId = createCardAux("Card Privado");
+        String secondUserToken = registerAndLoginUser();
+
+        CreditCardDTO updateDto = new CreditCardDTO();
+        updateDto.setName("Tentativa Indevida");
+        updateDto.setTotalLimit(new BigDecimal("2000.00"));
+        updateDto.setCloseDay(5);
+        updateDto.setBestDay(12);
+
+        given().header("Authorization", "Bearer " + secondUserToken)
+                .when().get("/cards/" + firstUserCardId)
+                .then().statusCode(400)
+                .body("title", is("Acesso negado"));
+
+        given().header("Authorization", "Bearer " + secondUserToken)
+                .contentType(ContentType.JSON)
+                .body(updateDto)
+                .when().put("/cards/" + firstUserCardId)
+                .then().statusCode(400)
+                .body("title", is("Acesso negado"));
+
+        given().header("Authorization", "Bearer " + secondUserToken)
+                .when().delete("/cards/" + firstUserCardId)
+                .then().statusCode(400)
+                .body("title", is("Acesso negado"));
+    }
+
+    private String createCardAux(String name) {
         CreditCardDTO dto = new CreditCardDTO();
         dto.setName(name);
         dto.setTotalLimit(new BigDecimal("1000"));
         dto.setCloseDay(1);
         dto.setBestDay(10);
 
-        given().header("Authorization", "Bearer " + token)
-                .contentType(ContentType.JSON).body(dto).post("/cards").then().statusCode(200);
+        return given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON)
+                .body(dto)
+                .when().post("/cards")
+                .then().statusCode(200)
+                .extract().path("id");
+    }
+
+    private String registerAndLoginUser() {
+        String uniqueId = UUID.randomUUID().toString().substring(0, 8);
+        String email = "user_" + uniqueId + "@test.com";
+
+        InsertUpdateUserDTO user = new InsertUpdateUserDTO();
+        user.setUsername("User " + uniqueId);
+        user.setEmail(email);
+        user.setPassword("123456");
+        given().contentType(ContentType.JSON).body(user).post("/users/register").then().statusCode(200);
+
+        UserLoginDTO login = UserLoginDTO.builder().email(email).password("123456").build();
+        return given().contentType(ContentType.JSON).body(login).post("/auth").then().extract().path("tokens.accessToken");
     }
 }

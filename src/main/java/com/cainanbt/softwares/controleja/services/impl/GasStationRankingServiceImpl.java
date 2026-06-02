@@ -8,43 +8,85 @@ import com.cainanbt.softwares.controleja.enums.DrivingPredominance;
 import com.cainanbt.softwares.controleja.repositories.GasStationRankingRepository;
 import com.cainanbt.softwares.controleja.repositories.VehicleLogRepository;
 import com.cainanbt.softwares.controleja.services.GasStationRankingService;
+import com.cainanbt.softwares.controleja.services.gasstations.GasStationRankingCalculator;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class GasStationRankingServiceImpl implements GasStationRankingService {
-    private static final double DEFAULT_CITY_FACTOR = 0.90;
-    private static final double DEFAULT_ROAD_FACTOR = 1.12;
+    private final GasStationRankingCalculator rankingCalculator = new GasStationRankingCalculator();
 
     private final GasStationRankingRepository repository;
     private final VehicleLogRepository vehicleLogRepository;
 
+    /**
+     * Atualiza o ranking quando a transação representa um abastecimento com eficiência confiável.
+     */
     @Override
     @Transactional
     public void updateRanking(Transactions tx) {
-        // Só calcula se for um abastecimento válido
-        if (tx.getGasStation() == null || tx.getLiters() == null || tx.getLiters() <= 0
-                || tx.getEfficiency() == null || tx.getEfficiency() <= 0
-                || tx.getAmount() == null || tx.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+        if (!isUsableRefuel(tx)) {
+            log.debug("Gas station ranking ignored for transaction without usable refuel data: transactionId={}",
+                    tx != null ? tx.getId() : null);
             return;
         }
 
         DrivingPredominance predominance = resolveDrivingPredominance(tx);
         double currentDistance = tx.getEfficiency() * tx.getLiters();
-        double adjustedEfficiency = normalizeEfficiency(tx.getEfficiency(), predominance);
+        double adjustedEfficiency = rankingCalculator.normalizeEfficiency(tx.getEfficiency(), predominance);
         double adjustedDistance = adjustedEfficiency * tx.getLiters();
 
-        GasStationRanking ranking = repository.findByGasStationAndFuelType(tx.getGasStation(), tx.getFuelType())
+        GasStationRanking ranking = resolveRanking(tx);
+        applyAccumulatedRefuel(ranking, tx, currentDistance, adjustedDistance, predominance);
+        rankingCalculator.recalculate(ranking, tx.getAmount(), tx.getLiters());
+
+        ranking.setUpdatedAt(DateUtils.getEpochNow());
+        repository.save(ranking);
+        log.info("Gas station ranking updated: stationId={}, fuelType={}, refuels={}",
+                tx.getGasStation().getId(), tx.getFuelType(), ranking.getRefuelCount());
+    }
+
+    /**
+     * Lista rankings dos postos do usuário autenticado ordenados por score.
+     */
+    @Override
+    public List<GasStationRankingResponseDTO> getMyRankings() {
+        return repository.findRankingsByUserId(SecurityContextUtils.getCurrentUser().getId())
+                .stream()
+                .map(GasStationRankingResponseDTO::toDTO)
+                .toList();
+    }
+
+    /**
+     * Confirma se a transação possui dados suficientes para ranking confiável.
+     */
+    private boolean isUsableRefuel(Transactions tx) {
+        return tx != null
+                && tx.getGasStation() != null
+                && tx.getFuelType() != null
+                && tx.getLiters() != null
+                && tx.getLiters() > 0
+                && tx.getEfficiency() != null
+                && tx.getEfficiency() > 0
+                && tx.getAmount() != null
+                && tx.getAmount().compareTo(BigDecimal.ZERO) > 0;
+    }
+
+    /**
+     * Busca ranking existente ou cria um acumulador inicial para o posto e combustível.
+     */
+    private GasStationRanking resolveRanking(Transactions tx) {
+        return repository.findByGasStationAndFuelType(tx.getGasStation(), tx.getFuelType())
                 .orElseGet(() -> GasStationRanking.builder()
                         .id(ID.generate())
                         .gasStation(tx.getGasStation())
@@ -61,48 +103,28 @@ public class GasStationRankingServiceImpl implements GasStationRankingService {
                         .adjustedAvgKml(0.0)
                         .avgCostPerKm(BigDecimal.ZERO)
                         .build());
+    }
 
-        // Atualiza Acumulados
+    /**
+     * Soma o novo abastecimento nos acumuladores do ranking.
+     */
+    private void applyAccumulatedRefuel(
+            GasStationRanking ranking,
+            Transactions tx,
+            double currentDistance,
+            double adjustedDistance,
+            DrivingPredominance predominance) {
         ranking.setRefuelCount(nullToZero(ranking.getRefuelCount()) + 1);
         ranking.setTotalLiters(nullToZero(ranking.getTotalLiters()) + tx.getLiters());
         ranking.setTotalDistance(nullToZero(ranking.getTotalDistance()) + currentDistance);
         ranking.setTotalAdjustedDistance(nullToZero(ranking.getTotalAdjustedDistance()) + adjustedDistance);
         ranking.setTotalAmount(nullToZero(ranking.getTotalAmount()).add(tx.getAmount()));
         incrementPredominanceCounter(ranking, predominance);
-
-        // Calcula Novas Médias
-        ranking.setAvgKml(ranking.getTotalDistance() / ranking.getTotalLiters());
-        ranking.setAdjustedAvgKml(ranking.getTotalAdjustedDistance() / ranking.getTotalLiters());
-
-        BigDecimal pricePerLiter = tx.getAmount().divide(BigDecimal.valueOf(tx.getLiters()), 2, RoundingMode.HALF_UP);
-        ranking.setLastPricePerLiter(pricePerLiter);
-
-        // Custo por KM ajustado = custo total / distância normalizada para um ciclo misto cidade/estrada.
-        BigDecimal costPerKm = ranking.getTotalAmount().divide(BigDecimal.valueOf(ranking.getTotalAdjustedDistance()), 4, RoundingMode.HALF_UP);
-        ranking.setAvgCostPerKm(costPerKm);
-
-        // Algoritmo de Pontuação de 0 a 10 (Quanto menor o custo, maior a nota)
-        ranking.setScore(calculateScore(costPerKm));
-
-        ranking.setUpdatedAt(DateUtils.getEpochNow());
-        repository.save(ranking);
     }
 
-    @Override
-    public List<GasStationRankingResponseDTO> getMyRankings() {
-        return repository.findRankingsByUserId(SecurityContextUtils.getCurrentUser().getId())
-                .stream()
-                .map(GasStationRankingResponseDTO::toDTO)
-                .collect(Collectors.toList());
-    }
-
-    private Double calculateScore(BigDecimal costPerKm) {
-        // Exemplo: Se o custo for R$ 0,50/km a nota é 5. Se for R$ 0,30/km a nota é 7.
-        // Base de cálculo: 10 - (custo * 10). O Math.max e min garante que não passa de 10 nem fica negativo.
-        double score = 10.0 - (costPerKm.doubleValue() * 10);
-        return Math.max(0.0, Math.min(10.0, score));
-    }
-
+    /**
+     * Define predominância pela transação ou pelo último diário de bordo do veículo.
+     */
     private DrivingPredominance resolveDrivingPredominance(Transactions tx) {
         if (tx.getDrivingPredominance() != null) {
             return tx.getDrivingPredominance();
@@ -115,16 +137,9 @@ public class GasStationRankingServiceImpl implements GasStationRankingService {
                 .orElse(null);
     }
 
-    private double normalizeEfficiency(Double observedKml, DrivingPredominance predominance) {
-        if (predominance == DrivingPredominance.CITY) {
-            return observedKml / DEFAULT_CITY_FACTOR;
-        }
-        if (predominance == DrivingPredominance.ROAD) {
-            return observedKml / DEFAULT_ROAD_FACTOR;
-        }
-        return observedKml;
-    }
-
+    /**
+     * Incrementa o contador por tipo de predominância usado no abastecimento.
+     */
     private void incrementPredominanceCounter(GasStationRanking ranking, DrivingPredominance predominance) {
         if (predominance == DrivingPredominance.CITY) {
             ranking.setCityRefuelCount(nullToZero(ranking.getCityRefuelCount()) + 1);
@@ -135,14 +150,23 @@ public class GasStationRankingServiceImpl implements GasStationRankingService {
         }
     }
 
+    /**
+     * Trata inteiros nulos como zero para acumuladores legados.
+     */
     private int nullToZero(Integer value) {
         return value == null ? 0 : value;
     }
 
+    /**
+     * Trata doubles nulos como zero para acumuladores legados.
+     */
     private double nullToZero(Double value) {
         return value == null ? 0.0 : value;
     }
 
+    /**
+     * Trata valores monetários nulos como zero para acumuladores legados.
+     */
     private BigDecimal nullToZero(BigDecimal value) {
         return value == null ? BigDecimal.ZERO : value;
     }

@@ -4,15 +4,15 @@ import com.cainanbt.softwares.controleja.dtos.VehicleLogDTO;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.entities.Vehicle;
 import com.cainanbt.softwares.controleja.entities.VehicleLog;
-import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.repositories.VehicleLogRepository;
 import com.cainanbt.softwares.controleja.services.VehicleLogService;
 import com.cainanbt.softwares.controleja.services.VehicleService;
-import com.cainanbt.softwares.controleja.utils.ConstsMessages;
+import com.cainanbt.softwares.controleja.services.vehicles.VehicleDomainValidator;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,31 +21,26 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class VehicleLogServiceImpl implements VehicleLogService {
+    private final VehicleDomainValidator vehicleDomainValidator = new VehicleDomainValidator();
 
     private final VehicleLogRepository repository;
     private final VehicleService vehicleService;
 
+    /**
+     * Cria uma leitura de diário de bordo e atualiza o odômetro principal do veículo.
+     */
     @Override
     @Transactional
     public VehicleLog createLog(VehicleLogDTO dto) {
         Users currentUser = SecurityContextUtils.getCurrentUser();
 
-        // 1. Busca o veículo e valida se pertence ao usuário
         Vehicle vehicle = vehicleService.findByIdOrThrow(dto.getVehicleId());
+        vehicleDomainValidator.validateOwner(vehicle, currentUser);
+        vehicleDomainValidator.validateLogRequest(vehicle, dto);
 
-        if (!vehicle.getUser().getId().equals(currentUser.getId())) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_VEHICLE);
-        }
-
-        if (dto.getOdometerReading().compareTo(vehicle.getCurrentOdometer()) <= 0) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "O odômetro informado deve ser maior que o odômetro atual do veículo.");
-        }
-
-        // 2. Cria o registro do Diário de Bordo.
-        // dashboardKml é armazenado como leitura declarada pelo painel; o dashboard usa essa leitura apenas como fallback
-        // quando não há abastecimentos com litros/eficiência suficientes no período.
-        VehicleLog log = VehicleLog.builder()
+        VehicleLog vehicleLog = VehicleLog.builder()
                 .id(ID.generate())
                 .date(dto.getDate())
                 .odometerReading(dto.getOdometerReading())
@@ -56,35 +51,34 @@ public class VehicleLogServiceImpl implements VehicleLogService {
                 .createdAt(DateUtils.getEpochNow())
                 .build();
 
-        // 3. Atualiza a quilometragem principal do veículo
-        // (O seu método updateOdometer lá no VehicleService já tem a proteção para não deixar o KM diminuir, o que é perfeito aqui)
         vehicleService.updateOdometer(vehicle, dto.getOdometerReading());
 
-        return repository.save(log);
+        VehicleLog saved = repository.save(vehicleLog);
+        log.info("Vehicle log created: logId={}, vehicleId={}, odometer={}", saved.getId(), vehicle.getId(), saved.getOdometerReading());
+        return saved;
     }
 
+    /**
+     * Lista todas as leituras de diário de bordo do veículo autenticado.
+     */
     @Override
     public List<VehicleLog> listLogsByVehicle(UUID vehicleId) {
         Users currentUser = SecurityContextUtils.getCurrentUser();
         Vehicle vehicle = vehicleService.findByIdOrThrow(vehicleId);
-
-        if (!vehicle.getUser().getId().equals(currentUser.getId())) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_VEHICLE);
-        }
+        vehicleDomainValidator.validateOwner(vehicle, currentUser);
 
         return repository.findByVehicleIdOrderByDateDesc(vehicleId);
     }
 
+    /**
+     * Lista leituras do veículo, filtrando por período quando o frontend informar datas.
+     */
     @Override
     public List<VehicleLog> listLogsByVehicle(UUID vehicleId, Long start, Long end) {
         Users currentUser = SecurityContextUtils.getCurrentUser();
         Vehicle vehicle = vehicleService.findByIdOrThrow(vehicleId);
+        vehicleDomainValidator.validateOwner(vehicle, currentUser);
 
-        if (!vehicle.getUser().getId().equals(currentUser.getId())) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_VEHICLE);
-        }
-
-        // Se o front-end mandar as datas, filtra. Se não mandar, traz tudo.
         if (start != null && end != null) {
             return repository.findByVehicleIdAndDateBetweenOrderByDateDesc(vehicleId, start, end);
         }

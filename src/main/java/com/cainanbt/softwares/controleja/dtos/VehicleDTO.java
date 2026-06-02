@@ -3,6 +3,9 @@ package com.cainanbt.softwares.controleja.dtos;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -10,12 +13,15 @@ import java.math.BigDecimal;
 @Data
 public class VehicleDTO {
     @NotBlank(message = "Apelido do veículo é obrigatório")
+    @Size(max = 80, message = "O apelido do veículo deve ter no máximo 80 caracteres")
     private String name;
 
     @NotBlank(message = "Marca é obrigatória")
+    @Size(max = 60, message = "A marca deve ter no máximo 60 caracteres")
     private String brand;
 
     @NotBlank(message = "Modelo é obrigatório")
+    @Size(max = 80, message = "O modelo deve ter no máximo 80 caracteres")
     private String model;
 
     @NotNull(message = "Ano é obrigatório")
@@ -25,7 +31,9 @@ public class VehicleDTO {
     private String plate;
 
     @NotNull(message = "Quilometragem inicial é obrigatória")
+    @PositiveOrZero(message = "A quilometragem inicial não pode ser negativa")
     private BigDecimal currentOdometer;
 
-    private Double tankCapacity; // NOVO CAMPO OPCIONAL
+    @Positive(message = "A capacidade do tanque deve ser maior que zero")
+    private Double tankCapacity;
 }

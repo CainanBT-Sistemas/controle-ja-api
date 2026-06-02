@@ -1,5 +1,6 @@
 package com.cainanbt.softwares.controleja.services.impl;
 
+import com.cainanbt.softwares.controleja.dtos.TransactionDTO;
 import com.cainanbt.softwares.controleja.dtos.invoices.AdvanceRequestDTO;
 import com.cainanbt.softwares.controleja.dtos.invoices.InvoiceDetailsDTO;
 import com.cainanbt.softwares.controleja.dtos.invoices.InvoicePaymentRequestDTO;
@@ -12,6 +13,7 @@ import com.cainanbt.softwares.controleja.entities.Invoices;
 import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.enums.AccountType;
+import com.cainanbt.softwares.controleja.enums.OperationScope;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
@@ -20,6 +22,7 @@ import com.cainanbt.softwares.controleja.services.CategoryService;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
 import com.cainanbt.softwares.controleja.services.InstallmentPlanService;
 import com.cainanbt.softwares.controleja.services.InvoicesService;
+import com.cainanbt.softwares.controleja.services.TransactionService;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import org.junit.jupiter.api.BeforeEach;
@@ -70,6 +73,9 @@ public class InvoicesWebServiceImplTest {
 
     @Mock
     private CategoryService categoryService;
+
+    @Mock
+    private TransactionService transactionService;
 
     @Mock
     private TransactionRepository transactionRepository;
@@ -139,7 +145,7 @@ public class InvoicesWebServiceImplTest {
             InstallmentPlan p2 = InstallmentPlan.builder().id(UUID.randomUUID()).date(DateUtils.getEpochNow() + 1000L).name("B").amount(new BigDecimal("70.00")).currentInstallment(1).totalInstallmentsPlan(1).paid(false).build();
 
             when(invoicesService.findByCreditCardIdAndMonthAndYear(card.getId(), inv.getMonth(), inv.getYear())).thenReturn(Optional.of(inv));
-            when(installmentPlanService.findByInvoiceId(inv.getId())).thenReturn(List.of(p1, p2));
+            when(installmentPlanService.findByInvoiceIdAndUserId(inv.getId(), currentUser.getId())).thenReturn(List.of(p1, p2));
 
             Optional<?> result = service.getInvoiceDetails(card.getId(), inv.getMonth(), inv.getYear());
             assertTrue(result.isPresent());
@@ -149,7 +155,170 @@ public class InvoicesWebServiceImplTest {
             assertEquals(inv.getId(), ((InvoiceDetailsDTO) dto).getInvoiceId());
             assertEquals(2, ((InvoiceDetailsDTO) dto).getItems().size());
 
-            verify(installmentPlanService).findByInvoiceId(inv.getId());
+            verify(installmentPlanService).findByInvoiceIdAndUserId(inv.getId(), currentUser.getId());
+        }
+    }
+
+    @Test
+    public void getInvoiceDetails_usesInstallmentInvoiceIdAndEnrichesWithParentTransaction() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            Accounts account = Accounts.builder().id(UUID.randomUUID()).name("Nubank").type(AccountType.CREDIT_CARD).user(currentUser).build();
+            CreditCard card = CreditCard.builder()
+                    .id(UUID.randomUUID())
+                    .name("Cartao")
+                    .closeDay(25)
+                    .bestDay(10)
+                    .accounts(account)
+                    .user(currentUser)
+                    .build();
+            Invoices invoice = Invoices.builder()
+                    .id(UUID.randomUUID())
+                    .month(6)
+                    .year(2026)
+                    .amount(new BigDecimal("2146.87"))
+                    .paid(false)
+                    .creditCard(card)
+                    .user(currentUser)
+                    .build();
+            Category category = Category.builder().id(UUID.randomUUID()).name("Mercado").user(currentUser).build();
+            Category invoiceCategory = Category.builder().id(UUID.randomUUID()).name("Fatura de Cartão").user(currentUser).build();
+            Transactions parent = Transactions.builder()
+                    .id(UUID.randomUUID())
+                    .name("Compra real")
+                    .description("Compra parcelada")
+                    .type(TransactionType.DESPESA)
+                    .amount(new BigDecimal("2146.87"))
+                    .date(DateUtils.getEpochNow())
+                    .paid(false)
+                    .fixed(false)
+                    .account(account)
+                    .category(category)
+                    .creditCard(card)
+                    .targetInvoice(null)
+                    .user(currentUser)
+                    .build();
+            Transactions invoiceSummaryParent = Transactions.builder()
+                    .id(UUID.randomUUID())
+                    .name("Fatura Cartao - Junho")
+                    .type(TransactionType.DESPESA)
+                    .amount(new BigDecimal("999.99"))
+                    .date(DateUtils.getEpochNow())
+                    .paid(false)
+                    .fixed(false)
+                    .account(account)
+                    .category(invoiceCategory)
+                    .creditCard(card)
+                    .targetInvoice(null)
+                    .user(currentUser)
+                    .build();
+            InstallmentPlan realItem = InstallmentPlan.builder()
+                    .id(UUID.randomUUID())
+                    .date(DateUtils.getEpochNow())
+                    .name("Compra real (1/1)")
+                    .description("Parcela da compra")
+                    .type(TransactionType.DESPESA.name())
+                    .amount(new BigDecimal("2146.87"))
+                    .currentInstallment(1)
+                    .totalInstallmentsPlan(1)
+                    .fixed(false)
+                    .paid(false)
+                    .purchaseId(parent.getId())
+                    .invoices(invoice)
+                    .user(currentUser)
+                    .build();
+            InstallmentPlan invoiceSummaryItem = InstallmentPlan.builder()
+                    .id(UUID.randomUUID())
+                    .date(DateUtils.getEpochNow())
+                    .name("Fatura Cartao - Junho")
+                    .type(TransactionType.DESPESA.name())
+                    .amount(new BigDecimal("999.99"))
+                    .currentInstallment(1)
+                    .totalInstallmentsPlan(1)
+                    .fixed(false)
+                    .paid(false)
+                    .purchaseId(invoiceSummaryParent.getId())
+                    .invoices(invoice)
+                    .user(currentUser)
+                    .build();
+
+            when(invoicesService.findByCreditCardIdAndMonthAndYear(card.getId(), invoice.getMonth(), invoice.getYear())).thenReturn(Optional.of(invoice));
+            when(installmentPlanService.findByInvoiceIdAndUserId(invoice.getId(), currentUser.getId())).thenReturn(List.of(realItem, invoiceSummaryItem));
+            when(transactionRepository.findAllById(anyList())).thenReturn(List.of(parent, invoiceSummaryParent));
+
+            InvoiceDetailsDTO dto = service.getInvoiceDetails(card.getId(), invoice.getMonth(), invoice.getYear()).orElseThrow();
+
+            assertEquals(1, dto.getItems().size());
+            assertEquals(realItem.getId(), dto.getItems().get(0).getId());
+            assertEquals(parent.getId(), dto.getItems().get(0).getTransactionId());
+            assertEquals(category.getId(), dto.getItems().get(0).getCategoryId());
+            assertEquals("Mercado", dto.getItems().get(0).getCategoryName());
+            assertEquals(account.getId(), dto.getItems().get(0).getAccountId());
+            assertEquals(card.getId(), dto.getItems().get(0).getCreditCardId());
+            assertEquals(new BigDecimal("2146.87"), dto.getTotalAmount());
+        }
+    }
+
+    @Test
+    public void getInvoiceDetails_whenRealInvoiceHasEightInstallments_returnsInvoiceItemsAndTotal() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            UUID cardId = UUID.fromString("d3d5a4f4-645a-415c-8bed-a8e03843811e");
+            UUID invoiceId = UUID.fromString("837ef520-07cc-4008-abdf-080732f384bb");
+            Accounts account = Accounts.builder().id(UUID.randomUUID()).name("Cartao Nubank").type(AccountType.CREDIT_CARD).user(currentUser).build();
+            CreditCard card = CreditCard.builder()
+                    .id(cardId)
+                    .name("Cartão Nubank")
+                    .closeDay(25)
+                    .bestDay(10)
+                    .accounts(account)
+                    .user(currentUser)
+                    .build();
+            Invoices invoice = Invoices.builder()
+                    .id(invoiceId)
+                    .month(8)
+                    .year(2026)
+                    .amount(new BigDecimal("1733.72"))
+                    .paid(false)
+                    .creditCard(card)
+                    .user(currentUser)
+                    .build();
+            Category category = Category.builder().id(UUID.randomUUID()).name("Compras").user(currentUser).build();
+
+            Transactions tx1 = invoiceParentTransaction(account, card, category, "Compra 1");
+            Transactions tx2 = invoiceParentTransaction(account, card, category, "Compra 2");
+            Transactions tx3 = invoiceParentTransaction(account, card, category, "Compra 3");
+            Transactions tx4 = invoiceParentTransaction(account, card, category, "Compra 4");
+            Transactions tx5 = invoiceParentTransaction(account, card, category, "Compra 5");
+            Transactions tx6 = invoiceParentTransaction(account, card, category, "Compra 6");
+            Transactions tx7 = invoiceParentTransaction(account, card, category, "Compra 7");
+            Transactions tx8 = invoiceParentTransaction(account, card, category, "Compra 8");
+
+            List<InstallmentPlan> installments = List.of(
+                    invoiceInstallment(invoice, tx1, "Compra 1", "200.00"),
+                    invoiceInstallment(invoice, tx2, "Compra 2", "300.00"),
+                    invoiceInstallment(invoice, tx3, "Compra 3", "400.00"),
+                    invoiceInstallment(invoice, tx4, "Compra 4", "100.00"),
+                    invoiceInstallment(invoice, tx5, "Compra 5", "250.00"),
+                    invoiceInstallment(invoice, tx6, "Compra 6", "150.00"),
+                    invoiceInstallment(invoice, tx7, "Compra 7", "180.00"),
+                    invoiceInstallment(invoice, tx8, "Compra 8", "153.72")
+            );
+
+            when(invoicesService.findByCreditCardIdAndMonthAndYear(cardId, 8, 2026)).thenReturn(Optional.of(invoice));
+            when(installmentPlanService.findByInvoiceIdAndUserId(invoiceId, currentUser.getId())).thenReturn(installments);
+            when(transactionRepository.findAllById(anyList())).thenReturn(List.of(tx1, tx2, tx3, tx4, tx5, tx6, tx7, tx8));
+
+            InvoiceDetailsDTO dto = service.getInvoiceDetails(cardId, 8, 2026).orElseThrow();
+
+            assertEquals(invoiceId, dto.getInvoiceId());
+            assertEquals(new BigDecimal("1733.72"), dto.getTotalAmount());
+            assertEquals(new BigDecimal("1733.72"), dto.getOpenAmount());
+            assertEquals(8, dto.getItems().size());
+            verify(installmentPlanService).findByInvoiceIdAndUserId(invoiceId, currentUser.getId());
+            verify(invoicesService, never()).save(any(Invoices.class));
         }
     }
 
@@ -178,8 +347,8 @@ public class InvoicesWebServiceImplTest {
                     .build();
 
             when(invoicesService.findByIdOrThrow(invoice.getId())).thenReturn(invoice);
-            when(installmentPlanService.findById(original.getId())).thenReturn(Optional.of(original));
-            when(installmentPlanService.findByPurchaseId(original.getPurchaseId())).thenReturn(List.of(original));
+            when(installmentPlanService.findByIdAndUserIdOrThrow(original.getId(), currentUser.getId())).thenReturn(original);
+            when(installmentPlanService.findByPurchaseIdAndUserId(original.getPurchaseId(), currentUser.getId())).thenReturn(List.of(original));
 
             RefundRequestDTO req = RefundRequestDTO.builder().installmentId(original.getId()).refundAmount(new BigDecimal("20.00")).build();
 
@@ -220,7 +389,7 @@ public class InvoicesWebServiceImplTest {
                     .build();
 
             when(invoicesService.findByIdOrThrow(invoice.getId())).thenReturn(invoice);
-            when(installmentPlanService.findById(original.getId())).thenReturn(Optional.of(original));
+            when(installmentPlanService.findByIdAndUserIdOrThrow(original.getId(), currentUser.getId())).thenReturn(original);
 
             RefundRequestDTO req = RefundRequestDTO.builder().installmentId(original.getId()).refundAmount(new BigDecimal("20.00")).build();
 
@@ -245,8 +414,8 @@ public class InvoicesWebServiceImplTest {
                     .build();
 
             when(invoicesService.findByIdOrThrow(invoice.getId())).thenReturn(invoice);
-            when(installmentPlanService.findById(original.getId())).thenReturn(Optional.of(original));
-            when(installmentPlanService.findByPurchaseId(purchaseId)).thenReturn(List.of(original));
+            when(installmentPlanService.findByIdAndUserIdOrThrow(original.getId(), currentUser.getId())).thenReturn(original);
+            when(installmentPlanService.findByPurchaseIdAndUserId(purchaseId, currentUser.getId())).thenReturn(List.of(original));
 
             RefundRequestDTO req = RefundRequestDTO.builder().installmentId(original.getId()).refundAmount(new BigDecimal("60.00")).build();
 
@@ -269,14 +438,13 @@ public class InvoicesWebServiceImplTest {
                     .user(currentUser)
                     .build();
 
-            Invoices oldInvoice = Invoices.builder().id(UUID.randomUUID()).expirationDate(DateUtils.getEpochNow() + 500000L).amount(new BigDecimal("200.00")).user(currentUser).build();
+            Invoices oldInvoice = Invoices.builder().id(UUID.randomUUID()).expirationDate(DateUtils.getEpochNow() + 500000L).amount(new BigDecimal("200.00")).creditCard(card).user(currentUser).build();
 
-            // Adicionado o .paid(false) para blindar a regra e garantir que a data do oldInvoice seja no futuro para bater com o teste
-            InstallmentPlan i1 = InstallmentPlan.builder().id(UUID.randomUUID()).date(DateUtils.getEpochNow() + 100000L).amount(new BigDecimal("30.00")).invoices(oldInvoice).purchaseId(UUID.randomUUID()).paid(false).build();
-            InstallmentPlan i2 = InstallmentPlan.builder().id(UUID.randomUUID()).date(DateUtils.getEpochNow() + 200000L).amount(new BigDecimal("40.00")).invoices(oldInvoice).purchaseId(i1.getPurchaseId()).paid(false).build();
+            InstallmentPlan i1 = InstallmentPlan.builder().id(UUID.randomUUID()).date(DateUtils.getEpochNow() + 100000L).amount(new BigDecimal("30.00")).invoices(oldInvoice).purchaseId(UUID.randomUUID()).user(currentUser).paid(false).build();
+            InstallmentPlan i2 = InstallmentPlan.builder().id(UUID.randomUUID()).date(DateUtils.getEpochNow() + 200000L).amount(new BigDecimal("40.00")).invoices(oldInvoice).purchaseId(i1.getPurchaseId()).user(currentUser).paid(false).build();
 
             when(invoicesService.findByIdOrThrow(currentInvoice.getId())).thenReturn(currentInvoice);
-            when(installmentPlanService.findByPurchaseId(i1.getPurchaseId())).thenReturn(List.of(i1, i2));
+            when(installmentPlanService.findByPurchaseIdAndUserId(i1.getPurchaseId(), currentUser.getId())).thenReturn(List.of(i1, i2));
 
             AdvanceRequestDTO req = AdvanceRequestDTO.builder().purchaseId(i1.getPurchaseId()).quantityToAdvance(2).discountAmount(new BigDecimal("10.00")).build();
 
@@ -304,16 +472,67 @@ public class InvoicesWebServiceImplTest {
                     .creditCard(card)
                     .user(currentUser)
                     .build();
-            Invoices futureInvoice = Invoices.builder().id(UUID.randomUUID()).expirationDate(DateUtils.getEpochNow() + 500000L).amount(new BigDecimal("200.00")).user(currentUser).build();
+            Invoices futureInvoice = Invoices.builder().id(UUID.randomUUID()).expirationDate(DateUtils.getEpochNow() + 500000L).amount(new BigDecimal("200.00")).creditCard(card).user(currentUser).build();
             UUID purchaseId = UUID.randomUUID();
-            InstallmentPlan i1 = InstallmentPlan.builder().id(UUID.randomUUID()).date(DateUtils.getEpochNow() + 100000L).amount(new BigDecimal("30.00")).invoices(futureInvoice).purchaseId(purchaseId).paid(false).build();
+            InstallmentPlan i1 = InstallmentPlan.builder().id(UUID.randomUUID()).date(DateUtils.getEpochNow() + 100000L).amount(new BigDecimal("30.00")).invoices(futureInvoice).purchaseId(purchaseId).user(currentUser).paid(false).build();
 
             when(invoicesService.findByIdOrThrow(currentInvoice.getId())).thenReturn(currentInvoice);
-            when(installmentPlanService.findByPurchaseId(purchaseId)).thenReturn(List.of(i1));
+            when(installmentPlanService.findByPurchaseIdAndUserId(purchaseId, currentUser.getId())).thenReturn(List.of(i1));
 
             AdvanceRequestDTO req = AdvanceRequestDTO.builder().purchaseId(purchaseId).quantityToAdvance(2).discountAmount(BigDecimal.ZERO).build();
 
             assertThrows(BadRequestException.class, () -> service.advanceInstallments(currentInvoice.getId(), req));
+        }
+    }
+
+    @Test
+    public void advanceInstallments_whenDiscountExceedsTotal_shouldThrowBeforeMutating() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            CreditCard card = CreditCard.builder().id(UUID.randomUUID()).currentLimit(new BigDecimal("50.00")).totalLimit(new BigDecimal("200.00")).build();
+            Invoices currentInvoice = Invoices.builder()
+                    .id(UUID.randomUUID())
+                    .expirationDate(DateUtils.getEpochNow())
+                    .amount(new BigDecimal("100.00"))
+                    .creditCard(card)
+                    .user(currentUser)
+                    .build();
+            Invoices futureInvoice = Invoices.builder()
+                    .id(UUID.randomUUID())
+                    .expirationDate(DateUtils.getEpochNow() + 500000L)
+                    .amount(new BigDecimal("30.00"))
+                    .creditCard(card)
+                    .user(currentUser)
+                    .build();
+            UUID purchaseId = UUID.randomUUID();
+            InstallmentPlan installment = InstallmentPlan.builder()
+                    .id(UUID.randomUUID())
+                    .amount(new BigDecimal("30.00"))
+                    .invoices(futureInvoice)
+                    .purchaseId(purchaseId)
+                    .user(currentUser)
+                    .paid(false)
+                    .build();
+
+            when(invoicesService.findByIdOrThrow(currentInvoice.getId())).thenReturn(currentInvoice);
+            when(installmentPlanService.findByPurchaseIdAndUserId(purchaseId, currentUser.getId())).thenReturn(List.of(installment));
+
+            AdvanceRequestDTO request = AdvanceRequestDTO.builder()
+                    .purchaseId(purchaseId)
+                    .quantityToAdvance(1)
+                    .discountAmount(new BigDecimal("31.00"))
+                    .build();
+
+            assertThrows(BadRequestException.class, () -> service.advanceInstallments(currentInvoice.getId(), request));
+            assertEquals(new BigDecimal("100.00"), currentInvoice.getAmount());
+            assertEquals(new BigDecimal("30.00"), futureInvoice.getAmount());
+            assertEquals(futureInvoice, installment.getInvoices());
+            verify(installmentPlanService, never()).save(any(InstallmentPlan.class));
+            verify(installmentPlanService, never()).saveAll(anyList());
+            verify(invoicesService, never()).save(any(Invoices.class));
+            verify(invoicesService, never()).saveAll(anyList());
+            verify(creditCardService, never()).updateLimit(any(CreditCard.class));
         }
     }
 
@@ -330,12 +549,12 @@ public class InvoicesWebServiceImplTest {
                     .creditCard(card)
                     .user(currentUser)
                     .build();
-            Invoices oldInvoice = Invoices.builder().id(UUID.randomUUID()).expirationDate(DateUtils.getEpochNow() + 500000L).amount(new BigDecimal("30.00")).user(currentUser).build();
+            Invoices oldInvoice = Invoices.builder().id(UUID.randomUUID()).expirationDate(DateUtils.getEpochNow() + 500000L).amount(new BigDecimal("30.00")).creditCard(card).user(currentUser).build();
             UUID purchaseId = UUID.randomUUID();
-            InstallmentPlan installment = InstallmentPlan.builder().id(UUID.randomUUID()).date(DateUtils.getEpochNow() + 100000L).amount(new BigDecimal("30.00")).invoices(oldInvoice).purchaseId(purchaseId).paid(false).build();
+            InstallmentPlan installment = InstallmentPlan.builder().id(UUID.randomUUID()).date(DateUtils.getEpochNow() + 100000L).amount(new BigDecimal("30.00")).invoices(oldInvoice).purchaseId(purchaseId).user(currentUser).paid(false).build();
 
             when(invoicesService.findByIdOrThrow(currentInvoice.getId())).thenReturn(currentInvoice);
-            when(installmentPlanService.findByPurchaseId(purchaseId)).thenReturn(List.of(installment));
+            when(installmentPlanService.findByPurchaseIdAndUserId(purchaseId, currentUser.getId())).thenReturn(List.of(installment));
 
             service.advanceInstallments(currentInvoice.getId(), AdvanceRequestDTO.builder().purchaseId(purchaseId).quantityToAdvance(1).discountAmount(BigDecimal.ZERO).build());
 
@@ -347,6 +566,85 @@ public class InvoicesWebServiceImplTest {
     }
 
     @Test
+    public void updateInvoiceItem_whenValid_delegatesToTransactionServiceAndReturnsUpdatedInvoice() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            CreditCard card = CreditCard.builder().id(UUID.randomUUID()).name("Card").user(currentUser).build();
+            Invoices invoice = Invoices.builder()
+                    .id(UUID.randomUUID())
+                    .month(6)
+                    .year(2026)
+                    .paid(false)
+                    .enabled(true)
+                    .user(currentUser)
+                    .creditCard(card)
+                    .build();
+            InstallmentPlan installment = InstallmentPlan.builder()
+                    .id(UUID.randomUUID())
+                    .purchaseId(UUID.randomUUID())
+                    .paid(false)
+                    .invoices(invoice)
+                    .user(currentUser)
+                    .build();
+            TransactionDTO request = new TransactionDTO();
+            request.setName("Compra ajustada");
+            request.setType(TransactionType.DESPESA);
+            request.setAmount(new BigDecimal("120.00"));
+            request.setDate(DateUtils.getEpochNow());
+            request.setPaid(false);
+            request.setIsFixed(false);
+
+            when(invoicesService.findByIdOrThrow(invoice.getId())).thenReturn(invoice);
+            when(installmentPlanService.findByIdAndUserIdOrThrow(installment.getId(), currentUser.getId())).thenReturn(installment);
+            when(invoicesService.findByCreditCardIdAndMonthAndYear(card.getId(), invoice.getMonth(), invoice.getYear()))
+                    .thenReturn(Optional.of(invoice));
+
+            InvoiceDetailsDTO result = service.updateInvoiceItem(invoice.getId(), installment.getId(), request, OperationScope.FROM_THIS_FORWARD);
+
+            assertEquals(invoice.getId(), result.getInvoiceId());
+            verify(transactionService).updateTransactionDTO(installment.getId(), request, OperationScope.FROM_THIS_FORWARD);
+        }
+    }
+
+    @Test
+    public void cancelPurchase_whenValid_delegatesDeleteAllAndReturnsUpdatedInvoice() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            CreditCard card = CreditCard.builder().id(UUID.randomUUID()).name("Card").user(currentUser).build();
+            Invoices invoice = Invoices.builder()
+                    .id(UUID.randomUUID())
+                    .month(6)
+                    .year(2026)
+                    .paid(false)
+                    .enabled(true)
+                    .user(currentUser)
+                    .creditCard(card)
+                    .build();
+            UUID purchaseId = UUID.randomUUID();
+            InstallmentPlan installment = InstallmentPlan.builder()
+                    .id(UUID.randomUUID())
+                    .purchaseId(purchaseId)
+                    .currentInstallment(1)
+                    .paid(false)
+                    .invoices(invoice)
+                    .user(currentUser)
+                    .build();
+
+            when(invoicesService.findByIdOrThrow(invoice.getId())).thenReturn(invoice);
+            when(installmentPlanService.findActiveByPurchaseIdAndUserId(purchaseId, currentUser.getId())).thenReturn(List.of(installment));
+            when(invoicesService.findByCreditCardIdAndMonthAndYear(card.getId(), invoice.getMonth(), invoice.getYear()))
+                    .thenReturn(Optional.of(invoice));
+
+            InvoiceDetailsDTO result = service.cancelPurchase(invoice.getId(), purchaseId);
+
+            assertEquals(invoice.getId(), result.getInvoiceId());
+            verify(transactionService).softDelete(installment.getId(), OperationScope.ALL);
+        }
+    }
+
+    @Test
     public void processPayment_whenMissingAccountId_shouldThrowClearError() {
         try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
             mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
@@ -354,8 +652,6 @@ public class InvoicesWebServiceImplTest {
             Invoices invoice = Invoices.builder().id(UUID.randomUUID()).amount(new BigDecimal("100.00")).user(currentUser).build();
             InvoicePaymentRequestDTO request = new InvoicePaymentRequestDTO();
             request.setAmount(new BigDecimal("100.00"));
-
-            when(invoicesService.findByIdOrThrow(invoice.getId())).thenReturn(invoice);
 
             BadRequestException ex = assertThrows(BadRequestException.class, () -> service.processPayment(invoice.getId(), request));
             assertTrue(ex.getMessage().contains("Conta de pagamento não informada."));
@@ -374,7 +670,7 @@ public class InvoicesWebServiceImplTest {
             request.setAmount(new BigDecimal("100.00"));
 
             when(invoicesService.findByIdOrThrow(fixture.invoice.getId())).thenReturn(fixture.invoice);
-            when(installmentPlanService.findByInvoiceId(fixture.invoice.getId())).thenReturn(List.of(purchase));
+            when(installmentPlanService.findByInvoiceIdAndUserId(fixture.invoice.getId(), currentUser.getId())).thenReturn(List.of(purchase));
             when(accountsService.findByIdOrThrow(fixture.cardAccount.getId())).thenReturn(fixture.cardAccount);
 
             BadRequestException ex = assertThrows(BadRequestException.class, () -> service.processPayment(fixture.invoice.getId(), request));
@@ -399,7 +695,7 @@ public class InvoicesWebServiceImplTest {
             invoiceItems.add(purchase);
 
             when(invoicesService.findByIdOrThrow(fixture.invoice.getId())).thenReturn(fixture.invoice);
-            when(installmentPlanService.findByInvoiceId(fixture.invoice.getId())).thenAnswer(invocation -> new ArrayList<>(invoiceItems));
+            when(installmentPlanService.findByInvoiceIdAndUserId(fixture.invoice.getId(), currentUser.getId())).thenAnswer(invocation -> new ArrayList<>(invoiceItems));
             Mockito.doAnswer(invocation -> {
                 invoiceItems.add(invocation.getArgument(0));
                 return invocation.getArgument(0);
@@ -444,7 +740,7 @@ public class InvoicesWebServiceImplTest {
             InstallmentPlan p1 = InstallmentPlan.builder().id(UUID.randomUUID()).purchaseId(purchaseId).name("Compra X (1/3)").amount(new BigDecimal("100.00")).paid(false).invoices(inv1).build();
             InstallmentPlan p2 = InstallmentPlan.builder().id(UUID.randomUUID()).purchaseId(purchaseId).name("Compra X (2/3)").amount(new BigDecimal("100.00")).paid(false).invoices(inv2).build();
 
-            when(installmentPlanService.findAdvanceableByInvoiceIds(anyList())).thenReturn(List.of(p1, p2));
+            when(installmentPlanService.findAdvanceableByInvoiceIdsAndUserId(anyList(), eq(currentUser.getId()))).thenReturn(List.of(p1, p2));
 
             List<com.cainanbt.softwares.controleja.dtos.invoices.AdvanceablePurchaseDTO> res = service.getAdvanceablePurchases(cardId, 4, 2026);
             assertNotNull(res);
@@ -628,8 +924,8 @@ public class InvoicesWebServiceImplTest {
     private void mockCancelFlow(InvoicePaymentFixture fixture, List<InstallmentPlan> paymentItems, List<InstallmentPlan> invoiceItems) {
         when(transactionRepository.findByIdIncludingDeleted(fixture.paymentOut.getId())).thenReturn(Optional.of(fixture.paymentOut));
         when(transactionRepository.findTransferChildByParentId(fixture.paymentOut.getId())).thenReturn(Optional.of(fixture.paymentIn));
-        when(installmentPlanService.findByPurchaseId(fixture.paymentOut.getId())).thenReturn(paymentItems);
-        when(installmentPlanService.findByInvoiceId(fixture.invoice.getId())).thenReturn(invoiceItems);
+        when(installmentPlanService.findByPurchaseIdAndUserId(fixture.paymentOut.getId(), currentUser.getId())).thenReturn(paymentItems);
+        when(installmentPlanService.findByInvoiceIdAndUserId(fixture.invoice.getId(), currentUser.getId())).thenReturn(invoiceItems);
         when(invoicesService.findByCreditCardIdAndMonthAndYear(fixture.card.getId(), fixture.invoice.getMonth(), fixture.invoice.getYear()))
                 .thenReturn(Optional.of(fixture.invoice));
     }
@@ -712,6 +1008,44 @@ public class InvoicesWebServiceImplTest {
                 .build();
     }
 
+    private Transactions invoiceParentTransaction(Accounts account, CreditCard card, Category category, String name) {
+        return Transactions.builder()
+                .id(UUID.randomUUID())
+                .name(name)
+                .description(name + " descrição")
+                .type(TransactionType.DESPESA)
+                .amount(BigDecimal.ONE)
+                .date(DateUtils.getEpochNow())
+                .paid(false)
+                .fixed(false)
+                .account(account)
+                .category(category)
+                .creditCard(card)
+                .targetInvoice(null)
+                .user(currentUser)
+                .build();
+    }
+
+    private InstallmentPlan invoiceInstallment(Invoices invoice, Transactions parent, String name, String amount) {
+        return InstallmentPlan.builder()
+                .id(UUID.randomUUID())
+                .date(DateUtils.getEpochNow())
+                .name(name)
+                .description(name + " parcela")
+                .type(TransactionType.DESPESA.name())
+                .amount(new BigDecimal(amount))
+                .currentInstallment(1)
+                .totalInstallmentsPlan(1)
+                .fixed(false)
+                .paid(false)
+                .purchaseId(parent.getId())
+                .enabled(true)
+                .createdAt(DateUtils.getEpochNow())
+                .user(currentUser)
+                .invoices(invoice)
+                .build();
+    }
+
     private InstallmentPlan paymentCredit(Transactions payment, Invoices invoice, String amount) {
         return paymentCredit(payment.getId(), invoice, amount);
     }
@@ -741,3 +1075,4 @@ public class InvoicesWebServiceImplTest {
     ) {
     }
 }
+

@@ -14,8 +14,14 @@ import java.util.UUID;
 
 @Repository
 public interface GasStationRankingRepository extends JpaRepository<GasStationRanking, UUID> {
+    /**
+     * Busca ranking acumulado por posto e combustível.
+     */
     Optional<GasStationRanking> findByGasStationAndFuelType(GasStation gasStation, FuelType fuelType);
 
+    /**
+     * Lista rankings dos postos pertencentes ao usuário ordenados por pontuação.
+     */
     @Query("SELECT r FROM GasStationRanking r WHERE r.gasStation.user.id = :userId ORDER BY r.score DESC")
     List<GasStationRanking> findRankingsByUserId(@Param("userId") UUID userId);
 }

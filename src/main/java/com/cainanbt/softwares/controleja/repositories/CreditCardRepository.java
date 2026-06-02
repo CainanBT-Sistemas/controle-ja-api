@@ -11,13 +11,25 @@ import java.util.UUID;
 
 @Repository
 public interface CreditCardRepository extends JpaRepository<CreditCard, UUID> {
+    /**
+     * Conta cartões ativos do usuário para aplicar limites do plano.
+     */
     long countByUserId(UUID userId);
 
+    /**
+     * Lista cartões ativos do usuário autenticado.
+     */
     @Query("SELECT c FROM CreditCard c WHERE c.user.id = :userId AND c.deletedAt IS NULL")
     List<CreditCard> findByUserId(UUID userId);
 
+    /**
+     * Localiza o cartão pela conta espelho usada em transações de fatura.
+     */
     Optional<CreditCard> findByAccountsId(UUID accountId);
-    
+
+    /**
+     * Busca cartão ativo por id ignorando registros removidos logicamente.
+     */
     @Query("SELECT c FROM CreditCard c WHERE c.id = :id AND c.deletedAt IS NULL")
     Optional<CreditCard> findByIdAndNotDeleted(UUID id);
 }

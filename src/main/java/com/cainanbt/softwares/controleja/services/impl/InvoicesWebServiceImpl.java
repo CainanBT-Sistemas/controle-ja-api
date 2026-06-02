@@ -1,5 +1,6 @@
 package com.cainanbt.softwares.controleja.services.impl;
 
+import com.cainanbt.softwares.controleja.dtos.TransactionDTO;
 import com.cainanbt.softwares.controleja.dtos.invoices.AdvanceRequestDTO;
 import com.cainanbt.softwares.controleja.dtos.invoices.AdvanceablePurchaseDTO;
 import com.cainanbt.softwares.controleja.dtos.invoices.InvoiceDetailsDTO;
@@ -13,7 +14,7 @@ import com.cainanbt.softwares.controleja.entities.InstallmentPlan;
 import com.cainanbt.softwares.controleja.entities.Invoices;
 import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.entities.Users;
-import com.cainanbt.softwares.controleja.enums.AccountType;
+import com.cainanbt.softwares.controleja.enums.OperationScope;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.exceptions.models.EntityNotFoundException;
@@ -23,37 +24,51 @@ import com.cainanbt.softwares.controleja.services.CategoryService;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
 import com.cainanbt.softwares.controleja.services.InstallmentPlanService;
 import com.cainanbt.softwares.controleja.services.InvoicesService;
+import com.cainanbt.softwares.controleja.services.TransactionService;
+import com.cainanbt.softwares.controleja.services.invoices.InvoiceDateService;
+import com.cainanbt.softwares.controleja.services.invoices.InvoiceDomainValidator;
+import com.cainanbt.softwares.controleja.services.invoices.InvoiceTotalsCalculator;
+import com.cainanbt.softwares.controleja.services.invoices.InvoiceTotalsSummary;
 import com.cainanbt.softwares.controleja.services.web.InvoicesWebService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.DateTimeException;
-import java.time.DayOfWeek;
 import java.time.LocalDate;
-import java.time.temporal.TemporalAdjusters;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class InvoicesWebServiceImpl implements InvoicesWebService {
+
+    private final InvoiceDateService invoiceDateService = new InvoiceDateService();
+    private final InvoiceTotalsCalculator invoiceTotalsCalculator = new InvoiceTotalsCalculator();
+    private final InvoiceDomainValidator invoiceDomainValidator = new InvoiceDomainValidator();
 
     private final InvoicesService invoicesService;
     private final InstallmentPlanService installmentPlanService;
     private final CreditCardService creditCardService;
     private final AccountsService accountsService;
     private final CategoryService categoryService;
+    private final TransactionService transactionService;
     private final TransactionRepository transactionRepository;
 
+    /**
+     * Monta a visão detalhada da fatura com datas, status, totais e itens enriquecidos pela transação pai.
+     */
     @Override
     public Optional<InvoiceDetailsDTO> getInvoiceDetails(UUID cardId, Integer month, Integer year) {
         Users currentUser = SecurityContextUtils.getCurrentUser();
@@ -68,8 +83,8 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
                 throw new BadRequestException("Acesso Negado", "Cartão não pertence ao usuário autenticado.");
             }
 
-            LocalDate closeLocal = calculateCloseDate(card, month, year);
-            LocalDate expLocal = calculateExpirationDate(card, month, year);
+            LocalDate closeLocal = invoiceDateService.calculateCloseDate(card, month, year);
+            LocalDate expLocal = invoiceDateService.calculateExpirationDate(card, month, year);
             long closeEpoch = DateUtils.localDateToEpoch(closeLocal);
             long expEpoch = DateUtils.localDateToEpoch(expLocal);
 
@@ -84,7 +99,7 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
                     .openAmount(BigDecimal.ZERO)
                     .expirationDate(expEpoch)
                     .closeDate(closeEpoch)
-                    .status(calculateInvoiceStatus(card, false, BigDecimal.ZERO, BigDecimal.ZERO, closeLocal, expLocal, month, year))
+                    .status(invoiceDateService.calculateInvoiceStatus(card, false, BigDecimal.ZERO, closeLocal, expLocal, month, year))
                     .canPay(false)
                     .canAdvancePayment(false)
                     .canAdvanceInstallments(false)
@@ -103,24 +118,26 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
             throw new BadRequestException("Acesso Negado", "Fatura não pertence ao usuário autenticado.");
         }
 
-        List<InstallmentPlan> items = installmentPlanService.findByInvoiceId(inv.getId()).stream()
+        List<InstallmentPlan> invoiceItems = installmentPlanService.findByInvoiceIdAndUserId(inv.getId(), currentUser.getId());
+        Map<UUID, Transactions> parentTransactions = findParentTransactions(invoiceItems);
+        List<InstallmentPlan> items = invoiceItems.stream()
                 .filter(p -> p.getDeletedAt() == null)
-                .sorted(Comparator.comparing(InstallmentPlan::getDate))
+                .filter(p -> !isInvoiceSummaryItem(p, parentTransactions))
+                .sorted(Comparator.comparing(InstallmentPlan::getDate, Comparator.nullsLast(Long::compareTo)))
                 .collect(Collectors.toList());
 
-        InvoiceTotals totals = calculateTotals(items);
-        if (syncInvoiceOpenAmount(inv, totals.openAmount())) {
-            invoicesService.save(inv);
-        }
+        InvoiceTotalsSummary totals = calculateInvoiceDetailsTotals(inv, items);
 
-        LocalDate closeLocal = calculateCloseDate(inv.getCreditCard(), inv.getMonth(), inv.getYear());
-        LocalDate expirationLocal = calculateExpirationDate(inv.getCreditCard(), inv.getMonth(), inv.getYear());
+        LocalDate closeLocal = invoiceDateService.calculateCloseDate(inv.getCreditCard(), inv.getMonth(), inv.getYear());
+        LocalDate expirationLocal = invoiceDateService.calculateExpirationDate(inv.getCreditCard(), inv.getMonth(), inv.getYear());
         Long closeDate = DateUtils.localDateToEpoch(closeLocal);
         Long expirationDate = DateUtils.localDateToEpoch(expirationLocal);
-        String status = calculateInvoiceStatus(inv.getCreditCard(), inv.getPaid(), totals.totalAmount(), totals.openAmount(), closeLocal, expirationLocal, inv.getMonth(), inv.getYear());
-        boolean closedOrPaid = isClosedOrPaid(status);
+        String status = invoiceDateService.calculateInvoiceStatus(inv.getCreditCard(), inv.getPaid(), totals.openAmount(), closeLocal, expirationLocal, inv.getMonth(), inv.getYear());
+        boolean closedOrPaid = invoiceDateService.isClosedOrPaid(status);
 
-        List<InvoiceItemDTO> itemDTOs = items.stream().map(i -> toInvoiceItemDTO(i, closedOrPaid)).collect(Collectors.toList());
+        List<InvoiceItemDTO> itemDTOs = items.stream()
+                .map(i -> toInvoiceItemDTO(i, findParentTransaction(i, parentTransactions), closedOrPaid))
+                .collect(Collectors.toList());
 
         InvoiceDetailsDTO dto = InvoiceDetailsDTO.builder()
                 .invoiceId(inv.getId())
@@ -146,102 +163,86 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         return Optional.of(dto);
     }
 
-    private LocalDate calculateCloseDate(CreditCard card, Integer month, Integer year) {
-        LocalDate closeDate = safeDate(year, month, card.getCloseDay());
-        if (card.getCloseDay() > card.getBestDay()) {
-            closeDate = closeDate.minusMonths(1);
-        }
-        return nextBusinessDay(closeDate);
-    }
-
-    private LocalDate calculateExpirationDate(CreditCard card, Integer month, Integer year) {
-        return nextBusinessDay(safeDate(year, month, card.getBestDay()));
-    }
-
-    private LocalDate safeDate(Integer year, Integer month, int requestedDay) {
-        try {
-            int monthLength = LocalDate.of(year, month, 1).lengthOfMonth();
-            return LocalDate.of(year, month, Math.min(requestedDay, monthLength));
-        } catch (DateTimeException e) {
-            return LocalDate.of(year, month, 1).with(TemporalAdjusters.lastDayOfMonth());
-        }
-    }
-
-    private LocalDate nextBusinessDay(LocalDate date) {
-        LocalDate adjusted = date;
-        while (isWeekend(adjusted) || isHoliday(adjusted)) {
-            adjusted = adjusted.plusDays(1);
-        }
-        return adjusted;
-    }
-
-    private boolean isWeekend(LocalDate date) {
-        return date.getDayOfWeek() == DayOfWeek.SATURDAY || date.getDayOfWeek() == DayOfWeek.SUNDAY;
-    }
-
-    private boolean isHoliday(LocalDate date) {
-        // Preparado para feriados: hoje não há calendário configurado, então nenhum feriado é aplicado.
-        return false;
-    }
-
-    private String calculateInvoiceStatus(CreditCard card, Boolean paid, BigDecimal totalAmount, BigDecimal openAmount, LocalDate closeDate, LocalDate expirationDate, Integer month, Integer year) {
-        LocalDate today = LocalDate.now(DateUtils.zoneId);
-        LocalDate previousCloseDate = calculatePreviousCloseDate(card, month, year);
-
-        if (!today.isBefore(previousCloseDate) && today.isBefore(closeDate)) {
-            return "ABERTA";
+    private Map<UUID, Transactions> findParentTransactions(List<InstallmentPlan> invoiceItems) {
+        List<UUID> purchaseIds = invoiceItems.stream()
+                .map(InstallmentPlan::getPurchaseId)
+                .filter(id -> id != null)
+                .distinct()
+                .collect(Collectors.toList());
+        if (purchaseIds.isEmpty()) {
+            return Map.of();
         }
 
-        if (today.isAfter(expirationDate)) {
-            if (Boolean.TRUE.equals(paid) || openAmount.compareTo(BigDecimal.ZERO) <= 0) {
-                return "PAGA";
-            }
-            return "ATRASADA";
+        Map<UUID, Transactions> result = new HashMap<>();
+        transactionRepository.findAllById(purchaseIds)
+                .forEach(transaction -> result.put(transaction.getId(), transaction));
+        return result;
+    }
+
+    private boolean isInvoiceSummaryItem(InstallmentPlan item, Map<UUID, Transactions> parentTransactions) {
+        UUID purchaseId = item.getPurchaseId();
+        if (purchaseId == null) {
+            return false;
         }
 
-        if (!today.isBefore(closeDate) && !today.isAfter(expirationDate)) {
-            if (Boolean.TRUE.equals(paid) || openAmount.compareTo(BigDecimal.ZERO) <= 0) {
-                return "PAGA";
-            }
-            return "FECHADA";
+        Transactions parent = parentTransactions.get(purchaseId);
+        return parent != null && isPersistedInvoiceSummary(parent);
+    }
+
+    private boolean isPersistedInvoiceSummary(Transactions transaction) {
+        String name = transaction.getName() != null ? transaction.getName().trim() : "";
+        String categoryName = transaction.getCategory() != null ? transaction.getCategory().getName() : "";
+        return transaction.getType() == TransactionType.DESPESA
+                && name.startsWith("Fatura Cart")
+                && "Fatura de Cartão".equalsIgnoreCase(categoryName);
+    }
+
+    private Transactions findParentTransaction(InstallmentPlan item, Map<UUID, Transactions> parentTransactions) {
+        if (item.getPurchaseId() == null) {
+            return null;
         }
-
-        return "FUTURA";
+        return parentTransactions.get(item.getPurchaseId());
     }
 
-    private LocalDate calculatePreviousCloseDate(CreditCard card, Integer month, Integer year) {
-        LocalDate invoiceMonth = LocalDate.of(year, month, 1).minusMonths(1);
-        return calculateCloseDate(card, invoiceMonth.getMonthValue(), invoiceMonth.getYear());
-    }
-
-    private boolean isClosedOrPaid(String status) {
-        return "PAGA".equals(status) || "ATRASADA".equals(status) || "FECHADA".equals(status);
-    }
-
-    private InvoiceItemDTO toInvoiceItemDTO(InstallmentPlan item, boolean closedOrPaid) {
+    private InvoiceItemDTO toInvoiceItemDTO(InstallmentPlan item, Transactions parentTransaction, boolean closedOrPaid) {
         String itemKind = resolveItemKind(item);
         return InvoiceItemDTO.builder()
                 .id(item.getId())
                 .transactionId(item.getPurchaseId())
                 .purchaseId(item.getPurchaseId())
+                .description(parentTransaction != null ? parentTransaction.getDescription() : item.getDescription())
                 .date(item.getDate())
+                .transactionDate(parentTransaction != null ? parentTransaction.getDate() : null)
                 .name(item.getName())
-                .categoryName(resolveCategoryName(item))
+                .categoryId(parentTransaction != null && parentTransaction.getCategory() != null ? parentTransaction.getCategory().getId() : null)
+                .categoryName(resolveCategoryName(parentTransaction))
+                .accountId(parentTransaction != null && parentTransaction.getAccount() != null ? parentTransaction.getAccount().getId() : null)
+                .accountName(parentTransaction != null && parentTransaction.getAccount() != null ? parentTransaction.getAccount().getName() : null)
+                .creditCardId(resolveCreditCardId(parentTransaction, item))
                 .currentInstallment(item.getCurrentInstallment())
                 .totalInstallmentsPlan(item.getTotalInstallmentsPlan())
                 .type(item.getType())
                 .amount(item.getAmount())
+                .paid(item.getPaid())
+                .fixed(parentTransaction != null ? parentTransaction.getFixed() : item.getFixed())
                 .canEdit(!closedOrPaid && !Boolean.TRUE.equals(item.getPaid()) && "PURCHASE".equals(itemKind))
                 .itemKind(itemKind)
                 .build();
     }
 
-    private String resolveCategoryName(InstallmentPlan item) {
-        if (item.getPurchaseId() == null || transactionRepository == null) return null;
-        return transactionRepository.findById(item.getPurchaseId())
-                .map(Transactions::getCategory)
-                .map(Category::getName)
-                .orElse(null);
+    private String resolveCategoryName(Transactions parentTransaction) {
+        if (parentTransaction == null || parentTransaction.getCategory() == null) return null;
+        return parentTransaction.getCategory().getName();
+    }
+
+    private UUID resolveCreditCardId(Transactions parentTransaction, InstallmentPlan item) {
+        if (parentTransaction != null && parentTransaction.getCreditCard() != null) {
+            return parentTransaction.getCreditCard().getId();
+        }
+        if (item.getInvoices() != null && item.getInvoices().getCreditCard() != null) {
+            return item.getInvoices().getCreditCard().getId();
+        }
+        return null;
     }
 
     private String resolveItemKind(InstallmentPlan item) {
@@ -265,42 +266,13 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
                 && !Boolean.TRUE.equals(item.getPaid());
     }
 
-    private InvoiceTotals calculateTotals(List<InstallmentPlan> items) {
-        BigDecimal totalAmount = BigDecimal.ZERO;
-        BigDecimal paidAmount = BigDecimal.ZERO;
-
-        for (InstallmentPlan item : items) {
-            if (item.getAmount() == null) continue;
-            if (isPaymentItem(item)) {
-                paidAmount = paidAmount.add(item.getAmount().abs());
-            } else {
-                totalAmount = totalAmount.add(item.getAmount());
-            }
-        }
-
-        BigDecimal openAmount = totalAmount.subtract(paidAmount);
-        if (openAmount.compareTo(BigDecimal.ZERO) < 0) {
-            openAmount = BigDecimal.ZERO;
-        }
-        return new InvoiceTotals(totalAmount, paidAmount, openAmount);
+    private InvoiceTotalsSummary calculateInvoiceDetailsTotals(Invoices invoice, List<InstallmentPlan> items) {
+        return invoiceTotalsCalculator.calculateForDetails(invoice, items);
     }
 
-    private boolean syncInvoiceOpenAmount(Invoices invoice, BigDecimal openAmount) {
-        boolean changed = false;
-        if (invoice.getAmount() == null || invoice.getAmount().compareTo(openAmount) != 0) {
-            invoice.setAmount(openAmount);
-            changed = true;
-        }
-        if (openAmount.compareTo(BigDecimal.ZERO) > 0 && Boolean.TRUE.equals(invoice.getPaid())) {
-            invoice.setPaid(false);
-            changed = true;
-        }
-        return changed;
-    }
-
-    private record InvoiceTotals(BigDecimal totalAmount, BigDecimal paidAmount, BigDecimal openAmount) {
-    }
-
+    /**
+     * Busca compras parceladas futuras que podem ser trazidas para a fatura selecionada.
+     */
     @Override
     public List<AdvanceablePurchaseDTO> getAdvanceablePurchases(UUID cardId, Integer month, Integer year) {
         Users currentUser = SecurityContextUtils.getCurrentUser();
@@ -310,8 +282,7 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
             throw new BadRequestException("Acesso Negado", "Cartão não pertence ao usuário autenticado.");
         }
 
-        // Calculate the close date epoch for the requested invoice month/year
-        LocalDate closeLocal = calculateCloseDate(card, month, year);
+        LocalDate closeLocal = invoiceDateService.calculateCloseDate(card, month, year);
         long closeEpoch = DateUtils.localDateToEpoch(closeLocal);
 
         // Use optimized repository method to fetch future unpaid invoices directly
@@ -322,7 +293,7 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         List<UUID> invoiceIds = futureInvoices.stream().map(Invoices::getId).toList();
 
         // Fetch all advanceable installments in one query
-        List<InstallmentPlan> advanceable = installmentPlanService.findAdvanceableByInvoiceIds(invoiceIds);
+        List<InstallmentPlan> advanceable = installmentPlanService.findAdvanceableByInvoiceIdsAndUserId(invoiceIds, currentUser.getId());
 
         if (advanceable == null || advanceable.isEmpty()) return List.of();
 
@@ -351,30 +322,31 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         return result;
     }
 
+    /**
+     * Cria um item negativo de estorno na fatura e restaura o limite correspondente do cartão.
+     */
     @Override
     @Transactional
     public void processRefund(UUID invoiceId, RefundRequestDTO request) {
+        invoiceDomainValidator.validateRefundRequest(request);
+
         Users currentUser = SecurityContextUtils.getCurrentUser();
         Invoices invoice = invoicesService.findByIdOrThrow(invoiceId);
+        invoiceDomainValidator.validateInvoiceOwner(invoice, currentUser);
 
-        if (!invoice.getUser().getId().equals(currentUser.getId())) {
-            throw new BadRequestException("Acesso Negado", "Fatura não pertence ao usuário autenticado.");
-        }
-
-        InstallmentPlan original = installmentPlanService.findById(request.getInstallmentId())
-                .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Parcela não encontrada."));
+        InstallmentPlan original = installmentPlanService.findByIdAndUserIdOrThrow(request.getInstallmentId(), currentUser.getId());
 
         if (original.getInvoices() == null || !original.getInvoices().getId().equals(invoice.getId())) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Parcela não pertence à fatura informada.");
         }
-        if (request.getRefundAmount() == null || request.getRefundAmount().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "O valor do estorno deve ser maior que zero.");
-        }
         if (original.getAmount() == null || original.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, "A parcela informada não permite estorno.");
         }
+        if (original.getPurchaseId() == null) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Parcela sem compra de origem para estornar.");
+        }
 
-        BigDecimal alreadyRefunded = installmentPlanService.findByPurchaseId(original.getPurchaseId()).stream()
+        BigDecimal alreadyRefunded = installmentPlanService.findByPurchaseIdAndUserId(original.getPurchaseId(), currentUser.getId()).stream()
                 .filter(i -> i.getDeletedAt() == null)
                 .filter(i -> i.getInvoices() != null && i.getInvoices().getId().equals(invoice.getId()))
                 .filter(i -> i.getAmount() != null && i.getAmount().compareTo(BigDecimal.ZERO) < 0)
@@ -385,7 +357,6 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, "O valor do estorno ultrapassa o saldo disponível da parcela.");
         }
 
-        // CORREÇÃO MATEMÁTICA: Garante que o valor será negativo independente do que o front-end mandar
         BigDecimal refundAmount = request.getRefundAmount().abs().negate();
 
         InstallmentPlan reversal = InstallmentPlan.builder()
@@ -393,7 +364,7 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
                 .date(DateUtils.getEpochNow())
                 .name("Estorno: " + original.getName())
                 .description(original.getDescription())
-                .type(TransactionType.RECEITA.name()) // Transforma em crédito na fatura
+                .type(TransactionType.RECEITA.name())
                 .amount(refundAmount)
                 .totalInstallmentsPlan(1)
                 .currentInstallment(1)
@@ -408,32 +379,31 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
 
         installmentPlanService.save(reversal);
 
-        // Atualiza a Fatura (Subtrai adicionando o negativo)
-        invoice.setAmount(invoice.getAmount().add(reversal.getAmount()));
+        invoice.setAmount(invoiceTotalsCalculator.valueOrZero(invoice.getAmount()).add(reversal.getAmount()));
         invoicesService.save(invoice);
 
-        // Restaura o limite do cartão somando positivo
-        CreditCard card = invoice.getCreditCard();
+        CreditCard card = invoiceDomainValidator.requireInvoiceCard(invoice);
         card.restoreLimit(request.getRefundAmount().abs());
         creditCardService.updateLimit(card);
+        log.info("Invoice refund processed: invoiceId={}, installmentId={}, amount={}", invoiceId, original.getId(), request.getRefundAmount());
     }
 
+    /**
+     * Move parcelas futuras da compra para a fatura atual, aplicando desconto opcional antes de salvar alterações.
+     */
     @Override
     @Transactional
     public void advanceInstallments(UUID invoiceId, AdvanceRequestDTO request) {
+        invoiceDomainValidator.validateAdvanceRequest(request);
+
         Users currentUser = SecurityContextUtils.getCurrentUser();
         Invoices currentInvoice = invoicesService.findByIdOrThrow(invoiceId);
-
-        if (!currentInvoice.getUser().getId().equals(currentUser.getId())) {
-            throw new BadRequestException("Acesso Negado", "Fatura não pertence ao usuário autenticado.");
-        }
+        invoiceDomainValidator.validateInvoiceOwner(currentInvoice, currentUser);
 
         int limitToAdvance = request.getQuantityToAdvance() != null && request.getQuantityToAdvance() > 0 ? request.getQuantityToAdvance() : 1;
 
-        // CORREÇÃO: Filtra deletados, pagos e garante ordenação por vencimento da fatura original
-        List<InstallmentPlan> availableFutureInstallments = installmentPlanService.findByPurchaseId(request.getPurchaseId()).stream()
-                .filter(i -> i.getDeletedAt() == null && !i.getPaid())
-                .filter(i -> i.getInvoices().getExpirationDate() > currentInvoice.getExpirationDate())
+        List<InstallmentPlan> availableFutureInstallments = installmentPlanService.findByPurchaseIdAndUserId(request.getPurchaseId(), currentUser.getId()).stream()
+                .filter(i -> invoiceDomainValidator.isAdvanceableFutureInstallment(i, currentInvoice, currentUser))
                 .sorted(Comparator.comparing(i -> i.getInvoices().getExpirationDate()))
                 .collect(Collectors.toList());
 
@@ -447,27 +417,31 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
                 .limit(limitToAdvance)
                 .collect(Collectors.toList());
 
-        BigDecimal totalAdvanced = BigDecimal.ZERO;
-
-        for (InstallmentPlan inst : futureInstallments) {
-            Invoices oldInv = inst.getInvoices();
-            oldInv.setAmount(oldInv.getAmount().subtract(inst.getAmount()));
-            invoicesService.save(oldInv);
-
-            inst.setInvoices(currentInvoice);
-            inst.setDate(currentInvoice.getExpirationDate());
-            inst.setName(inst.getName() + " (Adiantada)");
-
-            totalAdvanced = totalAdvanced.add(inst.getAmount());
-        }
-
-        installmentPlanService.saveAll(futureInstallments);
+        BigDecimal totalAdvanced = futureInstallments.stream()
+                .map(InstallmentPlan::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         if (request.getDiscountAmount() != null && request.getDiscountAmount().compareTo(totalAdvanced) > 0) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, "O desconto não pode ser maior que o total adiantado.");
         }
 
-        // Lança o desconto de adiantamento, se houver
+        Map<UUID, Invoices> invoicesToSave = new HashMap<>();
+
+        for (InstallmentPlan inst : futureInstallments) {
+            Invoices oldInv = inst.getInvoices();
+            oldInv.setAmount(invoiceTotalsCalculator.valueOrZero(oldInv.getAmount()).subtract(inst.getAmount()));
+            invoicesToSave.put(oldInv.getId(), oldInv);
+
+            inst.setInvoices(currentInvoice);
+            inst.setDate(currentInvoice.getExpirationDate());
+            inst.setName(inst.getName() + " (Adiantada)");
+        }
+
+        if (!invoicesToSave.isEmpty()) {
+            invoicesService.saveAll(invoicesToSave.values().stream().toList());
+        }
+        installmentPlanService.saveAll(futureInstallments);
+
         if (request.getDiscountAmount() != null && request.getDiscountAmount().compareTo(BigDecimal.ZERO) > 0) {
             BigDecimal discount = request.getDiscountAmount().abs().negate();
 
@@ -490,37 +464,90 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
 
             installmentPlanService.save(discountPlan);
 
-            totalAdvanced = totalAdvanced.add(discount); // Abate o desconto do montante adiantado
+            totalAdvanced = totalAdvanced.add(discount);
 
-            CreditCard card = currentInvoice.getCreditCard();
+            CreditCard card = invoiceDomainValidator.requireInvoiceCard(currentInvoice);
             card.restoreLimit(request.getDiscountAmount().abs());
             creditCardService.updateLimit(card);
         }
 
-        currentInvoice.setAmount(currentInvoice.getAmount().add(totalAdvanced));
+        currentInvoice.setAmount(invoiceTotalsCalculator.valueOrZero(currentInvoice.getAmount()).add(totalAdvanced));
         invoicesService.save(currentInvoice);
+        log.info("Invoice installments advanced: invoiceId={}, purchaseId={}, quantity={}, netAmount={}", invoiceId, request.getPurchaseId(), futureInstallments.size(), totalAdvanced);
     }
 
+    /**
+     * Atualiza uma parcela pela rota de fatura, validando vínculo com a fatura antes de delegar o escopo ao fluxo de transações.
+     */
+    @Override
+    @Transactional
+    public InvoiceDetailsDTO updateInvoiceItem(UUID invoiceId, UUID installmentId, TransactionDTO request, OperationScope operationScope) {
+        Invoices invoice = resolveEditableInvoice(invoiceId);
+        InstallmentPlan installment = resolveInvoiceInstallment(invoice, installmentId);
+
+        transactionService.updateTransactionDTO(installment.getId(), request, operationScope);
+        log.info("Invoice item updated: invoiceId={}, installmentId={}, scope={}", invoiceId, installmentId, operationScope);
+        return refreshInvoiceDetails(invoice);
+    }
+
+    /**
+     * Remove uma parcela pela rota de fatura, respeitando ONLY_THIS, FROM_THIS_FORWARD ou ALL.
+     */
+    @Override
+    @Transactional
+    public InvoiceDetailsDTO deleteInvoiceItem(UUID invoiceId, UUID installmentId, OperationScope operationScope) {
+        Invoices invoice = resolveEditableInvoice(invoiceId);
+        InstallmentPlan installment = resolveInvoiceInstallment(invoice, installmentId);
+
+        transactionService.softDelete(installment.getId(), operationScope);
+        log.info("Invoice item deleted: invoiceId={}, installmentId={}, scope={}", invoiceId, installmentId, operationScope);
+        return refreshInvoiceDetails(invoice);
+    }
+
+    /**
+     * Cancela a compra inteira a partir do purchaseId quando a compra pertence à fatura e não possui parcelas pagas.
+     */
+    @Override
+    @Transactional
+    public InvoiceDetailsDTO cancelPurchase(UUID invoiceId, UUID purchaseId) {
+        Invoices invoice = resolveEditableInvoice(invoiceId);
+        Users currentUser = SecurityContextUtils.getCurrentUser();
+
+        List<InstallmentPlan> installments = installmentPlanService.findActiveByPurchaseIdAndUserId(purchaseId, currentUser.getId()).stream()
+                .sorted(Comparator.comparing(InstallmentPlan::getCurrentInstallment))
+                .toList();
+
+        if (installments.isEmpty()) {
+            throw new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Compra não encontrada.");
+        }
+        boolean belongsToInvoice = installments.stream()
+                .anyMatch(installment -> installment.getInvoices() != null && installment.getInvoices().getId().equals(invoice.getId()));
+        if (!belongsToInvoice) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Compra não pertence à fatura informada.");
+        }
+
+        InstallmentPlan reference = installments.get(0);
+        transactionService.softDelete(reference.getId(), OperationScope.ALL);
+        log.info("Invoice purchase cancelled: invoiceId={}, purchaseId={}, installments={}", invoiceId, purchaseId, installments.size());
+        return refreshInvoiceDetails(invoice);
+    }
+
+    /**
+     * Registra pagamento integral da fatura, movimentando conta origem, conta do cartão, limite e item de crédito.
+     */
     @Override
     @Transactional
     public InvoiceDetailsDTO processPayment(UUID invoiceId, InvoicePaymentRequestDTO request) {
+        invoiceDomainValidator.validatePaymentRequest(request);
+
         Users currentUser = SecurityContextUtils.getCurrentUser();
         Invoices invoice = invoicesService.findByIdOrThrow(invoiceId);
+        invoiceDomainValidator.validateInvoiceOwner(invoice, currentUser);
 
-        if (!invoice.getUser().getId().equals(currentUser.getId())) {
-            throw new BadRequestException("Acesso Negado", "Fatura não pertence ao usuário autenticado.");
-        }
-        if (request.getAccountId() == null) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Conta de pagamento não informada.");
-        }
-        if (request.getAmount() == null || request.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "O valor do pagamento deve ser maior que zero.");
-        }
-
-        List<InstallmentPlan> currentItems = installmentPlanService.findByInvoiceId(invoice.getId()).stream()
+        List<InstallmentPlan> currentItems = installmentPlanService.findByInvoiceIdAndUserId(invoice.getId(), currentUser.getId()).stream()
                 .filter(p -> p.getDeletedAt() == null)
                 .collect(Collectors.toList());
-        InvoiceTotals currentTotals = calculateTotals(currentItems);
+        InvoiceTotalsSummary currentTotals = invoiceTotalsCalculator.calculate(currentItems);
         if (currentTotals.openAmount().compareTo(BigDecimal.ZERO) <= 0) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Fatura não possui saldo em aberto.");
         }
@@ -529,15 +556,10 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         }
 
         Accounts sourceAccount = accountsService.findByIdOrThrow(request.getAccountId());
-        if (!sourceAccount.getUser().getId().equals(currentUser.getId())) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_ACCOUNT);
-        }
-        if (sourceAccount.getType() == AccountType.CREDIT_CARD) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "A conta de pagamento não pode ser uma conta de cartão de crédito.");
-        }
+        invoiceDomainValidator.validatePaymentSourceAccount(sourceAccount, currentUser);
 
-        CreditCard card = invoice.getCreditCard();
-        Accounts cardAccount = card.getAccounts();
+        CreditCard card = invoiceDomainValidator.requireInvoiceCard(invoice);
+        Accounts cardAccount = invoiceDomainValidator.requireCardAccount(card);
         Category category = findPaymentCategory(currentUser);
         long now = DateUtils.getEpochNow();
         long paymentDate = request.getPaymentDate() != null ? request.getPaymentDate() : now;
@@ -615,27 +637,31 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
 
         installmentPlanService.save(paymentCredit);
 
-        List<InstallmentPlan> updatedItems = installmentPlanService.findByInvoiceId(invoice.getId()).stream()
+        List<InstallmentPlan> updatedItems = installmentPlanService.findByInvoiceIdAndUserId(invoice.getId(), currentUser.getId()).stream()
                 .filter(p -> p.getDeletedAt() == null)
                 .collect(Collectors.toList());
         if (updatedItems.stream().noneMatch(item -> item.getId().equals(paymentCredit.getId()))) {
             updatedItems.add(paymentCredit);
         }
-        InvoiceTotals updatedTotals = calculateTotals(updatedItems);
+        InvoiceTotalsSummary updatedTotals = invoiceTotalsCalculator.calculate(updatedItems);
 
         invoice.setAmount(updatedTotals.openAmount());
         invoice.setTransaction(paymentOut);
-        if (updatedTotals.openAmount().compareTo(BigDecimal.ZERO) <= 0 && !isInvoiceOpenWindow(invoice)) {
+        if (updatedTotals.openAmount().compareTo(BigDecimal.ZERO) <= 0 && !invoiceDateService.isInvoiceOpenWindow(invoice)) {
             invoice.setPaid(true);
             updatedItems.forEach(inst -> inst.setPaid(true));
             installmentPlanService.saveAll(updatedItems);
         }
         invoicesService.save(invoice);
+        log.info("Invoice payment processed: invoiceId={}, accountId={}, amount={}, openAmount={}", invoiceId, sourceAccount.getId(), request.getAmount(), updatedTotals.openAmount());
 
         return getInvoiceDetails(card.getId(), invoice.getMonth(), invoice.getYear())
                 .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Fatura não encontrada."));
     }
 
+    /**
+     * Cancela um pagamento de fatura e reverte os impactos em saldos, limite e itens de pagamento.
+     */
     @Override
     @Transactional
     public InvoiceDetailsDTO cancelPayment(UUID paymentTransactionId) {
@@ -673,13 +699,16 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
             long now = DateUtils.getEpochNow();
             reversePaymentBalance(payment, paymentIn);
 
-            installmentPlanService.findByPurchaseId(payment.getId()).stream()
+            List<InstallmentPlan> cancelledPaymentItems = installmentPlanService.findByPurchaseIdAndUserId(payment.getId(), currentUser.getId()).stream()
                     .filter(this::isPaymentItem)
                     .filter(item -> item.getDeletedAt() == null)
-                    .forEach(item -> item.setDeletedAt(now));
+                    .peek(item -> item.setDeletedAt(now))
+                    .collect(Collectors.toList());
+            if (!cancelledPaymentItems.isEmpty()) {
+                installmentPlanService.saveAll(cancelledPaymentItems);
+            }
 
-            List<InstallmentPlan> invoiceItems = installmentPlanService.findByInvoiceId(invoice.getId());
-            installmentPlanService.saveAll(invoiceItems);
+            List<InstallmentPlan> invoiceItems = installmentPlanService.findByInvoiceIdAndUserId(invoice.getId(), currentUser.getId());
 
             payment.setDeletedAt(now);
             if (paymentIn != null) {
@@ -692,20 +721,22 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
             List<InstallmentPlan> activeItems = invoiceItems.stream()
                     .filter(item -> item.getDeletedAt() == null)
                     .collect(Collectors.toList());
-            InvoiceTotals totals = calculateTotals(activeItems);
+            InvoiceTotalsSummary totals = invoiceTotalsCalculator.calculate(activeItems);
 
             invoice.setAmount(totals.openAmount());
             if (invoice.getTransaction() != null && invoice.getTransaction().getId().equals(payment.getId())) {
                 invoice.setTransaction(null);
             }
-            invoice.setPaid(totals.openAmount().compareTo(BigDecimal.ZERO) <= 0 && !isInvoiceOpenWindow(invoice));
+            invoice.setPaid(totals.openAmount().compareTo(BigDecimal.ZERO) <= 0 && !invoiceDateService.isInvoiceOpenWindow(invoice));
             invoicesService.save(invoice);
+            log.info("Invoice payment cancelled: invoiceId={}, paymentTransactionId={}, openAmount={}", invoice.getId(), payment.getId(), totals.openAmount());
 
             return getInvoiceDetails(invoice.getCreditCard().getId(), invoice.getMonth(), invoice.getYear())
                     .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Fatura não encontrada."));
         } catch (BadRequestException | EntityNotFoundException e) {
             throw e;
         } catch (RuntimeException e) {
+            log.error("Failed to cancel invoice payment: paymentTransactionId={}", paymentTransactionId, e);
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Não foi possível cancelar o pagamento da fatura.");
         }
     }
@@ -725,6 +756,31 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
 
         return transactionRepository.findByIdIncludingDeleted(paymentItem.getPurchaseId())
                 .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Pagamento de fatura não encontrado."));
+    }
+
+    private Invoices resolveEditableInvoice(UUID invoiceId) {
+        Users currentUser = SecurityContextUtils.getCurrentUser();
+        Invoices invoice = invoicesService.findByIdOrThrow(invoiceId);
+        invoiceDomainValidator.validateInvoiceOwner(invoice, currentUser);
+        invoiceDomainValidator.validateEditableInvoice(invoice);
+        return invoice;
+    }
+
+    private InstallmentPlan resolveInvoiceInstallment(Invoices invoice, UUID installmentId) {
+        Users currentUser = SecurityContextUtils.getCurrentUser();
+        InstallmentPlan installment = installmentPlanService.findByIdAndUserIdOrThrow(installmentId, currentUser.getId());
+
+        if (installment.getInvoices() == null || !installment.getInvoices().getId().equals(invoice.getId())) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Parcela não pertence à fatura informada.");
+        }
+        invoiceDomainValidator.validateEditableInstallment(installment);
+        return installment;
+    }
+
+    private InvoiceDetailsDTO refreshInvoiceDetails(Invoices invoice) {
+        Invoices refreshedInvoice = invoicesService.findByIdOrThrow(invoice.getId());
+        return getInvoiceDetails(refreshedInvoice.getCreditCard().getId(), refreshedInvoice.getMonth(), refreshedInvoice.getYear())
+                .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Fatura não encontrada."));
     }
 
     private void reversePaymentBalance(Transactions payment, Transactions paymentIn) {
@@ -760,11 +816,5 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         }
     }
 
-    private boolean isInvoiceOpenWindow(Invoices invoice) {
-        LocalDate today = LocalDate.now(DateUtils.zoneId);
-        LocalDate closeDate = calculateCloseDate(invoice.getCreditCard(), invoice.getMonth(), invoice.getYear());
-        LocalDate previousCloseDate = calculatePreviousCloseDate(invoice.getCreditCard(), invoice.getMonth(), invoice.getYear());
-        return !today.isBefore(previousCloseDate) && today.isBefore(closeDate);
-    }
 }
 

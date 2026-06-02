@@ -4,6 +4,7 @@ import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToOne;
@@ -22,7 +23,10 @@ import java.math.BigDecimal;
 import java.util.UUID;
 
 @Entity
-@Table(name = "credit_cards")
+@Table(name = "credit_cards", indexes = {
+        @Index(name = "idx_credit_cards_user_deleted", columnList = "user_id, deletedAt"),
+        @Index(name = "idx_credit_cards_account_deleted", columnList = "account_id, deletedAt")
+})
 @Getter
 @Builder
 @AllArgsConstructor
@@ -66,6 +70,9 @@ public class CreditCard {
     @JoinColumn(name = "account_id", nullable = false)
     private Accounts accounts;
 
+    /**
+     * Consome limite disponível ao lançar compra no cartão.
+     */
     public void consumeLimit(BigDecimal amount) {
         if (this.currentLimit.compareTo(amount) < 0) {
             throw new BadRequestException("Erro", "Limite insuficiente.");
@@ -73,6 +80,9 @@ public class CreditCard {
         this.currentLimit = this.currentLimit.subtract(amount);
     }
 
+    /**
+     * Devolve limite disponível sem ultrapassar o limite total do cartão.
+     */
     public void restoreLimit(BigDecimal amount) {
         this.currentLimit = this.currentLimit.add(amount);
         if (this.currentLimit.compareTo(this.totalLimit) > 0) {

@@ -1,0 +1,102 @@
+### Controle Ja API - Users/Auth Contract
+### Base path: /controle_ja_api/v1
+### Todas as rotas privadas usam Authorization: Bearer {{accessToken}}
+
+@baseUrl = http://localhost:8080/controle_ja_api/v1
+@accessToken = coloque_o_access_token_aqui
+@userId = coloque_o_uuid_do_usuario_aqui
+@refreshToken = coloque_o_refresh_token_aqui
+
+### Resumo do fluxo
+### - Users cria, atualiza perfil, troca senha, desativa e reinicializa dados do usuario.
+### - Auth autentica por senha, Google ou refresh token.
+### - Ao registrar ou resetar, a API cria carteira padrao e categorias iniciais.
+### - Reset apaga dados operacionais do usuario autenticado e recria defaults.
+### - DELETE desativa a conta, invalida refresh token e bloqueia novo login.
+
+### Register
+### Request: username, email, password.
+### Response 200: id, username, email, createdAt, tokens ausente.
+POST {{baseUrl}}/users/register
+Content-Type: application/json
+
+{
+  "username": "Cainan",
+  "email": "cainan@email.com",
+  "password": "123456"
+}
+
+### Login
+### Request: email, password.
+### Response 200: id, username, email, createdAt, tokens.accessToken, tokens.refreshToken.
+POST {{baseUrl}}/auth
+Content-Type: application/json
+
+{
+  "email": "cainan@email.com",
+  "password": "123456"
+}
+
+### Google Login
+### Request: email, googleId, displayName opcional, photoUrl opcional.
+### Response 200: mesmo contrato do login.
+POST {{baseUrl}}/auth/google
+Content-Type: application/json
+
+{
+  "email": "cainan@email.com",
+  "googleId": "google-provider-id",
+  "displayName": "Cainan Beltrame",
+  "photoUrl": "https://example.com/photo.png"
+}
+
+### Auto Login / Refresh
+### Request: token.
+### Response 200: novo accessToken e novo refreshToken.
+POST {{baseUrl}}/auth/auto-login
+Content-Type: application/json
+
+{
+  "token": "{{refreshToken}}"
+}
+
+### Change Password
+### Request: currentPassword, newPassword.
+### Response 200: { "message": "..." }.
+PUT {{baseUrl}}/users/change-password
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "currentPassword": "123456",
+  "newPassword": "654321"
+}
+
+### Update Profile
+### Request: username.
+### Response 200: usuario atualizado.
+PUT {{baseUrl}}/users/profile
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "username": "Novo Nome"
+}
+
+### Delete Current User
+### Decision: apenas o proprio usuario autenticado pode desativar a propria conta.
+### Response 200: { "message": "Usuario excluido com sucesso" }.
+DELETE {{baseUrl}}/users/{{userId}}
+Authorization: Bearer {{accessToken}}
+
+### Reset Current User
+### Decision: endpoint recomendado para reset, pois POST representa acao mutavel.
+### Response 200: usuario com dados operacionais recriados.
+POST {{baseUrl}}/users/{{userId}}/reset
+Authorization: Bearer {{accessToken}}
+
+### Reset Current User - Legacy
+### Decision: mantido por compatibilidade. Preferir POST /users/{id}/reset.
+GET {{baseUrl}}/users/reset/{{userId}}
+Authorization: Bearer {{accessToken}}
+

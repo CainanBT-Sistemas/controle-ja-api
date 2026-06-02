@@ -3,6 +3,7 @@ package com.cainanbt.softwares.controleja.entities;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -18,7 +19,12 @@ import java.math.BigDecimal;
 import java.util.UUID;
 
 @Entity
-@Table(name = "invoicess")
+@Table(name = "invoicess", indexes = {
+        @Index(name = "idx_invoices_user_expiration_deleted", columnList = "user_id, expirationDate, deletedAt"),
+        @Index(name = "idx_invoices_user_card_expiration", columnList = "user_id, credit_card_id, expirationDate"),
+        @Index(name = "idx_invoices_card_month_year", columnList = "credit_card_id, month, year"),
+        @Index(name = "idx_invoices_user_paid_amount_expiration", columnList = "user_id, paid, amount, expirationDate")
+})
 @Getter
 @Builder
 @AllArgsConstructor

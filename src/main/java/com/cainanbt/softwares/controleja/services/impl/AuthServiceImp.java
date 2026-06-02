@@ -20,6 +20,7 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 
@@ -32,33 +33,36 @@ public class AuthServiceImp implements AuthService {
     private final AuthenticationManager authenticationManager;
     private final JwtServiceImp jwtService;
 
+    /**
+     * Autentica por email e senha, valida situacao cadastral e rotaciona o refresh token.
+     */
     @Override
+    @Transactional
     public UserResponseDTO login(UserLoginDTO loginAdapter, HttpServletRequest request) {
-        Optional<Users> userOptional = usersService.getUserByEmail(loginAdapter.getEmail());
+        String email = loginAdapter.getEmail().trim().toLowerCase();
+        Optional<Users> userOptional = usersService.getUserByEmail(email);
         if (userOptional.isEmpty() || !passwordEncoder.matches(loginAdapter.getPassword(), userOptional.get().getPassword())) {
             throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.WRONG_LOGIN_CREDENTIALS);
         }
         Users user = userOptional.get();
-        if (!user.getEnabled() || !user.getAccountNonLocked()) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.BLOCKED_USER);
-        }
+        validateActiveUser(user);
 
-        var authenticate = new UsernamePasswordAuthenticationToken(loginAdapter.getEmail(), loginAdapter.getPassword());
+        var authenticate = new UsernamePasswordAuthenticationToken(email, loginAdapter.getPassword());
         var auth = this.authenticationManager.authenticate(authenticate);
         UserAuthenticateDTO userAuthenticate = (UserAuthenticateDTO) auth.getPrincipal();
 
-        String accessToken = jwtService.generateAccessToken(userAuthenticate);
-        String refreshToken = jwtService.generateRefreshToken(userAuthenticate);
-
-        AuthResponseDTO authResponse = new AuthResponseDTO(accessToken, refreshToken);
-        usersService.updateTokens(new UserUpdateTokenDTO(user.getId(), authResponse.getRefreshToken(), jwtService.getRefreshExpiration()));
-        return new UserResponseDTO(ID.toString(user.getId()), user.getUsername(), user.getEmail(), user.getCreatedAt(), authResponse);
+        return buildAuthenticatedResponse(user, userAuthenticate);
     }
 
+    /**
+     * Autentica pelo Google, vinculando conta existente ou criando usuario novo quando necessario.
+     */
     @Override
+    @Transactional
     public UserResponseDTO loginGoogle(GoogleLoginDTO dto, HttpServletRequest request) {
         Users user;
-        Optional<Users> userByEmail = usersService.getUserByEmail(dto.getEmail());
+        String email = dto.getEmail().trim().toLowerCase();
+        Optional<Users> userByEmail = usersService.getUserByEmail(email);
         if (userByEmail.isPresent()) {
             user = userByEmail.get();
             if (!Boolean.TRUE.equals(user.getOauth2User())) {
@@ -68,27 +72,23 @@ public class AuthServiceImp implements AuthService {
             }
         } else {
             InsertUpdateUserDTO newUserDto = new InsertUpdateUserDTO();
-            newUserDto.setEmail(dto.getEmail());
-            newUserDto.setUsername(dto.getDisplayName() != null ? dto.getDisplayName() : "Usuário Google");
+            newUserDto.setEmail(email);
+            newUserDto.setUsername(dto.getDisplayName() != null ? dto.getDisplayName().trim() : "Usuário Google");
             newUserDto.setPassword(java.util.UUID.randomUUID().toString());
             user = usersService.createNewUser(newUserDto, request);
             user.setOauth2User(true);
             user.setOauth2Provider("GOOGLE");
             user.setOauth2ProviderId(dto.getGoogleId());
         }
-        if (!user.getEnabled() || !user.getAccountNonLocked()) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.BLOCKED_USER);
-        }
-        UserAuthenticateDTO userAuthDTO = new UserAuthenticateDTO(user);
-        String refreshToken = jwtService.generateRefreshToken(userAuthDTO);
-        String accessToken = jwtService.generateAccessToken(userAuthDTO);
-
-        AuthResponseDTO authResponse = new AuthResponseDTO(accessToken, refreshToken);
-        usersService.updateTokens(new UserUpdateTokenDTO(user.getId(), authResponse.getRefreshToken(), jwtService.getRefreshExpiration()));
-        return new UserResponseDTO(ID.toString(user.getId()), user.getUsername(), user.getEmail(), user.getCreatedAt(), authResponse);
+        validateActiveUser(user);
+        return buildAuthenticatedResponse(user, new UserAuthenticateDTO(user));
     }
 
+    /**
+     * Valida refresh token persistido, rotaciona tokens e devolve nova sessao.
+     */
     @Override
+    @Transactional
     public UserResponseDTO loginAuto(TokenLoginDTO tokenLoginDTO, HttpServletRequest request) {
         String refreshToken = tokenLoginDTO.getToken();
         if (refreshToken == null || refreshToken.isBlank()) {
@@ -110,11 +110,9 @@ public class AuthServiceImp implements AuthService {
         }
 
         Users user = userOptional.get();
-        if (!user.getEnabled() || !user.getAccountNonLocked()) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.BLOCKED_USER);
-        }
+        validateActiveUser(user);
 
-        if (!user.getRefreshToken().equals(refreshToken)) {
+        if (user.getRefreshToken() == null || !user.getRefreshToken().equals(refreshToken)) {
             throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.INVALID_TOKEN);
         }
 
@@ -122,12 +120,26 @@ public class AuthServiceImp implements AuthService {
             throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.INVALID_TOKEN);
         }
 
-        String accessToken = jwtService.generateAccessToken(userAuthDTO);
-        String newRefreshToken = jwtService.generateRefreshToken(userAuthDTO);
+        return buildAuthenticatedResponse(user, userAuthDTO);
+    }
 
-        AuthResponseDTO authResponse = new AuthResponseDTO(accessToken, newRefreshToken);
+    /**
+     * Garante que contas desativadas ou bloqueadas nao recebam tokens.
+     */
+    private void validateActiveUser(Users user) {
+        if (!user.getEnabled() || !user.getAccountNonLocked()) {
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.BLOCKED_USER);
+        }
+    }
+
+    /**
+     * Emite tokens, persiste o refresh token atual e monta o contrato de resposta.
+     */
+    private UserResponseDTO buildAuthenticatedResponse(Users user, UserAuthenticateDTO userAuthenticate) {
+        String accessToken = jwtService.generateAccessToken(userAuthenticate);
+        String refreshToken = jwtService.generateRefreshToken(userAuthenticate);
+        AuthResponseDTO authResponse = new AuthResponseDTO(accessToken, refreshToken);
         usersService.updateTokens(new UserUpdateTokenDTO(user.getId(), authResponse.getRefreshToken(), jwtService.getRefreshExpiration()));
-
         return new UserResponseDTO(ID.toString(user.getId()), user.getUsername(), user.getEmail(), user.getCreatedAt(), authResponse);
     }
 }

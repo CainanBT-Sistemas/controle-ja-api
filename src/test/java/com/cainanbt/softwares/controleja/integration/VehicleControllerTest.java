@@ -28,6 +28,7 @@ import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 
 public class VehicleControllerTest extends BaseTest {
 
@@ -72,6 +73,7 @@ public class VehicleControllerTest extends BaseTest {
         vDto.setYear(2012);
         vDto.setPlate("ABC-1234");
         vDto.setCurrentOdometer(new BigDecimal("50000.00"));
+        vDto.setTankCapacity(55.0);
 
         String vehicleId = given().header("Authorization", "Bearer " + token)
                 .contentType(ContentType.JSON).body(vDto).post("/vehicles")
@@ -103,7 +105,8 @@ public class VehicleControllerTest extends BaseTest {
         given().header("Authorization", "Bearer " + token).get("/vehicles/" + vehicleId)
                 .then().statusCode(200)
                 .body("currentOdometer", is(50400.0f))
-                .body("avgGasoline", is(10.0f));
+                .body("tankCapacity", is(55.0f))
+                .body("avgGasoline", nullValue());
 
         vDto.setName("Golzera");
         given().header("Authorization", "Bearer " + token)
@@ -116,8 +119,8 @@ public class VehicleControllerTest extends BaseTest {
     }
 
     @Test
-    @DisplayName("Não deve atualizar o odômetro se for menor que o atual (Ignorar Fraude)")
-    void shouldNotUpdateOdometerIfLower() {
+    @DisplayName("Não deve salvar despesa de veículo com odômetro menor que o atual")
+    void shouldRejectVehicleExpenseIfOdometerIsLower() {
         // 1. Cria com 20.000 KM
         VehicleDTO vDto = new VehicleDTO();
         vDto.setName("Caminhonete");
@@ -145,11 +148,108 @@ public class VehicleControllerTest extends BaseTest {
 
         given().header("Authorization", "Bearer " + token)
                 .contentType(ContentType.JSON).body(tDto).post("/transactions")
-                .then().statusCode(200);
+                .then().statusCode(400);
 
         // 3. Valida que o veículo manteve 20.000 (Proteção)
         given().header("Authorization", "Bearer " + token).get("/vehicles/" + vehicleId)
                 .then().body("currentOdometer", is(20000.0f));
+    }
+
+    @Test
+    @DisplayName("Deve salvar despesa de veículo mantendo odômetro absoluto em KM")
+    void shouldKeepVehicleExpenseOdometerAsAbsoluteKilometers() {
+        VehicleDTO vDto = new VehicleDTO();
+        vDto.setName("Odômetro Absoluto");
+        vDto.setBrand("Fiat");
+        vDto.setModel("Toro");
+        vDto.setYear(2023);
+        vDto.setCurrentOdometer(new BigDecimal("180000.00"));
+
+        String vehicleId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(vDto).post("/vehicles")
+                .then().statusCode(200).extract().path("id");
+
+        TransactionDTO tDto = vehicleTransactionDTO(vehicleId, "Troca de óleo", DateUtils.getEpochNow(), new BigDecimal("180080.00"));
+
+        String transactionId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(tDto).post("/transactions")
+                .then().statusCode(200)
+                .body("currentOdometer", is(180080.0f))
+                .extract().path("id");
+
+        given().header("Authorization", "Bearer " + token).get("/transactions/" + transactionId)
+                .then().statusCode(200)
+                .body("currentOdometer", is(180080.0f));
+
+        tDto.setAmount(new BigDecimal("120.00"));
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(tDto).put("/transactions/" + transactionId)
+                .then().statusCode(200)
+                .body("currentOdometer", is(180080.0f));
+
+        given().header("Authorization", "Bearer " + token).get("/vehicles/" + vehicleId)
+                .then().statusCode(200)
+                .body("currentOdometer", is(180080.0f));
+    }
+
+    @Test
+    @DisplayName("Deve rejeitar odômetro absurdo em despesa de veículo")
+    void shouldRejectAbsurdVehicleExpenseOdometer() {
+        VehicleDTO vDto = new VehicleDTO();
+        vDto.setName("Odômetro Absurdo");
+        vDto.setBrand("VW");
+        vDto.setModel("Nivus");
+        vDto.setYear(2024);
+        vDto.setCurrentOdometer(new BigDecimal("180080.00"));
+
+        String vehicleId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(vDto).post("/vehicles")
+                .then().statusCode(200).extract().path("id");
+
+        TransactionDTO tDto = vehicleTransactionDTO(vehicleId, "Valor formatado errado", DateUtils.getEpochNow(), new BigDecimal("1808080000"));
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(tDto).post("/transactions")
+                .then().statusCode(400);
+
+        given().header("Authorization", "Bearer " + token).get("/vehicles/" + vehicleId)
+                .then().statusCode(200)
+                .body("currentOdometer", is(180080.0f));
+    }
+
+    @Test
+    @DisplayName("Deve rejeitar categoria pai Veículos em lançamento")
+    void shouldRejectVehicleParentCategory() {
+        CategoryDTO parent = new CategoryDTO();
+        parent.setName("Veículos");
+        parent.setCategoryType("DESPESA");
+        UUID vehicleParentId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(parent).post("/categories")
+                .then().statusCode(200)
+                .extract().as(CategoryResponseDTO.class).getId();
+
+        CategoryDTO child = new CategoryDTO();
+        child.setName("Gasolina comum");
+        child.setCategoryType("DESPESA");
+        child.setParentId(vehicleParentId);
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(child).post("/categories")
+                .then().statusCode(200);
+
+        TransactionDTO dto = new TransactionDTO();
+        dto.setName("Despesa com categoria pai");
+        dto.setType(TransactionType.DESPESA);
+        dto.setAmount(new BigDecimal("50.00"));
+        dto.setDate(DateUtils.getEpochNow());
+        dto.setPaid(true);
+        dto.setAccountId(walletId);
+        dto.setCategoryId(vehicleParentId);
+        dto.setIsFixed(false);
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(dto).post("/transactions")
+                .then().statusCode(400);
     }
 
     @Test
@@ -213,7 +313,7 @@ public class VehicleControllerTest extends BaseTest {
         long date = DateUtils.getEpochNow();
         createVehicleTransaction(vehicleId, "Anterior 1", date, new BigDecimal("1500.00"));
         createVehicleTransaction(vehicleId, "Anterior 2", date + 1000, new BigDecimal("2000.00"));
-        String wrongTransactionId = createVehicleTransaction(vehicleId, "Errado", date + 2000, new BigDecimal("280980.00"));
+        String wrongTransactionId = createVehicleTransaction(vehicleId, "Errado", date + 2000, new BigDecimal("2800.00"));
 
         TransactionDTO correction = vehicleTransactionDTO(vehicleId, "Corrigido", date + 2000, new BigDecimal("2780.00"));
         given().header("Authorization", "Bearer " + token)

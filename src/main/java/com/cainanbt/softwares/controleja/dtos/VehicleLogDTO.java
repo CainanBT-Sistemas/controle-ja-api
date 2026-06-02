@@ -2,6 +2,8 @@ package com.cainanbt.softwares.controleja.dtos;
 
 import com.cainanbt.softwares.controleja.enums.DrivingPredominance;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -17,8 +19,10 @@ public class VehicleLogDTO {
     private Long date;
 
     @NotNull(message = "O odômetro é obrigatório")
+    @PositiveOrZero(message = "O odômetro não pode ser negativo")
     private BigDecimal odometerReading;
 
+    @Positive(message = "A média do painel deve ser maior que zero")
     private Double dashboardKml;
 
     private DrivingPredominance drivingPredominance;
