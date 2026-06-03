@@ -44,7 +44,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Month;
@@ -52,7 +51,6 @@ import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -128,7 +126,6 @@ public class TransactionServiceImpl implements TransactionService {
         List<Transactions> normalTx = repository.findCashFlowTransactionsByMonth(user.getId(), start, end);
         List<TransactionResponseDTO> responseList = new ArrayList<>(normalTx.stream().map(TransactionResponseDTO::toDTO).toList());
 
-        applyVehicleConsolidation(responseList, start, end);
         applyCreditCardInvoices(responseList, user.getId(), start, end);
 
         responseList.sort((a, b) -> b.getDate().compareTo(a.getDate()));
@@ -158,42 +155,6 @@ public class TransactionServiceImpl implements TransactionService {
             dto.setCategoryName("Fatura de Cartão");
 
             responseList.add(dto);
-        }
-    }
-
-    private void applyVehicleConsolidation(List<TransactionResponseDTO> responseList, Long start, Long end) {
-        BigDecimal totalVeiculos = BigDecimal.ZERO;
-        boolean allVehicleExpensesPaid = true;
-        Iterator<TransactionResponseDTO> iterator = responseList.iterator();
-        while (iterator.hasNext()) {
-            TransactionResponseDTO tx = iterator.next();
-
-            boolean isVeiculo = tx.getVehicleId() != null;
-
-            if (isVeiculo && tx.getType() == TransactionType.DESPESA) {
-                totalVeiculos = totalVeiculos.add(tx.getAmount());
-                if (!Boolean.TRUE.equals(tx.getPaid())) {
-                    allVehicleExpensesPaid = false;
-                }
-                iterator.remove();
-            }
-        }
-        if (totalVeiculos.compareTo(BigDecimal.ZERO) > 0) {
-            String namespaceVirtual = "VEHICLE_CONSOLIDATED_" + start + "_" + end;
-            UUID idDeterministico = UUID.nameUUIDFromBytes(namespaceVirtual.getBytes(StandardCharsets.UTF_8));
-
-            TransactionResponseDTO veiculoConsolidado = new TransactionResponseDTO();
-            veiculoConsolidado.setId(idDeterministico);
-            veiculoConsolidado.setName("Despesas de veículos do mês");
-            veiculoConsolidado.setAmount(totalVeiculos);
-            veiculoConsolidado.setDate(end);
-            veiculoConsolidado.setPaid(allVehicleExpensesPaid);
-            veiculoConsolidado.setType(TransactionType.DESPESA);
-            veiculoConsolidado.setCategoryName("Veículos");
-            veiculoConsolidado.setAccountName("Consolidado");
-            veiculoConsolidado.setVirtual(true);
-
-            responseList.add(veiculoConsolidado);
         }
     }
 
@@ -673,13 +634,61 @@ public class TransactionServiceImpl implements TransactionService {
             return Collections.emptyList();
         }
         List<Transactions> transactions = repository.findTransactionsByMonth(user.getId(), start, end);
-
-        return transactions.stream()
-                .map(TransactionResponseDTO::toDTO)
-                .filter(tx -> tx.getVehicleId() != null)
+        List<TransactionResponseDTO> directVehicleExpenses = transactions.stream()
+                .filter(tx -> tx.getVehicle() != null)
                 .filter(tx -> tx.getType() == TransactionType.DESPESA)
+                .filter(tx -> tx.getAccount() == null || tx.getAccount().getType() != AccountType.CREDIT_CARD)
+                .map(TransactionResponseDTO::toDTO)
+                .toList();
+
+        List<InstallmentPlan> vehicleInstallments = installmentPlanService.findVehicleInstallmentsByUserAndDateBetween(user.getId(), start, end);
+        List<UUID> purchaseIds = vehicleInstallments.stream()
+                .map(InstallmentPlan::getPurchaseId)
+                .distinct()
+                .toList();
+        Map<UUID, Transactions> purchasesById = repository.findAllById(purchaseIds).stream()
+                .collect(java.util.stream.Collectors.toMap(Transactions::getId, transaction -> transaction));
+
+        List<TransactionResponseDTO> installmentVehicleExpenses = vehicleInstallments.stream()
+                .map(installment -> buildVehicleInstallmentResponse(installment, purchasesById.get(installment.getPurchaseId())))
+                .toList();
+
+        List<TransactionResponseDTO> response = new ArrayList<>(directVehicleExpenses.size() + installmentVehicleExpenses.size());
+        response.addAll(directVehicleExpenses);
+        response.addAll(installmentVehicleExpenses);
+
+        return response.stream()
                 .sorted((a, b) -> b.getDate().compareTo(a.getDate()))
                 .toList();
+    }
+
+    /**
+     * Monta um item de detalhe de veículo a partir da parcela mensal, preservando a origem na fatura.
+     */
+    private TransactionResponseDTO buildVehicleInstallmentResponse(InstallmentPlan installment, Transactions purchase) {
+        TransactionResponseDTO response = buildInstallmentResponse(installment);
+        response.setVirtual(false);
+        if (installment.getInvoices() != null) {
+            response.setTargetInvoiceId(installment.getInvoices().getId());
+            if (installment.getInvoices().getCreditCard() != null) {
+                response.setCreditCardId(installment.getInvoices().getCreditCard().getId());
+                response.setAccountName(installment.getInvoices().getCreditCard().getName() + " (Fatura)");
+                if (installment.getInvoices().getCreditCard().getAccounts() != null) {
+                    response.setAccountId(installment.getInvoices().getCreditCard().getAccounts().getId());
+                }
+            }
+        }
+        if (purchase != null) {
+            if (purchase.getCategory() != null) {
+                response.setCategoryId(purchase.getCategory().getId());
+                response.setCategoryName(purchase.getCategory().getName());
+            }
+            if (purchase.getVehicle() != null) {
+                response.setVehicleId(purchase.getVehicle().getId());
+                response.setVehicleName(purchase.getVehicle().getName());
+            }
+        }
+        return response;
     }
 
     @Override

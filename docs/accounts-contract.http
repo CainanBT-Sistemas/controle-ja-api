@@ -11,7 +11,7 @@
 
 ### Existing controller decisions
 ### - Toda rota exige Authorization Bearer token.
-### - POST cria conta com currency BRL, calculateBalance=true, enabled=true.
+### - POST cria conta com currency BRL, enabled=true e calculateBalance=true quando não informado.
 ### - POST usa icon "account_balance" e color "#42A5F5" quando não informados.
 ### - POST e PUT bloqueiam outra conta ativa com mesmo name + type para o usuário.
 ### - GET /{id}, PUT e DELETE validam que a conta pertence ao usuário autenticado.
@@ -50,7 +50,8 @@
 ###   "initialBalance": "decimal obrigatório; usado apenas na criação",
 ###   "icon": "string opcional",
 ###   "color": "string opcional",
-###   "isDefault": "boolean opcional"
+###   "isDefault": "boolean opcional",
+###   "calculateBalance": "boolean opcional; default true; define se entra no saldo total da dashboard"
 ### }
 
 ### Account response contract
@@ -63,7 +64,8 @@
 ###   "enabled": "boolean",
 ###   "icon": "string",
 ###   "color": "string",
-###   "isDefault": "boolean"
+###   "isDefault": "boolean",
+###   "calculateBalance": "boolean"
 ### }
 
 ### Create account
@@ -78,7 +80,8 @@ Content-Type: application/json
   "initialBalance": 150.00,
   "icon": "wallet",
   "color": "#42A5F5",
-  "isDefault": false
+  "isDefault": false,
+  "calculateBalance": true
 }
 
 ### Expected 200 response
@@ -113,7 +116,8 @@ Content-Type: application/json
   "initialBalance": 150.00,
   "icon": "wallet",
   "color": "#1E88E5",
-  "isDefault": false
+  "isDefault": false,
+  "calculateBalance": false
 }
 
 ### Expected 200 response

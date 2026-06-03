@@ -4,6 +4,8 @@ import com.cainanbt.softwares.controleja.enums.DrivingPredominance;
 import com.cainanbt.softwares.controleja.enums.FuelType;
 import com.cainanbt.softwares.controleja.enums.RecurrenceFrequency;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
+import com.cainanbt.softwares.controleja.utils.StrictBigDecimalDeserializer;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -59,6 +61,7 @@ public class TransactionDTO {
     //VEICULOS
     private UUID vehicleId;
     @DecimalMin(value = "0.00", message = "O odômetro não pode ser negativo")
+    @JsonDeserialize(using = StrictBigDecimalDeserializer.class)
     private BigDecimal currentOdometer;
     @Positive(message = "Litros deve ser maior que zero")
     private Double liters;

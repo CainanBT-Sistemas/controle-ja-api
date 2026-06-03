@@ -27,4 +27,5 @@ public class AccountDTO {
     private String icon;
     private String color;
     private Boolean isDefault;
+    private Boolean calculateBalance;
 }

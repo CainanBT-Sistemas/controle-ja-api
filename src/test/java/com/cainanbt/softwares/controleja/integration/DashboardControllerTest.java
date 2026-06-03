@@ -188,6 +188,33 @@ public class DashboardControllerTest extends BaseTest {
     }
 
     @Test
+    @DisplayName("Deve ignorar contas marcadas para não calcular saldo no full-summary")
+    void shouldIgnoreAccountsWithCalculateBalanceDisabledInFullSummary() {
+        AccountDTO hiddenAccount = new AccountDTO();
+        hiddenAccount.setName("Conta fora da dashboard");
+        hiddenAccount.setType(AccountType.BANK);
+        hiddenAccount.setInitialBalance(new BigDecimal("5000.00"));
+        hiddenAccount.setCalculateBalance(false);
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON)
+                .body(hiddenAccount)
+                .post("/accounts")
+                .then()
+                .statusCode(200)
+                .body("calculateBalance", is(false));
+
+        long now = DateUtils.getEpochNow();
+        long start = now - 86400000L;
+        long end = now + 86400000L;
+
+        given().header("Authorization", "Bearer " + token).param("start", start).param("end", end)
+                .when().get("/dashboard/full-summary")
+                .then().statusCode(200)
+                .body("availableBalance", is(5650.0f));
+    }
+
+    @Test
     @DisplayName("Deve classificar faturas pagas, abertas, pendentes e vencidas no full-summary")
     void shouldClassifyInvoicesInFullSummary() {
         LocalDate today = LocalDate.now(DateUtils.zoneId);

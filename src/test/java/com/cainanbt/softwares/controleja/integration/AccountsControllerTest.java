@@ -46,12 +46,14 @@ public class AccountsControllerTest extends BaseTest {
         account.setType(AccountType.WALLET);
         account.setInitialBalance(new BigDecimal("150.00"));
         account.setInstitution("N/A");
+        account.setCalculateBalance(false);
 
         String accountId = given().header("Authorization", "Bearer " + token)
                 .contentType(ContentType.JSON).body(account)
                 .when().post("/accounts")
                 .then().statusCode(200)
                 .body("id", notNullValue())
+                .body("calculateBalance", is(false))
                 .extract().path("id");
 
         // 2. READ (List)
@@ -68,11 +70,13 @@ public class AccountsControllerTest extends BaseTest {
 
         // 4. UPDATE
         account.setName("Carteira Alterada");
+        account.setCalculateBalance(true);
         given().header("Authorization", "Bearer " + token)
                 .contentType(ContentType.JSON).body(account)
                 .when().put("/accounts/" + accountId)
                 .then().statusCode(200)
-                .body("name", is("Carteira Alterada"));
+                .body("name", is("Carteira Alterada"))
+                .body("calculateBalance", is(true));
 
         // 5. DELETE
         given().header("Authorization", "Bearer " + token)

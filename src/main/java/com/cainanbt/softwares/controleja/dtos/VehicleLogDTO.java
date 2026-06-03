@@ -1,6 +1,8 @@
 package com.cainanbt.softwares.controleja.dtos;
 
 import com.cainanbt.softwares.controleja.enums.DrivingPredominance;
+import com.cainanbt.softwares.controleja.utils.StrictBigDecimalDeserializer;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
@@ -20,6 +22,7 @@ public class VehicleLogDTO {
 
     @NotNull(message = "O odômetro é obrigatório")
     @PositiveOrZero(message = "O odômetro não pode ser negativo")
+    @JsonDeserialize(using = StrictBigDecimalDeserializer.class)
     private BigDecimal odometerReading;
 
     @Positive(message = "A média do painel deve ser maior que zero")

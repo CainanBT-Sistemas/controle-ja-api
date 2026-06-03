@@ -66,7 +66,7 @@
 ###   "recurrenceFrequency": "frequência opcional",
 ###   "recurrenceEndDate": "epoch milliseconds opcional",
 ###   "vehicleId": "uuid opcional",
-###   "currentOdometer": "decimal opcional; obrigatório para eventos de veículo que atualizam KM",
+###   "currentOdometer": "decimal opcional; obrigatório para eventos de veículo que atualizam KM; aceita até 1 casa decimal",
 ###   "liters": "decimal opcional; usado em abastecimento",
 ###   "fuelType": "GASOLINA | ETANOL opcional",
 ###   "efficiency": "decimal opcional; calculado quando possível",
@@ -126,7 +126,7 @@ Content-Type: application/json
   "recurrenceFrequency": null,
   "recurrenceEndDate": null,
   "vehicleId": "{{vehicleId}}",
-  "currentOdometer": 50400,
+  "currentOdometer": 50400.7,
   "liters": 40.0,
   "fuelType": "GASOLINA",
   "efficiency": null,
@@ -168,7 +168,7 @@ Content-Type: application/json
   "paid": true,
   "isFixed": false,
   "vehicleId": "{{vehicleId}}",
-  "currentOdometer": 50400,
+  "currentOdometer": 50400.7,
   "liters": 40.0,
   "fuelType": "GASOLINA",
   "drivingPredominance": "CITY",
@@ -238,3 +238,8 @@ Authorization: Bearer {{token}}
 
 ### Expected 200 response
 ### [ Transaction response contract with vehicle fields ]
+### Notes:
+### - Returns direct vehicle expenses paid from bank/cash accounts.
+### - Returns credit-card installments allocated to vehicles by invoice month.
+### - Does not return the artificial "Despesas de veículos do mês" consolidated row.
+### - Credit-card installment rows include targetInvoiceId/creditCardId and accountName ending with "(Fatura)".

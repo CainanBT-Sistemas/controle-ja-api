@@ -233,7 +233,8 @@ Responsabilidade: gerenciar contas financeiras do usuario. A listagem principal 
   "initialBalance": 150.00,
   "icon": "wallet",
   "color": "#42A5F5",
-  "isDefault": false
+  "isDefault": false,
+  "calculateBalance": true
 }
 ```
 
@@ -249,7 +250,8 @@ Responsabilidade: gerenciar contas financeiras do usuario. A listagem principal 
   "enabled": true,
   "icon": "wallet",
   "color": "#42A5F5",
-  "isDefault": false
+  "isDefault": false,
+  "calculateBalance": true
 }
 ```
 
@@ -262,6 +264,8 @@ Responsabilidade: gerenciar contas financeiras do usuario. A listagem principal 
 ```
 
 Decisao importante: ajuste de saldo nao grava saldo direto; ele cria uma transacao de compensacao para manter historico.
+`calculateBalance=false` remove a conta do saldo disponível e das projeções da dashboard, mas não bloqueia
+movimentações.
 
 ## CategoriesController
 
@@ -380,14 +384,22 @@ Base:
 
 Responsabilidade: criar, listar, consultar, editar e remover lancamentos financeiros.
 
-| Metodo   | Endpoint                                                | Recebe                            | Retorna                                                  |
-|----------|---------------------------------------------------------|-----------------------------------|----------------------------------------------------------|
-| `POST`   | `/transactions`                                         | `TransactionDTO`                  | `TransactionResponseDTO`.                                |
-| `GET`    | `/transactions?start={start}&end={end}`                 | Query `start`, `end`              | Lista de `TransactionResponseDTO`.                       |
-| `GET`    | `/transactions/{id}`                                    | Path `id`                         | `TransactionResponseDTO`.                                |
-| `PUT`    | `/transactions/{id}?operationScope=ONLY_THIS`           | `TransactionDTO`                  | `TransactionResponseDTO`.                                |
-| `DELETE` | `/transactions/{id}?operationScope=ONLY_THIS`           | Path `id`, query `operationScope` | Mensagem de sucesso.                                     |
-| `GET`    | `/transactions/vehicle/details?start={start}&end={end}` | Query `start`, `end`              | Lista de `TransactionResponseDTO` com campos de veiculo. |
+| Metodo   | Endpoint                                                | Recebe                            | Retorna                                                                                                     |
+|----------|---------------------------------------------------------|-----------------------------------|-------------------------------------------------------------------------------------------------------------|
+| `POST`   | `/transactions`                                         | `TransactionDTO`                  | `TransactionResponseDTO`.                                                                                   |
+| `GET`    | `/transactions?start={start}&end={end}`                 | Query `start`, `end`              | Lista de `TransactionResponseDTO`.                                                                          |
+| `GET`    | `/transactions/{id}`                                    | Path `id`                         | `TransactionResponseDTO`.                                                                                   |
+| `PUT`    | `/transactions/{id}?operationScope=ONLY_THIS`           | `TransactionDTO`                  | `TransactionResponseDTO`.                                                                                   |
+| `DELETE` | `/transactions/{id}?operationScope=ONLY_THIS`           | Path `id`, query `operationScope` | Mensagem de sucesso.                                                                                        |
+| `GET`    | `/transactions/vehicle/details?start={start}&end={end}` | Query `start`, `end`              | Lista de `TransactionResponseDTO` com despesas diretas de veiculo e parcelas de fatura alocadas ao veiculo. |
+
+Decisões do controller:
+
+- `GET /transactions` retorna o extrato financeiro real e não inclui mais o consolidado virtual
+  `Despesas de veículos do mês`.
+- `GET /transactions/vehicle/details` é uma visão analítica de veículo: despesas diretas aparecem como transações reais
+  e parcelas de cartão aparecem pelo valor mensal da fatura, com `targetInvoiceId`/`creditCardId`.
+- Compras parceladas de veículo não são duplicadas pelo valor cheio no detalhe mensal.
 
 ### TransactionDTO
 
@@ -638,6 +650,14 @@ Responsabilidade: gerenciar veiculos e expor dashboard individual do veiculo.
 }
 ```
 
+Decisões do dashboard de veículo:
+
+- `monthlyCost` e `yearlyCost` somam despesas diretas do veículo e parcelas de cartão vencendo no período.
+- Compras no cartão vinculadas ao veículo não entram pelo valor total da compra no mês original; entram pelo valor da
+  parcela em cada fatura.
+- O histórico geral de transações continua exibindo lançamentos reais, enquanto o dashboard concentra a análise de custo
+  do carro.
+
 ## VehicleLogController
 
 Base:
@@ -648,10 +668,20 @@ Base:
 
 Responsabilidade: registrar e consultar leituras do diario de bordo.
 
-| Metodo | Endpoint                                             | Recebe                                          | Retorna                           |
-|--------|------------------------------------------------------|-------------------------------------------------|-----------------------------------|
-| `POST` | `/vehicles/logs`                                     | `VehicleLogDTO`                                 | `VehicleLogResponseDTO`.          |
-| `GET`  | `/vehicles/logs/{vehicleId}?start={start}&end={end}` | Path `vehicleId`, query opcional `start`, `end` | Lista de `VehicleLogResponseDTO`. |
+| Metodo   | Endpoint                                             | Recebe                                          | Retorna                           |
+|----------|------------------------------------------------------|-------------------------------------------------|-----------------------------------|
+| `POST`   | `/vehicles/logs`                                     | `VehicleLogDTO`                                 | `VehicleLogResponseDTO`.          |
+| `GET`    | `/vehicles/logs/{vehicleId}?start={start}&end={end}` | Path `vehicleId`, query opcional `start`, `end` | Lista de `VehicleLogResponseDTO`. |
+| `DELETE` | `/vehicles/logs/{id}`                                | Path `id`                                       | Mensagem de sucesso.              |
+
+Decisões do controller:
+
+- A exclusão só é permitida para o último lançamento do diário de bordo do veículo.
+- O primeiro lançamento pode ser excluído quando também for o último/único lançamento do diário.
+- Ao excluir o último diário, o backend recalcula o `currentOdometer` do veículo considerando diários restantes,
+  transações veiculares e odômetro inicial.
+- O dashboard do veículo é recalculado na próxima consulta, pois o diário impacta KM rodado, fallback de KM/L e custo
+  por KM.
 
 ### VehicleLogDTO
 

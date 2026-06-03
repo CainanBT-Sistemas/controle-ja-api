@@ -112,10 +112,24 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
             "FROM Transactions t LEFT JOIN t.category.subCategory parentCategory " +
             "WHERE t.vehicle.id = :vehicleId " +
             "AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
+            "AND t.account.type <> com.cainanbt.softwares.controleja.enums.AccountType.CREDIT_CARD " +
             "AND t.type IN (com.cainanbt.softwares.controleja.enums.TransactionType.DESPESA, com.cainanbt.softwares.controleja.enums.TransactionType.RECEITA) " +
             "AND (LOWER(t.category.name) IN ('veículo', 'veículos') " +
             "OR LOWER(parentCategory.name) IN ('veículo', 'veículos'))")
     BigDecimal getNetVehicleCost(@Param("vehicleId") UUID vehicleId, @Param("start") Long start, @Param("end") Long end);
+
+    @Query("SELECT COALESCE(SUM(CASE " +
+            "WHEN i.type = 'DESPESA' THEN i.amount " +
+            "WHEN i.type = 'RECEITA' THEN -i.amount " +
+            "ELSE 0 END), 0) " +
+            "FROM InstallmentPlan i, Transactions t LEFT JOIN t.category.subCategory parentCategory " +
+            "WHERE i.purchaseId = t.id " +
+            "AND t.vehicle.id = :vehicleId " +
+            "AND i.date BETWEEN :start AND :end " +
+            "AND i.deletedAt IS NULL AND t.deletedAt IS NULL " +
+            "AND (LOWER(t.category.name) IN ('veículo', 'veículos') " +
+            "OR LOWER(parentCategory.name) IN ('veículo', 'veículos'))")
+    BigDecimal getNetVehicleInstallmentCost(@Param("vehicleId") UUID vehicleId, @Param("start") Long start, @Param("end") Long end);
 
     @Query("SELECT t FROM Transactions t LEFT JOIN t.category.subCategory parentCategory " +
             "WHERE t.vehicle.id = :vehicleId AND t.type = 'DESPESA' " +

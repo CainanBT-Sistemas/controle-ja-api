@@ -73,6 +73,11 @@ public interface InstallmentPlanService {
     List<InstallmentPlan> findByUserAndDateBetween(UUID userId, Long start, Long end);
 
     /**
+     * Busca parcelas de fatura que devem compor o custo mensal de veículos.
+     */
+    List<InstallmentPlan> findVehicleInstallmentsByUserAndDateBetween(UUID userId, Long start, Long end);
+
+    /**
      * Busca parcelas futuras elegíveis para adiantamento em lote de faturas.
      */
     List<InstallmentPlan> findAdvanceableByInvoiceIds(List<UUID> invoiceIds);

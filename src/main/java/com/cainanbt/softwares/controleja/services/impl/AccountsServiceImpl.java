@@ -50,7 +50,7 @@ public class AccountsServiceImpl implements AccountsService {
                 .currency(DEFAULT_CURRENCY)
                 .currentBalance(dto.getInitialBalance())
                 .initialBalance(dto.getInitialBalance())
-                .calculateBalance(true)
+                .calculateBalance(resolveCalculateBalance(dto.getCalculateBalance()))
                 .enabled(true)
                 .user(user)
                 .createdAt(DateUtils.getEpochNow())
@@ -118,6 +118,7 @@ public class AccountsServiceImpl implements AccountsService {
         if (dto.getIcon() != null) account.setIcon(resolveOrDefault(dto.getIcon(), DEFAULT_ICON));
         if (dto.getColor() != null) account.setColor(resolveOrDefault(dto.getColor(), DEFAULT_COLOR));
         if (dto.getIsDefault() != null) account.setIsDefault(dto.getIsDefault());
+        if (dto.getCalculateBalance() != null) account.setCalculateBalance(dto.getCalculateBalance());
 
         account.setUpdatedAt(DateUtils.getEpochNow());
         Accounts savedAccount = repository.save(account);
@@ -169,5 +170,9 @@ public class AccountsServiceImpl implements AccountsService {
 
     private String resolveOrDefault(String value, String defaultValue) {
         return value != null && !value.trim().isEmpty() ? value.trim() : defaultValue;
+    }
+
+    private Boolean resolveCalculateBalance(Boolean calculateBalance) {
+        return calculateBalance != null ? calculateBalance : true;
     }
 }

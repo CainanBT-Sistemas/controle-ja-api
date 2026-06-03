@@ -42,7 +42,7 @@
 ###   "model": "string obrigatório",
 ###   "year": "integer obrigatório, mínimo 1900",
 ###   "plate": "string opcional",
-###   "currentOdometer": "decimal obrigatório",
+###   "currentOdometer": "decimal obrigatório; aceita até 1 casa decimal",
 ###   "tankCapacity": "decimal opcional, maior que zero quando informado"
 ### }
 
@@ -64,7 +64,7 @@
 ### {
 ###   "vehicleId": "uuid obrigatório",
 ###   "date": "epoch milliseconds obrigatório",
-###   "odometerReading": "decimal obrigatório",
+###   "odometerReading": "decimal obrigatório; aceita até 1 casa decimal",
 ###   "dashboardKml": "decimal opcional, maior que zero",
 ###   "drivingPredominance": "CITY | HIGHWAY | MIXED opcional"
 ### }
@@ -90,7 +90,7 @@ Content-Type: application/json
   "model": "Corolla",
   "year": 2022,
   "plate": "ABC1D23",
-  "currentOdometer": 50000,
+  "currentOdometer": 50000.7,
   "tankCapacity": 50.0
 }
 
@@ -122,7 +122,7 @@ Content-Type: application/json
   "model": "Corolla",
   "year": 2022,
   "plate": "ABC1D23",
-  "currentOdometer": 51000,
+  "currentOdometer": 51000.8,
   "tankCapacity": 50.0
 }
 
@@ -158,6 +158,9 @@ Authorization: Bearer {{token}}
 ###   "lastRefuelKml": "decimal|null",
 ###   "lastRefuelFuelType": "GASOLINA | ETANOL | null"
 ### }
+### Notes:
+### - monthlyCost/yearlyCost use vehicle direct expenses plus credit-card installments due in the period.
+### - Credit-card purchases are not counted by their full original amount in the purchase month.
 
 ### Create vehicle log
 POST {{baseUrl}}/vehicles/logs
@@ -167,7 +170,7 @@ Content-Type: application/json
 {
   "vehicleId": "{{vehicleId}}",
   "date": 1717100000000,
-  "odometerReading": 51250,
+  "odometerReading": 51250.4,
   "dashboardKml": 11.8,
   "drivingPredominance": "CITY"
 }
@@ -181,3 +184,17 @@ Authorization: Bearer {{token}}
 
 ### Expected 200 response
 ### [ Vehicle log response contract ]
+
+### Delete last vehicle log
+DELETE {{baseUrl}}/vehicles/logs/{{vehicleLogId}}
+Authorization: Bearer {{token}}
+
+### Expected 200 response
+### {
+###   "message": "Registro excluído com sucesso."
+### }
+### Notes:
+### - Only the latest vehicle log for that vehicle can be deleted.
+### - If the first log is also the latest/only log, it can be deleted.
+### - Deleting a valid last log recalculates the vehicle currentOdometer from remaining logs, vehicle transactions and initial odometer.
+### - Vehicle dashboard values are recalculated on the next dashboard request because logs affect KM driven, KM/L fallback and cost per KM.

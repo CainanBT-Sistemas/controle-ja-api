@@ -19,9 +19,24 @@ public interface VehicleLogRepository extends JpaRepository<VehicleLog, UUID> {
     List<VehicleLog> findByVehicleIdOrderByDateDesc(UUID vehicleId);
 
     /**
+     * Busca uma leitura específica garantindo que pertence ao usuário autenticado.
+     */
+    Optional<VehicleLog> findByIdAndUserId(UUID id, UUID userId);
+
+    /**
      * Busca a primeira leitura registrada do veículo.
      */
     Optional<VehicleLog> findFirstByVehicleIdOrderByDateAsc(UUID vehicleId);
+
+    /**
+     * Busca a primeira leitura registrada usando data e criação como critério determinístico.
+     */
+    Optional<VehicleLog> findFirstByVehicleIdOrderByDateAscCreatedAtAsc(UUID vehicleId);
+
+    /**
+     * Busca a última leitura registrada usando data e criação como critério determinístico.
+     */
+    Optional<VehicleLog> findFirstByVehicleIdOrderByDateDescCreatedAtDesc(UUID vehicleId);
 
     /**
      * Busca a primeira leitura registrada até uma data limite.

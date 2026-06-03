@@ -10,6 +10,7 @@ import java.math.BigDecimal;
 public final class OdometerValidator {
     private static final BigDecimal MAX_REASONABLE_ODOMETER = new BigDecimal("2000000");
     private static final BigDecimal MAX_ODOMETER_JUMP_WITHOUT_CONFIRMATION = new BigDecimal("20000");
+    private static final int MAX_ODOMETER_DECIMAL_PLACES = 1;
 
     private OdometerValidator() {
     }
@@ -24,8 +25,8 @@ public final class OdometerValidator {
         if (odometer.compareTo(BigDecimal.ZERO) <= 0) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Odômetro deve ser maior que zero.");
         }
-        if (odometer.stripTrailingZeros().scale() > 0) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Odômetro deve ser informado como KM absoluto, sem casas decimais.");
+        if (odometer.stripTrailingZeros().scale() > MAX_ODOMETER_DECIMAL_PLACES) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Odômetro deve ter no máximo uma casa decimal.");
         }
         if (odometer.compareTo(MAX_REASONABLE_ODOMETER) > 0) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Odômetro informado está acima do limite plausível.");

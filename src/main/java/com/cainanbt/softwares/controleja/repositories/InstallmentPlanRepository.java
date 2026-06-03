@@ -64,6 +64,19 @@ public interface InstallmentPlanRepository extends JpaRepository<InstallmentPlan
     List<InstallmentPlan> findByUserAndDateBetween(@Param("userId") UUID userId, @Param("start") Long start, @Param("end") Long end);
 
     /**
+     * Busca parcelas de cartão que representam custo mensal de veículo pela compra pai.
+     */
+    @Query("SELECT i FROM InstallmentPlan i, Transactions t LEFT JOIN t.category.subCategory parentCategory " +
+            "WHERE i.purchaseId = t.id " +
+            "AND i.user.id = :userId " +
+            "AND t.vehicle IS NOT NULL " +
+            "AND i.date BETWEEN :start AND :end " +
+            "AND i.deletedAt IS NULL AND t.deletedAt IS NULL " +
+            "AND (LOWER(t.category.name) IN ('veículo', 'veículos') " +
+            "OR LOWER(parentCategory.name) IN ('veículo', 'veículos'))")
+    List<InstallmentPlan> findVehicleInstallmentsByUserAndDateBetween(@Param("userId") UUID userId, @Param("start") Long start, @Param("end") Long end);
+
+    /**
      * Busca parcelas futuras pendentes e positivas que podem ser adiantadas.
      */
     @Query("SELECT p FROM InstallmentPlan p WHERE p.invoices.id IN :invoiceIds AND p.deletedAt IS NULL AND p.paid = false AND p.amount > 0")

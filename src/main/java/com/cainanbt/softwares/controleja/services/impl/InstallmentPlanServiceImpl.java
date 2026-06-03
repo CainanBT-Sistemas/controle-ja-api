@@ -141,6 +141,15 @@ public class InstallmentPlanServiceImpl implements InstallmentPlanService {
     }
 
     /**
+     * Busca parcelas de fatura vinculadas a compras de veículo no período informado.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<InstallmentPlan> findVehicleInstallmentsByUserAndDateBetween(UUID userId, Long start, Long end) {
+        return repository.findVehicleInstallmentsByUserAndDateBetween(userId, start, end);
+    }
+
+    /**
      * Busca parcelas futuras elegiveis para adiantamento.
      */
     @Override

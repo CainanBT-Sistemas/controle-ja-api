@@ -14,18 +14,18 @@ Este contrato documenta o padrao de validacao aplicado aos DTOs de entrada.
 
 ## Validacoes Por Area
 
-| DTO                        | Validacoes principais                                                                                        |
-|----------------------------|--------------------------------------------------------------------------------------------------------------|
-| `AccountDTO`               | Nome obrigatorio e limitado; tipo obrigatorio; saldo inicial obrigatorio.                                    |
-| `CategoryDTO`              | Nome e tipo obrigatorios com limite; `parentId` opcional para subcategoria.                                  |
-| `CreditCardDTO`            | Nome obrigatorio; limite maior que zero; fechamento/vencimento entre 1 e 31.                                 |
-| `TransactionDTO`           | Nome, tipo, valor, data, pago e fixo obrigatorios; parcelas minimo 1; campos veiculares opcionais positivos. |
-| `VehicleDTO`               | Nome, marca, modelo, ano e odometro obrigatorios; odometro nao negativo; tanque positivo quando enviado.     |
-| `VehicleLogDTO`            | Veiculo, data e odometro obrigatorios; odometro nao negativo; media do painel positiva quando enviada.       |
-| `GasStationDTO`            | Nome obrigatorio; endereco/cidade/estado com limites.                                                        |
-| `InvoicePaymentRequestDTO` | Conta e valor obrigatorios; valor maior que zero.                                                            |
-| `RefundRequestDTO`         | Parcela e valor obrigatorios; valor maior que zero.                                                          |
-| `AdvanceRequestDTO`        | Compra obrigatoria; desconto nao negativo; quantidade validada no service.                                   |
+| DTO                        | Validacoes principais                                                                                                               |
+|----------------------------|-------------------------------------------------------------------------------------------------------------------------------------|
+| `AccountDTO`               | Nome obrigatorio e limitado; tipo obrigatorio; saldo inicial obrigatorio.                                                           |
+| `CategoryDTO`              | Nome e tipo obrigatorios com limite; `parentId` opcional para subcategoria.                                                         |
+| `CreditCardDTO`            | Nome obrigatorio; limite maior que zero; fechamento/vencimento entre 1 e 31.                                                        |
+| `TransactionDTO`           | Nome, tipo, valor, data, pago e fixo obrigatorios; parcelas minimo 1; campos veiculares opcionais positivos.                        |
+| `VehicleDTO`               | Nome, marca, modelo, ano e odometro obrigatorios; odometro nao negativo; aceita ate 1 casa decimal; tanque positivo quando enviado. |
+| `VehicleLogDTO`            | Veiculo, data e odometro obrigatorios; odometro nao negativo; aceita ate 1 casa decimal; media do painel positiva quando enviada.   |
+| `GasStationDTO`            | Nome obrigatorio; endereco/cidade/estado com limites.                                                                               |
+| `InvoicePaymentRequestDTO` | Conta e valor obrigatorios; valor maior que zero.                                                                                   |
+| `RefundRequestDTO`         | Parcela e valor obrigatorios; valor maior que zero.                                                                                 |
+| `AdvanceRequestDTO`        | Compra obrigatoria; desconto nao negativo; quantidade validada no service.                                                          |
 
 ## Regras Que Devem Ficar No Service
 
@@ -35,4 +35,3 @@ Este contrato documenta o padrao de validacao aplicado aos DTOs de entrada.
 - Compra com parcela paga nao pode ser cancelada por inteiro.
 - Primeiro abastecimento nao entra no calculo de KM/L.
 - `OperationScope` decide se altera apenas o item atual, futuros ou compra inteira.
-

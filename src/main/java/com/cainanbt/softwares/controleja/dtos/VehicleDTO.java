@@ -1,5 +1,7 @@
 package com.cainanbt.softwares.controleja.dtos;
 
+import com.cainanbt.softwares.controleja.utils.StrictBigDecimalDeserializer;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -32,6 +34,7 @@ public class VehicleDTO {
 
     @NotNull(message = "Quilometragem inicial é obrigatória")
     @PositiveOrZero(message = "A quilometragem inicial não pode ser negativa")
+    @JsonDeserialize(using = StrictBigDecimalDeserializer.class)
     private BigDecimal currentOdometer;
 
     @Positive(message = "A capacidade do tanque deve ser maior que zero")

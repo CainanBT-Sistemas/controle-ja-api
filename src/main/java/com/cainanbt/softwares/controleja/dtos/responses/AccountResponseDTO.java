@@ -19,6 +19,7 @@ public class AccountResponseDTO {
     private String icon;
     private String color;
     private Boolean isDefault;
+    private Boolean calculateBalance;
 
     public static AccountResponseDTO toDTO(Accounts entity) {
         AccountResponseDTO dto = new AccountResponseDTO();
@@ -31,6 +32,7 @@ public class AccountResponseDTO {
         dto.setIcon(entity.getIcon());
         dto.setColor(entity.getColor());
         dto.setIsDefault(entity.getIsDefault());
+        dto.setCalculateBalance(entity.getCalculateBalance());
         return dto;
     }
 }

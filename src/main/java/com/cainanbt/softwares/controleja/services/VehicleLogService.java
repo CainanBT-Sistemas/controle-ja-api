@@ -21,4 +21,9 @@ public interface VehicleLogService {
      * Lista leituras do veículo autenticado em um período opcional.
      */
     List<VehicleLog> listLogsByVehicle(UUID vehicleId, Long start, Long end);
+
+    /**
+     * Exclui a última leitura de diário de bordo do veículo autenticado.
+     */
+    void deleteLastLog(UUID id);
 }

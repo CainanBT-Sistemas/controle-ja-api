@@ -70,15 +70,13 @@ public class VehicleDashboardServiceImpl implements VehicleDashboardService {
         }
 
         UUID vehicleId = vehicle.getId();
-        BigDecimal monthlyCost = transactionRepository.getNetVehicleCost(vehicleId, startOfMonth, endOfMonth);
-        if (monthlyCost == null) monthlyCost = BigDecimal.ZERO;
+        BigDecimal monthlyCost = calculateVehicleCost(vehicleId, startOfMonth, endOfMonth);
 
         LocalDate selectedPeriod = DateUtils.epochToLocalDate(startOfMonth);
         long startOfYear = DateUtils.localDateToEpoch(selectedPeriod.withDayOfYear(1));
         long endOfYear = DateUtils.localDateToEpoch(selectedPeriod.with(TemporalAdjusters.lastDayOfYear()).plusDays(1)) - 1;
 
-        BigDecimal yearlyCost = transactionRepository.getNetVehicleCost(vehicleId, startOfYear, endOfYear);
-        if (yearlyCost == null) yearlyCost = BigDecimal.ZERO;
+        BigDecimal yearlyCost = calculateVehicleCost(vehicleId, startOfYear, endOfYear);
 
         List<Transactions> periodRefuels = transactionRepository.findRefuelsByVehicleAndDateBetween(vehicleId, startOfMonth, endOfMonth);
 
@@ -417,7 +415,7 @@ public class VehicleDashboardServiceImpl implements VehicleDashboardService {
             LocalDate month = currentMonth.minusMonths(i);
             long start = DateUtils.localDateToEpoch(month);
             long end = DateUtils.localDateToEpoch(month.plusMonths(1)) - 1;
-            BigDecimal monthCost = transactionRepository.getNetVehicleCost(vehicleId, start, end);
+            BigDecimal monthCost = calculateVehicleCost(vehicleId, start, end);
             if (monthCost != null && monthCost.compareTo(BigDecimal.ZERO) != 0) {
                 total = total.add(monthCost);
                 monthsWithCost++;
@@ -430,6 +428,22 @@ public class VehicleDashboardServiceImpl implements VehicleDashboardService {
         }
 
         return estimatedRefuelCost != null ? estimatedRefuelCost : BigDecimal.ZERO;
+    }
+
+    /**
+     * Soma custos diretos do veículo e parcelas de cartão vencendo no período, evitando contar compras parceladas pelo valor total.
+     */
+    private BigDecimal calculateVehicleCost(UUID vehicleId, long start, long end) {
+        BigDecimal directCost = transactionRepository.getNetVehicleCost(vehicleId, start, end);
+        BigDecimal installmentCost = transactionRepository.getNetVehicleInstallmentCost(vehicleId, start, end);
+        return valueOrZero(directCost).add(valueOrZero(installmentCost));
+    }
+
+    /**
+     * Normaliza valores monetários opcionais para evitar nulos em somas de agregações.
+     */
+    private BigDecimal valueOrZero(BigDecimal value) {
+        return value != null ? value : BigDecimal.ZERO;
     }
 
     /**
