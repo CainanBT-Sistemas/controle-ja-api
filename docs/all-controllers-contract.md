@@ -642,6 +642,33 @@ Responsabilidade: gerenciar veiculos e expor dashboard individual do veiculo.
   "estimatedNextRefuelDate": 1719705600000,
   "estimatedNextRefuelCost": 250.00,
   "estimatedNextCost": 250.00,
+  "nextMonthEstimatedCost": 250.00,
+  "nextMonthEstimatedCostConfidence": "LOW",
+  "nextRefuelPrediction": {
+    "estimatedDate": 1719705600000,
+    "estimatedCost": 250.00,
+    "estimatedLiters": null,
+    "fuelType": null,
+    "confidence": "MEDIUM",
+    "basis": "Historico recente de abastecimentos, odometro atual e media diaria de uso."
+  },
+  "futurePredictions": [
+    {
+      "month": "2026-07",
+      "estimatedCost": 250.00,
+      "estimatedRefuels": 1,
+      "confidence": "LOW",
+      "items": [
+        {
+          "type": "REFUEL",
+          "description": "Abastecimento previsto",
+          "estimatedDate": 1719705600000,
+          "estimatedCost": 250.00,
+          "confidence": "MEDIUM"
+        }
+      ]
+    }
+  ],
   "lastRefuelAmount": 220.00,
   "lastFuelPricePerLiter": 5.50,
   "lastRefuelDistanceKm": 420.0,
@@ -649,6 +676,12 @@ Responsabilidade: gerenciar veiculos e expor dashboard individual do veiculo.
   "lastRefuelFuelType": "GASOLINA"
 }
 ```
+
+As previsoes do dashboard do veiculo so sao preenchidas para o mes atual consultado. Em meses historicos, os custos
+previstos retornam `0`, datas retornam `null`, `nextRefuelPrediction` retorna `null` e `futurePredictions` retorna lista
+vazia. Os campos legados `estimatedNextCost`, `estimatedNextRefuelCost` e `estimatedNextRefuelDate` continuam no
+contrato para compatibilidade com o aplicativo. Quando houver dados, `futurePredictions` pode retornar ate 3 meses
+futuros, usando parcelas/gastos futuros conhecidos e media historica como fallback.
 
 Decisões do dashboard de veículo:
 

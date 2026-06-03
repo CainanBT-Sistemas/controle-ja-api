@@ -152,6 +152,33 @@ Authorization: Bearer {{token}}
 ###   "estimatedNextRefuelDate": "epoch milliseconds|null",
 ###   "estimatedNextRefuelCost": "decimal",
 ###   "estimatedNextCost": "decimal",
+###   "nextMonthEstimatedCost": "decimal",
+###   "nextMonthEstimatedCostConfidence": "LOW | MEDIUM | HIGH | null",
+###   "nextRefuelPrediction": {
+###     "estimatedDate": "epoch milliseconds|null",
+###     "estimatedCost": "decimal",
+###     "estimatedLiters": "decimal|null",
+###     "fuelType": "GASOLINA | ETANOL | null",
+###     "confidence": "LOW | MEDIUM | HIGH",
+###     "basis": "string"
+###   },
+###   "futurePredictions": [
+###     {
+###       "month": "YYYY-MM",
+###       "estimatedCost": "decimal",
+###       "estimatedRefuels": "integer",
+###       "confidence": "LOW | MEDIUM | HIGH | null",
+###       "items": [
+###         {
+###           "type": "REFUEL | MAINTENANCE | INSTALLMENT | OTHER",
+###           "description": "string",
+###           "estimatedDate": "epoch milliseconds|null",
+###           "estimatedCost": "decimal",
+###           "confidence": "LOW | MEDIUM | HIGH"
+###         }
+###       ]
+###     }
+###   ],
 ###   "lastRefuelAmount": "decimal|null",
 ###   "lastFuelPricePerLiter": "decimal|null",
 ###   "lastRefuelDistanceKm": "decimal|null",
@@ -160,7 +187,66 @@ Authorization: Bearer {{token}}
 ### }
 ### Notes:
 ### - monthlyCost/yearlyCost use vehicle direct expenses plus credit-card installments due in the period.
+### - Future prediction fields are populated only when start/end represent the current month.
+### - For historical months, estimatedNextCost, estimatedNextRefuelCost and nextMonthEstimatedCost return 0; dates and nested predictions return null/empty list.
+### - Legacy fields estimatedNextCost, estimatedNextRefuelCost and estimatedNextRefuelDate remain for mobile compatibility.
+### - futurePredictions may include up to 3 months ahead, prioritizing the next month.
+### - Monthly prediction uses known future vehicle costs/installments when available and falls back to recent vehicle cost average when no future cost is scheduled.
+### - Refuel prediction uses recent fuel price per liter, estimated refuel volume, odometer, KML and average usage interval.
 ### - Credit-card purchases are not counted by their full original amount in the purchase month.
+### Current-month response example:
+### {
+###   "monthlyCost": 167.00,
+###   "yearlyCost": 5338.56,
+###   "costPerKm": 0.55,
+###   "currentAvgKml": 10.5,
+###   "remainingKms": 220.0,
+###   "estimatedNextRefuelDate": 1781568000000,
+###   "estimatedNextRefuelCost": 180.00,
+###   "estimatedNextCost": 950.00,
+###   "nextMonthEstimatedCost": 950.00,
+###   "nextMonthEstimatedCostConfidence": "MEDIUM",
+###   "nextRefuelPrediction": {
+###     "estimatedDate": 1781568000000,
+###     "estimatedCost": 180.00,
+###     "estimatedLiters": 40.0,
+###     "fuelType": "GASOLINA",
+###     "confidence": "MEDIUM",
+###     "basis": "Historico recente de abastecimentos, odometro atual e media diaria de uso."
+###   },
+###   "futurePredictions": [
+###     {
+###       "month": "2026-07",
+###       "estimatedCost": 950.00,
+###       "estimatedRefuels": 1,
+###       "confidence": "MEDIUM",
+###       "items": [
+###         {
+###           "type": "REFUEL",
+###           "description": "Abastecimento previsto",
+###           "estimatedDate": 1781568000000,
+###           "estimatedCost": 180.00,
+###           "confidence": "MEDIUM"
+###         }
+###       ]
+###     }
+###   ]
+### }
+### Historical-month response example:
+### {
+###   "monthlyCost": 500.00,
+###   "yearlyCost": 5338.56,
+###   "costPerKm": 0.75,
+###   "currentAvgKml": 10.5,
+###   "remainingKms": null,
+###   "estimatedNextRefuelDate": null,
+###   "estimatedNextRefuelCost": 0,
+###   "estimatedNextCost": 0,
+###   "nextMonthEstimatedCost": 0,
+###   "nextMonthEstimatedCostConfidence": null,
+###   "nextRefuelPrediction": null,
+###   "futurePredictions": []
+### }
 
 ### Create vehicle log
 POST {{baseUrl}}/vehicles/logs
