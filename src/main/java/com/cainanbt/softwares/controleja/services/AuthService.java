@@ -10,9 +10,18 @@ import jakarta.validation.Valid;
 
 public interface AuthService {
 
+    /**
+     * Valida credenciais locais e emite access token e refresh token.
+     */
     UserResponseDTO login(UserLoginDTO loginAdapter, HttpServletRequest request) throws BadRequestException;
 
+    /**
+     * Autentica um usuario pelo provedor Google, criando a conta quando necessario.
+     */
     UserResponseDTO loginGoogle(GoogleLoginDTO googleLogin, HttpServletRequest request);
 
+    /**
+     * Gera uma nova sessao a partir de refresh token valido e persistido.
+     */
     UserResponseDTO loginAuto(@Valid TokenLoginDTO tokenLoginDTO, HttpServletRequest request);
 }

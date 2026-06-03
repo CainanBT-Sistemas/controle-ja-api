@@ -3,20 +3,13 @@ package com.cainanbt.softwares.controleja.services.processors;
 import com.cainanbt.softwares.controleja.dtos.TransactionDTO;
 import com.cainanbt.softwares.controleja.entities.Accounts;
 import com.cainanbt.softwares.controleja.entities.Category;
-import com.cainanbt.softwares.controleja.entities.GasStation;
 import com.cainanbt.softwares.controleja.entities.RecurrenceRule;
 import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.entities.Users;
-import com.cainanbt.softwares.controleja.entities.Vehicle;
 import com.cainanbt.softwares.controleja.enums.RuleStatus;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
-import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
-import com.cainanbt.softwares.controleja.repositories.GasStationRepository;
 import com.cainanbt.softwares.controleja.services.AccountsService;
-import com.cainanbt.softwares.controleja.services.GasStationRankingService;
 import com.cainanbt.softwares.controleja.services.RecurrenceRuleService;
-import com.cainanbt.softwares.controleja.services.VehicleService;
-import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import lombok.RequiredArgsConstructor;
@@ -28,12 +21,13 @@ import java.time.LocalDateTime;
 @Component
 @RequiredArgsConstructor
 public class TransactionHelper {
-    private final VehicleService vehicleService;
     private final AccountsService accountsService;
     private final RecurrenceRuleService recurrenceRuleService;
-    private final GasStationRepository gasStationRepository;
-    private final GasStationRankingService rankingService;
+    private final VehicleTransactionProcessor vehicleTransactionProcessor;
 
+    /**
+     * Monta os campos comuns de uma transacao e delega dados veiculares ao processador especializado.
+     */
     public Transactions.TransactionsBuilder createBaseTransactionBuilder(TransactionDTO dto, Accounts account, Category category, Users user) {
         long dateNow = DateUtils.getEpochNow();
 
@@ -55,28 +49,13 @@ public class TransactionHelper {
                 .user(user)
                 .createdAt(dateNow);
 
-        if (dto.getGasStationId() != null) {
-            GasStation station = gasStationRepository.findById(dto.getGasStationId())
-                    .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, "Posto não encontrado."));
-            builder.gasStation(station);
-        }
-
-        if (dto.getVehicleId() != null) {
-            Vehicle vehicle = vehicleService.findById(dto.getVehicleId());
-            if (!vehicle.getUser().getId().equals(user.getId())) {
-                throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_VEHICLE);
-            }
-            Double efficiency = vehicleService.processRefuel(vehicle, dto.getCurrentOdometer(), dto.getLiters(), dto.getFuelType());
-            builder.vehicle(vehicle)
-                    .liters(dto.getLiters())
-                    .currentOdometer(dto.getCurrentOdometer())
-                    .fuelType(dto.getFuelType())
-                    .drivingPredominance(dto.getDrivingPredominance())
-                    .efficiency(efficiency);
-        }
+        vehicleTransactionProcessor.apply(dto, builder, user);
         return builder;
     }
 
+    /**
+     * Cria a regra que gera os proximos lancamentos fixos/recorrentes.
+     */
     public RecurrenceRule createRecurrenceRule(TransactionDTO dto, TransactionType transactionType, long dateNow, Users user, Accounts accountOrigin, Accounts accountDest, Category category) {
 
         // BLINDAGEM: Se a descrição vier nula do app, salva como texto vazio para não quebrar o banco de dados
@@ -101,6 +80,9 @@ public class TransactionHelper {
         return recurrenceRuleService.save(rule);
     }
 
+    /**
+     * Aplica o efeito financeiro da transacao na conta quando ela esta paga.
+     */
     public void applyAccountBalance(Transactions tx, Accounts account) {
         if (Boolean.TRUE.equals(tx.getPaid())) {
             if (tx.getType() == TransactionType.DESPESA) {
@@ -112,6 +94,9 @@ public class TransactionHelper {
         }
     }
 
+    /**
+     * Calcula em qual fatura uma compra entra respeitando fechamento e melhor dia do cartao.
+     */
     public LocalDateTime calculateInvoiceDate(LocalDateTime refDate, int closeDay, int bestDay) {
         int closeDayInMonth = Math.min(closeDay, refDate.toLocalDate().lengthOfMonth());
         if (refDate.getDayOfMonth() >= closeDayInMonth) {

@@ -25,44 +25,44 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
     @Query("SELECT t FROM Transactions t WHERE t.user.id = :userId AND t.deletedAt IS NULL ORDER BY t.date DESC")
     List<Transactions> findByUserIdOrderByDateDesc(@Param("userId") UUID userId);
 
-    @Query("SELECT COALESCE(parentCategory.name, c.name) AS label, SUM(t.amount) AS value, COALESCE(parentCategory.color, c.color) AS color " +
+    @Query("SELECT new com.cainanbt.softwares.controleja.dtos.dashboard.ChartDataDTO(COALESCE(parentCategory.name, c.name), SUM(t.amount), COALESCE(parentCategory.color, c.color)) " +
             "FROM Transactions t JOIN t.category c LEFT JOIN c.subCategory parentCategory " +
             "WHERE t.user.id = :userId AND t.type = :type AND t.account.type != com.cainanbt.softwares.controleja.enums.AccountType.CREDIT_CARD " +
             "AND t.paid = true AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
-            "GROUP BY COALESCE(parentCategory.name, c.name), COALESCE(parentCategory.color, c.color) ORDER BY value DESC")
+            "GROUP BY COALESCE(parentCategory.name, c.name), COALESCE(parentCategory.color, c.color) ORDER BY SUM(t.amount) DESC")
     List<ChartDataDTO> getGeneralExpensesByCategory(@Param("userId") UUID userId, @Param("start") Long start, @Param("end") Long end, @Param("type") TransactionType type);
 
-    @Query("SELECT COALESCE(parentCategory.name, c.name) AS label, SUM(i.amount) AS value, COALESCE(parentCategory.color, c.color) AS color " +
+    @Query("SELECT new com.cainanbt.softwares.controleja.dtos.dashboard.ChartDataDTO(COALESCE(parentCategory.name, c.name), SUM(i.amount), COALESCE(parentCategory.color, c.color)) " +
             "FROM InstallmentPlan i, Transactions t JOIN t.category c LEFT JOIN c.subCategory parentCategory " +
             "WHERE i.purchaseId = t.id AND i.user.id = :userId " +
             "AND t.type = :type " +
             "AND i.date BETWEEN :start AND :end " +
             "AND i.deletedAt IS NULL AND t.deletedAt IS NULL " +
-            "GROUP BY COALESCE(parentCategory.name, c.name), COALESCE(parentCategory.color, c.color) ORDER BY value DESC")
+            "GROUP BY COALESCE(parentCategory.name, c.name), COALESCE(parentCategory.color, c.color) ORDER BY SUM(i.amount) DESC")
     List<ChartDataDTO> getCreditCardExpensesByCategory(@Param("userId") UUID userId, @Param("start") Long start, @Param("end") Long end, @Param("type") TransactionType type);
 
-    @Query("SELECT COALESCE(parentCategory.name, c.name) AS label, SUM(t.amount) AS value, COALESCE(parentCategory.color, c.color) AS color " +
+    @Query("SELECT new com.cainanbt.softwares.controleja.dtos.dashboard.ChartDataDTO(COALESCE(parentCategory.name, c.name), SUM(t.amount), COALESCE(parentCategory.color, c.color)) " +
             "FROM Transactions t JOIN t.category c LEFT JOIN c.subCategory parentCategory " +
             "WHERE t.user.id = :userId AND t.type = :type AND t.paid = true AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
-            "GROUP BY COALESCE(parentCategory.name, c.name), COALESCE(parentCategory.color, c.color) ORDER BY value DESC")
+            "GROUP BY COALESCE(parentCategory.name, c.name), COALESCE(parentCategory.color, c.color) ORDER BY SUM(t.amount) DESC")
     List<ChartDataDTO> getExpensesByCategory(@Param("userId") UUID userId, @Param("start") Long start, @Param("end") Long end, @Param("type") TransactionType type);
 
-    @Query("SELECT CAST(t.fuelType AS string) AS label, SUM(t.amount) AS value, '#FF9800' AS color " +
+    @Query("SELECT new com.cainanbt.softwares.controleja.dtos.dashboard.ChartDataDTO(CAST(t.fuelType AS string), SUM(t.amount), '#FF9800') " +
             "FROM Transactions t WHERE t.user.id = :userId AND t.type = 'DESPESA' AND t.vehicle IS NOT NULL " +
             "AND t.fuelType IS NOT NULL AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
-            "GROUP BY t.fuelType ORDER BY value DESC")
+            "GROUP BY t.fuelType ORDER BY SUM(t.amount) DESC")
     List<ChartDataDTO> getExpensesByFuelType(@Param("userId") UUID userId, @Param("start") Long start, @Param("end") Long end);
 
     @Query("SELECT SUM(t.amount) FROM Transactions t " +
             "WHERE t.user.id = :userId AND t.type = :type AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL")
     BigDecimal getTotalByType(@Param("userId") UUID userId, @Param("type") TransactionType type, @Param("start") Long start, @Param("end") Long end);
 
-    @Query("SELECT CAST(t.date AS string) AS label, t.amount AS value, '#00E676' AS color " +
+    @Query("SELECT new com.cainanbt.softwares.controleja.dtos.dashboard.ChartDataDTO(CAST(t.date AS string), t.amount, '#00E676') " +
             "FROM Transactions t WHERE t.user.id = :userId AND t.type = 'DESPESA' AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
             "ORDER BY t.date ASC")
     List<ChartDataDTO> getEvolutionRawDataAll(@Param("userId") UUID userId, @Param("start") Long start, @Param("end") Long end);
 
-    @Query("SELECT CAST(t.date AS string) AS label, t.amount AS value, '#00E676' AS color " +
+    @Query("SELECT new com.cainanbt.softwares.controleja.dtos.dashboard.ChartDataDTO(CAST(t.date AS string), t.amount, '#00E676') " +
             "FROM Transactions t WHERE t.user.id = :userId AND t.type = 'DESPESA' AND t.category.id = :categoryId " +
             "AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
             "ORDER BY t.date ASC")
@@ -112,13 +112,24 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
             "FROM Transactions t LEFT JOIN t.category.subCategory parentCategory " +
             "WHERE t.vehicle.id = :vehicleId " +
             "AND t.date BETWEEN :start AND :end AND t.deletedAt IS NULL " +
+            "AND t.account.type <> com.cainanbt.softwares.controleja.enums.AccountType.CREDIT_CARD " +
             "AND t.type IN (com.cainanbt.softwares.controleja.enums.TransactionType.DESPESA, com.cainanbt.softwares.controleja.enums.TransactionType.RECEITA) " +
             "AND (LOWER(t.category.name) IN ('veículo', 'veículos') " +
             "OR LOWER(parentCategory.name) IN ('veículo', 'veículos'))")
     BigDecimal getNetVehicleCost(@Param("vehicleId") UUID vehicleId, @Param("start") Long start, @Param("end") Long end);
 
-    // Encontra o último abastecimento do carro (onde fuelType não é nulo)
-    Optional<Transactions> findFirstByVehicleIdAndFuelTypeIsNotNullAndDeletedAtIsNullOrderByDateDesc(UUID vehicleId);
+    @Query("SELECT COALESCE(SUM(CASE " +
+            "WHEN i.type = 'DESPESA' THEN i.amount " +
+            "WHEN i.type = 'RECEITA' THEN -i.amount " +
+            "ELSE 0 END), 0) " +
+            "FROM InstallmentPlan i, Transactions t LEFT JOIN t.category.subCategory parentCategory " +
+            "WHERE i.purchaseId = t.id " +
+            "AND t.vehicle.id = :vehicleId " +
+            "AND i.date BETWEEN :start AND :end " +
+            "AND i.deletedAt IS NULL AND t.deletedAt IS NULL " +
+            "AND (LOWER(t.category.name) IN ('veículo', 'veículos') " +
+            "OR LOWER(parentCategory.name) IN ('veículo', 'veículos'))")
+    BigDecimal getNetVehicleInstallmentCost(@Param("vehicleId") UUID vehicleId, @Param("start") Long start, @Param("end") Long end);
 
     @Query("SELECT t FROM Transactions t LEFT JOIN t.category.subCategory parentCategory " +
             "WHERE t.vehicle.id = :vehicleId AND t.type = 'DESPESA' " +

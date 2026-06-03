@@ -5,12 +5,17 @@ import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.entities.Vehicle;
 import com.cainanbt.softwares.controleja.entities.VehicleLog;
 import com.cainanbt.softwares.controleja.enums.FuelType;
+import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.repositories.VehicleLogRepository;
 import com.cainanbt.softwares.controleja.services.VehicleDashboardService;
 import com.cainanbt.softwares.controleja.services.VehicleService;
+import com.cainanbt.softwares.controleja.services.dashboard.DashboardPeriodValidator;
+import com.cainanbt.softwares.controleja.services.vehicles.VehicleDomainValidator;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
+import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -28,39 +33,69 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class VehicleDashboardServiceImpl implements VehicleDashboardService {
     private static final double MAX_REFUEL_LITERS_WITHOUT_TANK_CAPACITY = 200.0;
     private static final double TANK_CAPACITY_TOLERANCE_FACTOR = 1.5;
     private static final double MAX_PLAUSIBLE_KML = 100.0;
     private static final int FORECAST_COST_MONTHS = 6;
+    private static final int FUTURE_FORECAST_MONTHS = 3;
+    private static final long DAY_IN_MILLIS = 24L * 60L * 60L * 1000L;
+    private static final String LOW_CONFIDENCE = "LOW";
+    private static final String MEDIUM_CONFIDENCE = "MEDIUM";
+    private static final String HIGH_CONFIDENCE = "HIGH";
+
+    private final VehicleDomainValidator vehicleDomainValidator = new VehicleDomainValidator();
+    private final DashboardPeriodValidator periodValidator = new DashboardPeriodValidator();
 
     private final VehicleService vehicleService;
     private final TransactionRepository transactionRepository;
     private final VehicleLogRepository logRepository;
 
+    /**
+     * Monta o dashboard carregando e autorizando o veículo pelo identificador informado.
+     */
     @Override
     public VehicleDashboardDTO getDashboard(UUID vehicleId, Long startOfMonth, Long endOfMonth) {
         Vehicle vehicle = vehicleService.findByIdOrThrow(vehicleId);
+        SecurityContextUtils.getUserLogged()
+                .ifPresent(user -> vehicleDomainValidator.validateOwner(vehicle, user));
+        return getDashboard(vehicle, startOfMonth, endOfMonth);
+    }
 
-        // 1. Custos: Mês atual
-        BigDecimal monthlyCost = transactionRepository.getNetVehicleCost(vehicleId, startOfMonth, endOfMonth);
-        if (monthlyCost == null) monthlyCost = BigDecimal.ZERO;
+    /**
+     * Monta métricas de custo, consumo, último abastecimento e previsão para o veículo autorizado.
+     */
+    @Override
+    public VehicleDashboardDTO getDashboard(Vehicle vehicle, Long startOfMonth, Long endOfMonth) {
+        periodValidator.validate(startOfMonth, endOfMonth);
+        if (vehicle == null || vehicle.getId() == null) {
+            throw new BadRequestException("Erro", "Veículo inválido para consulta do dashboard.");
+        }
 
-        // 2. Custos: Ano do período selecionado
+        UUID vehicleId = vehicle.getId();
+        BigDecimal monthlyCost = calculateVehicleCost(vehicleId, startOfMonth, endOfMonth);
+
         LocalDate selectedPeriod = DateUtils.epochToLocalDate(startOfMonth);
         long startOfYear = DateUtils.localDateToEpoch(selectedPeriod.withDayOfYear(1));
         long endOfYear = DateUtils.localDateToEpoch(selectedPeriod.with(TemporalAdjusters.lastDayOfYear()).plusDays(1)) - 1;
 
-        BigDecimal yearlyCost = transactionRepository.getNetVehicleCost(vehicleId, startOfYear, endOfYear);
-        if (yearlyCost == null) yearlyCost = BigDecimal.ZERO;
+        BigDecimal yearlyCost = calculateVehicleCost(vehicleId, startOfYear, endOfYear);
 
         List<Transactions> periodRefuels = transactionRepository.findRefuelsByVehicleAndDateBetween(vehicleId, startOfMonth, endOfMonth);
 
-        // 3. Média de consumo exclusiva do período selecionado.
         Double currentAvgKml = calculateAverageKml(vehicleId, startOfMonth, endOfMonth, periodRefuels, vehicle);
 
-        FuelForecast forecast = calculateFuelForecast(vehicleId, vehicle);
-        BigDecimal estimatedNextCost = calculateEstimatedNextCost(vehicleId, forecast.estimatedNextRefuelCost());
+        boolean canExposeFuturePredictions = isCurrentMonthDashboard(startOfMonth);
+        long now = DateUtils.getEpochNow();
+        FuelForecast forecast = canExposeFuturePredictions ? calculateFuelForecast(vehicleId, vehicle, now) : FuelForecast.empty();
+        VehicleCostForecast costForecast = canExposeFuturePredictions
+                ? calculateVehicleCostForecast(vehicleId, forecast, now)
+                : VehicleCostForecast.empty();
+        BigDecimal estimatedNextCost = costForecast.nextMonthEstimatedCost();
+        ForecastContract forecastContract = canExposeFuturePredictions
+                ? buildForecastContract(forecast, costForecast)
+                : ForecastContract.empty();
         LastRefuelData lastRefuelData = calculateLastRefuelData(vehicleId, periodRefuels, vehicle);
         BigDecimal costPerKm = BigDecimal.ZERO;
 
@@ -78,6 +113,10 @@ public class VehicleDashboardServiceImpl implements VehicleDashboardService {
                 .estimatedNextRefuelDate(forecast.estimatedNextRefuelDate())
                 .estimatedNextRefuelCost(forecast.estimatedNextRefuelCost())
                 .estimatedNextCost(estimatedNextCost)
+                .nextMonthEstimatedCost(forecastContract.nextMonthEstimatedCost())
+                .nextMonthEstimatedCostConfidence(forecastContract.nextMonthEstimatedCostConfidence())
+                .nextRefuelPrediction(forecastContract.nextRefuelPrediction())
+                .futurePredictions(forecastContract.futurePredictions())
                 .lastRefuelAmount(lastRefuelData.lastRefuelAmount())
                 .lastFuelPricePerLiter(lastRefuelData.lastFuelPricePerLiter())
                 .lastRefuelDistanceKm(lastRefuelData.lastRefuelDistanceKm())
@@ -86,6 +125,45 @@ public class VehicleDashboardServiceImpl implements VehicleDashboardService {
                 .build();
     }
 
+    /**
+     * Libera previsões somente para o dashboard do mês atual, evitando mostrar projeções em meses históricos.
+     */
+    private boolean isCurrentMonthDashboard(long startOfMonth) {
+        YearMonth selectedMonth = YearMonth.from(DateUtils.epochToLocalDate(startOfMonth));
+        YearMonth currentMonth = YearMonth.from(DateUtils.epochToLocalDate(DateUtils.getEpochNow()));
+        return selectedMonth.equals(currentMonth);
+    }
+
+    /**
+     * Converte a previsão interna para o contrato novo sem remover os campos legados usados pelo app.
+     */
+    private ForecastContract buildForecastContract(FuelForecast forecast, VehicleCostForecast costForecast) {
+        BigDecimal safeEstimatedNextCost = costForecast.nextMonthEstimatedCost() != null ? costForecast.nextMonthEstimatedCost() : BigDecimal.ZERO;
+        BigDecimal safeRefuelCost = forecast.estimatedNextRefuelCost() != null ? forecast.estimatedNextRefuelCost() : BigDecimal.ZERO;
+
+        VehicleDashboardDTO.VehicleRefuelPredictionDTO refuelPrediction = null;
+        if (forecast.estimatedNextRefuelDate() != null || safeRefuelCost.compareTo(BigDecimal.ZERO) > 0) {
+            refuelPrediction = VehicleDashboardDTO.VehicleRefuelPredictionDTO.builder()
+                    .estimatedDate(forecast.estimatedNextRefuelDate())
+                    .estimatedCost(safeRefuelCost)
+                    .estimatedLiters(forecast.estimatedLiters())
+                    .fuelType(forecast.fuelType())
+                    .confidence(forecast.confidence())
+                    .basis("Historico recente de abastecimentos, odometro atual e media diaria de uso.")
+                    .build();
+        }
+
+        return new ForecastContract(
+                safeEstimatedNextCost,
+                costForecast.nextMonthConfidence(),
+                refuelPrediction,
+                costForecast.futurePredictions()
+        );
+    }
+
+    /**
+     * Calcula média KM/L do período usando abastecimentos confiáveis ou diário de bordo como fallback.
+     */
     private Double calculateAverageKml(UUID vehicleId, Long start, Long end, List<Transactions> refuels, Vehicle vehicle) {
         double kmFromRefuels = 0.0;
         double litersFromRefuels = 0.0;
@@ -117,6 +195,9 @@ public class VehicleDashboardServiceImpl implements VehicleDashboardService {
         return 0.0;
     }
 
+    /**
+     * Resolve os dados do último abastecimento confiável dentro do período.
+     */
     private LastRefuelData calculateLastRefuelData(UUID vehicleId, List<Transactions> periodRefuels, Vehicle vehicle) {
         Optional<Transactions> lastRefuelOpt = periodRefuels.stream()
                 .filter(refuel -> isValidRefuelForLastData(refuel, vehicle))
@@ -161,6 +242,9 @@ public class VehicleDashboardServiceImpl implements VehicleDashboardService {
         return new LastRefuelData(lastRefuel.getAmount(), lastFuelPricePerLiter, distanceKm, kml, lastRefuel.getFuelType());
     }
 
+    /**
+     * Localiza o abastecimento anterior dentro do mesmo período usando data e createdAt como desempate.
+     */
     private Optional<Transactions> findPreviousRefuelInPeriod(List<Transactions> periodRefuels, Transactions lastRefuel) {
         return periodRefuels.stream()
                 .filter(this::isValidRefuelForPreviousDistance)
@@ -170,6 +254,9 @@ public class VehicleDashboardServiceImpl implements VehicleDashboardService {
                         .thenComparing(transaction -> transaction.getCreatedAt() != null ? transaction.getCreatedAt() : 0L));
     }
 
+    /**
+     * Compara duas transações respeitando data e ordem de criação.
+     */
     private boolean isBefore(Transactions candidate, Transactions reference) {
         int dateComparison = candidate.getDate().compareTo(reference.getDate());
         if (dateComparison < 0) {
@@ -183,12 +270,18 @@ public class VehicleDashboardServiceImpl implements VehicleDashboardService {
         return candidateCreatedAt < referenceCreatedAt;
     }
 
+    /**
+     * Valida se o abastecimento pode contribuir para média do período.
+     */
     private boolean isValidRefuelForAverage(Transactions refuel, Vehicle vehicle) {
         return isValidRefuelForLastData(refuel, vehicle)
                 && refuel.getEfficiency() != null
                 && isPlausibleKml(refuel.getEfficiency());
     }
 
+    /**
+     * Valida campos mínimos do abastecimento para dados financeiros e odômetro.
+     */
     private boolean isValidRefuelForLastData(Transactions refuel, Vehicle vehicle) {
         return refuel.getLiters() != null && refuel.getLiters() > 0
                 && isPlausibleLiters(refuel.getLiters(), vehicle)
@@ -196,10 +289,16 @@ public class VehicleDashboardServiceImpl implements VehicleDashboardService {
                 && refuel.getCurrentOdometer() != null && refuel.getCurrentOdometer().compareTo(BigDecimal.ZERO) > 0;
     }
 
+    /**
+     * Confirma que há odômetro válido para calcular distância entre abastecimentos.
+     */
     private boolean isValidRefuelForPreviousDistance(Transactions refuel) {
         return refuel.getCurrentOdometer() != null && refuel.getCurrentOdometer().compareTo(BigDecimal.ZERO) > 0;
     }
 
+    /**
+     * Bloqueia litros zerados, negativos ou incompatíveis com a capacidade do tanque.
+     */
     private boolean isPlausibleLiters(Double liters, Vehicle vehicle) {
         if (liters == null || liters <= 0) {
             return false;
@@ -210,12 +309,17 @@ public class VehicleDashboardServiceImpl implements VehicleDashboardService {
         return liters <= MAX_REFUEL_LITERS_WITHOUT_TANK_CAPACITY;
     }
 
+    /**
+     * Limita KM/L a uma faixa positiva e plausível para evitar outliers no dashboard.
+     */
     private boolean isPlausibleKml(Double kml) {
         return kml != null && kml > 0 && kml <= MAX_PLAUSIBLE_KML;
     }
 
-    private FuelForecast calculateFuelForecast(UUID vehicleId, Vehicle vehicle) {
-        long now = DateUtils.getEpochNow();
+    /**
+     * Calcula autonomia restante, próxima data estimada e custo estimado do próximo abastecimento.
+     */
+    private FuelForecast calculateFuelForecast(UUID vehicleId, Vehicle vehicle, long now) {
         List<Transactions> validRefuels = transactionRepository.findValidRefuelsByVehicleUpToDate(vehicleId, now).stream()
                 .filter(refuel -> isValidRefuelForForecast(refuel, vehicle))
                 .toList();
@@ -242,17 +346,41 @@ public class VehicleDashboardServiceImpl implements VehicleDashboardService {
 
         Double dailyKmAverage = calculateDailyKmAverage(vehicleId, vehicle, now, validRefuels);
         if (dailyKmAverage == null || dailyKmAverage <= 0) {
-            return FuelForecast.withRemainingKms(remainingKms);
+            return FuelForecast.withRemainingKms(remainingKms, estimateRefuelLiters(vehicle, lastRefuel), lastRefuel.getFuelType(), confidenceForRefuels(validRefuels));
         }
 
         long daysLeft = Math.max(1L, (long) Math.ceil(remainingKms / dailyKmAverage));
-        long estimatedDate = now + (daysLeft * 24L * 60L * 60L * 1000L);
+        long estimatedDate = now + (daysLeft * DAY_IN_MILLIS);
         if (estimatedDate < now) {
-            return FuelForecast.withRemainingKms(remainingKms);
+            return FuelForecast.withRemainingKms(remainingKms, estimateRefuelLiters(vehicle, lastRefuel), lastRefuel.getFuelType(), confidenceForRefuels(validRefuels));
         }
-        return new FuelForecast(remainingKms, estimatedDate, calculateEstimatedRefuelCost(validRefuels, now));
+
+        Double estimatedLiters = estimateRefuelLiters(vehicle, lastRefuel);
+        BigDecimal estimatedRefuelCost = calculateEstimatedRefuelCost(validRefuels, now, estimatedLiters);
+        return new FuelForecast(
+                remainingKms,
+                estimatedDate,
+                estimatedRefuelCost,
+                estimatedLiters,
+                lastRefuel.getFuelType(),
+                confidenceForRefuels(validRefuels),
+                calculateAverageDaysBetweenRefuels(validRefuels)
+        );
     }
 
+    /**
+     * Estima o volume do próximo abastecimento pela capacidade do tanque ou pelo último volume confiável.
+     */
+    private Double estimateRefuelLiters(Vehicle vehicle, Transactions lastRefuel) {
+        if (vehicle.getTankCapacity() != null && vehicle.getTankCapacity() > 0) {
+            return vehicle.getTankCapacity();
+        }
+        return lastRefuel.getLiters() != null && lastRefuel.getLiters() > 0 ? lastRefuel.getLiters() : null;
+    }
+
+    /**
+     * Decide qual KM/L usar na previsão: abastecimento atual ou média cadastrada no veículo.
+     */
     private double resolveForecastKml(Transactions lastRefuel, Vehicle vehicle) {
         if (isPlausibleKml(lastRefuel.getEfficiency())) {
             return lastRefuel.getEfficiency();
@@ -263,12 +391,18 @@ public class VehicleDashboardServiceImpl implements VehicleDashboardService {
         return isPlausibleKml(vehicleAverage) ? vehicleAverage : 0.0;
     }
 
+    /**
+     * Valida se o abastecimento pode alimentar a previsão de autonomia.
+     */
     private boolean isValidRefuelForForecast(Transactions refuel, Vehicle vehicle) {
         return isValidRefuelForLastData(refuel, vehicle)
                 && refuel.getDate() != null
                 && isPlausibleKml(resolveForecastKml(refuel, vehicle));
     }
 
+    /**
+     * Calcula média diária de km usando abastecimentos ou o primeiro diário de bordo disponível.
+     */
     private Double calculateDailyKmAverage(UUID vehicleId, Vehicle vehicle, long now, List<Transactions> validRefuels) {
         Double refuelAverage = calculateDailyKmAverageFromRefuels(validRefuels);
         if (refuelAverage != null && refuelAverage > 0) {
@@ -281,7 +415,7 @@ public class VehicleDashboardServiceImpl implements VehicleDashboardService {
         }
 
         VehicleLog firstLog = firstLogOpt.get();
-        long daysSinceFirstLog = (now - firstLog.getDate()) / (24L * 60L * 60L * 1000L);
+        long daysSinceFirstLog = (now - firstLog.getDate()) / DAY_IN_MILLIS;
         if (daysSinceFirstLog <= 0 || firstLog.getOdometerReading() == null || vehicle.getCurrentOdometer() == null) {
             return null;
         }
@@ -290,6 +424,9 @@ public class VehicleDashboardServiceImpl implements VehicleDashboardService {
         return totalKmDrivenInApp > 0 ? totalKmDrivenInApp / daysSinceFirstLog : null;
     }
 
+    /**
+     * Calcula km/dia entre o primeiro e o último abastecimento confiável.
+     */
     private Double calculateDailyKmAverageFromRefuels(List<Transactions> validRefuels) {
         List<Transactions> orderedRefuels = validRefuels.stream()
                 .filter(refuel -> refuel.getDate() != null)
@@ -304,7 +441,7 @@ public class VehicleDashboardServiceImpl implements VehicleDashboardService {
 
         Transactions firstRefuel = orderedRefuels.get(0);
         Transactions lastRefuel = orderedRefuels.get(orderedRefuels.size() - 1);
-        long daysBetween = (lastRefuel.getDate() - firstRefuel.getDate()) / (24L * 60L * 60L * 1000L);
+        long daysBetween = (lastRefuel.getDate() - firstRefuel.getDate()) / DAY_IN_MILLIS;
         if (daysBetween <= 0) {
             return null;
         }
@@ -313,7 +450,17 @@ public class VehicleDashboardServiceImpl implements VehicleDashboardService {
         return distance.compareTo(BigDecimal.ZERO) > 0 ? distance.doubleValue() / daysBetween : null;
     }
 
-    private BigDecimal calculateEstimatedRefuelCost(List<Transactions> validRefuels, long now) {
+    /**
+     * Calcula custo médio mensal de combustível usando meses com abastecimento nos últimos meses.
+     */
+    private BigDecimal calculateEstimatedRefuelCost(List<Transactions> validRefuels, long now, Double estimatedLiters) {
+        BigDecimal averageLiterPrice = calculateAverageLiterPrice(validRefuels, now);
+        if (averageLiterPrice.compareTo(BigDecimal.ZERO) > 0 && estimatedLiters != null && estimatedLiters > 0) {
+            return averageLiterPrice
+                    .multiply(BigDecimal.valueOf(estimatedLiters))
+                    .setScale(2, RoundingMode.HALF_UP);
+        }
+
         long costStart = DateUtils.localDateToEpoch(DateUtils.epochToLocalDate(now).minusMonths(FORECAST_COST_MONTHS - 1).withDayOfMonth(1));
         Map<YearMonth, BigDecimal> monthlyFuelCosts = new LinkedHashMap<>();
 
@@ -334,31 +481,227 @@ public class VehicleDashboardServiceImpl implements VehicleDashboardService {
         return total.divide(BigDecimal.valueOf(monthlyFuelCosts.size()), 2, RoundingMode.HALF_UP);
     }
 
-    private BigDecimal calculateEstimatedNextCost(UUID vehicleId, BigDecimal estimatedRefuelCost) {
-        long now = DateUtils.getEpochNow();
-        LocalDate currentMonth = DateUtils.epochToLocalDate(now).withDayOfMonth(1);
+    /**
+     * Calcula preço médio por litro recente, ignorando abastecimentos sem valor ou volume confiável.
+     */
+    private BigDecimal calculateAverageLiterPrice(List<Transactions> validRefuels, long now) {
+        long costStart = DateUtils.localDateToEpoch(DateUtils.epochToLocalDate(now).minusMonths(FORECAST_COST_MONTHS - 1).withDayOfMonth(1));
+        BigDecimal totalAmount = BigDecimal.ZERO;
+        BigDecimal totalLiters = BigDecimal.ZERO;
+
+        for (Transactions refuel : validRefuels) {
+            if (refuel.getDate() == null || refuel.getDate() < costStart || refuel.getDate() > now
+                    || refuel.getAmount() == null || refuel.getLiters() == null || refuel.getLiters() <= 0) {
+                continue;
+            }
+            totalAmount = totalAmount.add(refuel.getAmount());
+            totalLiters = totalLiters.add(BigDecimal.valueOf(refuel.getLiters()));
+        }
+
+        if (totalLiters.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        return totalAmount.divide(totalLiters, 4, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Calcula intervalo médio entre abastecimentos para projetar recorrência nos próximos meses.
+     */
+    private Long calculateAverageDaysBetweenRefuels(List<Transactions> validRefuels) {
+        List<Transactions> orderedRefuels = validRefuels.stream()
+                .filter(refuel -> refuel.getDate() != null)
+                .sorted(Comparator.comparing(Transactions::getDate)
+                        .thenComparing(transaction -> transaction.getCreatedAt() != null ? transaction.getCreatedAt() : 0L))
+                .toList();
+
+        if (orderedRefuels.size() < 2) {
+            return null;
+        }
+
+        long totalDays = 0;
+        int intervals = 0;
+        for (int i = 1; i < orderedRefuels.size(); i++) {
+            long days = (orderedRefuels.get(i).getDate() - orderedRefuels.get(i - 1).getDate()) / DAY_IN_MILLIS;
+            if (days > 0) {
+                totalDays += days;
+                intervals++;
+            }
+        }
+
+        if (intervals == 0) {
+            return null;
+        }
+        return Math.max(1L, Math.round((double) totalDays / intervals));
+    }
+
+    /**
+     * Define confiança da previsão de abastecimento pela quantidade de eventos confiáveis.
+     */
+    private String confidenceForRefuels(List<Transactions> validRefuels) {
+        if (validRefuels.size() >= 4) {
+            return HIGH_CONFIDENCE;
+        }
+        if (validRefuels.size() >= 2) {
+            return MEDIUM_CONFIDENCE;
+        }
+        return LOW_CONFIDENCE;
+    }
+
+    /**
+     * Projeta custos dos próximos meses usando parcelas/gastos já lançados, média histórica e abastecimentos previstos.
+     */
+    private VehicleCostForecast calculateVehicleCostForecast(UUID vehicleId, FuelForecast fuelForecast, long now) {
+        YearMonth currentMonth = YearMonth.from(DateUtils.epochToLocalDate(now));
+        HistoricalCostAverage historicalAverage = calculateHistoricalVehicleCostAverage(vehicleId, currentMonth);
+        List<Long> predictedRefuelDates = predictRefuelDates(fuelForecast, currentMonth.plusMonths(FUTURE_FORECAST_MONTHS));
+        List<VehicleDashboardDTO.VehicleFuturePredictionDTO> predictions = new ArrayList<>();
+
+        for (int i = 1; i <= FUTURE_FORECAST_MONTHS; i++) {
+            YearMonth month = currentMonth.plusMonths(i);
+            LocalDate startDate = month.atDay(1);
+            long start = DateUtils.localDateToEpoch(startDate);
+            long end = DateUtils.localDateToEpoch(startDate.plusMonths(1)) - 1;
+            BigDecimal scheduledCost = calculateVehicleCost(vehicleId, start, end);
+            List<Long> monthRefuelDates = predictedRefuelDates.stream()
+                    .filter(date -> YearMonth.from(DateUtils.epochToLocalDate(date)).equals(month))
+                    .toList();
+            BigDecimal refuelEstimate = fuelForecast.estimatedNextRefuelCost()
+                    .multiply(BigDecimal.valueOf(monthRefuelDates.size()));
+            BigDecimal scheduledWithRefuels = scheduledCost.add(refuelEstimate);
+            BigDecimal estimatedCost = chooseMonthlyForecastCost(scheduledWithRefuels, historicalAverage.average());
+            String confidence = confidenceForMonthlyForecast(scheduledCost, historicalAverage.monthsWithCost(), monthRefuelDates.size());
+
+            List<VehicleDashboardDTO.VehicleFuturePredictionItemDTO> items = buildFuturePredictionItems(monthRefuelDates, fuelForecast);
+            if (estimatedCost.compareTo(BigDecimal.ZERO) > 0 || !items.isEmpty()) {
+                predictions.add(VehicleDashboardDTO.VehicleFuturePredictionDTO.builder()
+                        .month(month.toString())
+                        .estimatedCost(estimatedCost)
+                        .estimatedRefuels(monthRefuelDates.size())
+                        .confidence(confidence)
+                        .items(items)
+                        .build());
+            }
+        }
+
+        if (predictions.isEmpty()) {
+            return VehicleCostForecast.empty();
+        }
+        VehicleDashboardDTO.VehicleFuturePredictionDTO nextMonth = predictions.get(0);
+        return new VehicleCostForecast(nextMonth.getEstimatedCost(), nextMonth.getConfidence(), predictions);
+    }
+
+    /**
+     * Calcula média histórica mensal ignorando meses zerados para evitar diluir um histórico ainda curto.
+     */
+    private HistoricalCostAverage calculateHistoricalVehicleCostAverage(UUID vehicleId, YearMonth currentMonth) {
         BigDecimal total = BigDecimal.ZERO;
         int monthsWithCost = 0;
 
         for (int i = 0; i < FORECAST_COST_MONTHS; i++) {
-            LocalDate month = currentMonth.minusMonths(i);
-            long start = DateUtils.localDateToEpoch(month);
-            long end = DateUtils.localDateToEpoch(month.plusMonths(1)) - 1;
-            BigDecimal monthCost = transactionRepository.getNetVehicleCost(vehicleId, start, end);
-            if (monthCost != null && monthCost.compareTo(BigDecimal.ZERO) != 0) {
+            YearMonth month = currentMonth.minusMonths(i);
+            LocalDate startDate = month.atDay(1);
+            long start = DateUtils.localDateToEpoch(startDate);
+            long end = DateUtils.localDateToEpoch(startDate.plusMonths(1)) - 1;
+            BigDecimal monthCost = calculateVehicleCost(vehicleId, start, end);
+            if (monthCost.compareTo(BigDecimal.ZERO) > 0) {
                 total = total.add(monthCost);
                 monthsWithCost++;
             }
         }
 
-        if (monthsWithCost > 0) {
-            BigDecimal monthlyAverage = total.divide(BigDecimal.valueOf(monthsWithCost), 2, RoundingMode.HALF_UP);
-            return monthlyAverage.compareTo(BigDecimal.ZERO) > 0 ? monthlyAverage : BigDecimal.ZERO;
+        if (monthsWithCost == 0) {
+            return new HistoricalCostAverage(BigDecimal.ZERO, 0);
         }
-
-        return estimatedRefuelCost != null ? estimatedRefuelCost : BigDecimal.ZERO;
+        return new HistoricalCostAverage(total.divide(BigDecimal.valueOf(monthsWithCost), 2, RoundingMode.HALF_UP), monthsWithCost);
     }
 
+    /**
+     * Projeta datas de abastecimento dentro da janela futura suportada pelo contrato.
+     */
+    private List<Long> predictRefuelDates(FuelForecast fuelForecast, YearMonth limitMonth) {
+        if (fuelForecast.estimatedNextRefuelDate() == null) {
+            return List.of();
+        }
+
+        long limit = DateUtils.localDateToEpoch(limitMonth.atDay(1));
+        List<Long> dates = new ArrayList<>();
+        long nextDate = fuelForecast.estimatedNextRefuelDate();
+        long interval = fuelForecast.averageDaysBetweenRefuels() != null && fuelForecast.averageDaysBetweenRefuels() > 0
+                ? fuelForecast.averageDaysBetweenRefuels() * DAY_IN_MILLIS
+                : Long.MAX_VALUE;
+
+        while (nextDate < limit) {
+            dates.add(nextDate);
+            if (interval == Long.MAX_VALUE) {
+                break;
+            }
+            nextDate += interval;
+        }
+        return dates;
+    }
+
+    /**
+     * Escolhe entre custo futuro já lançado e média histórica, usando o maior para não subestimar parcelas conhecidas.
+     */
+    private BigDecimal chooseMonthlyForecastCost(BigDecimal scheduledWithRefuels, BigDecimal historicalAverage) {
+        BigDecimal safeScheduled = valueOrZero(scheduledWithRefuels);
+        BigDecimal safeHistory = valueOrZero(historicalAverage);
+        return safeScheduled.max(safeHistory);
+    }
+
+    /**
+     * Classifica a confiança mensal conforme a existência de lançamentos futuros, histórico e abastecimentos previstos.
+     */
+    private String confidenceForMonthlyForecast(BigDecimal scheduledCost, int historicalMonths, int predictedRefuels) {
+        if (scheduledCost.compareTo(BigDecimal.ZERO) > 0 && historicalMonths >= 3) {
+            return HIGH_CONFIDENCE;
+        }
+        if (scheduledCost.compareTo(BigDecimal.ZERO) > 0 || historicalMonths >= 3 || predictedRefuels > 0) {
+            return MEDIUM_CONFIDENCE;
+        }
+        if (historicalMonths > 0) {
+            return LOW_CONFIDENCE;
+        }
+        return null;
+    }
+
+    /**
+     * Monta itens explicitos de abastecimento para o mes previsto.
+     */
+    private List<VehicleDashboardDTO.VehicleFuturePredictionItemDTO> buildFuturePredictionItems(List<Long> refuelDates, FuelForecast fuelForecast) {
+        if (refuelDates.isEmpty()) {
+            return List.of();
+        }
+        return refuelDates.stream()
+                .map(date -> VehicleDashboardDTO.VehicleFuturePredictionItemDTO.builder()
+                        .type("REFUEL")
+                        .description("Abastecimento previsto")
+                        .estimatedDate(date)
+                        .estimatedCost(fuelForecast.estimatedNextRefuelCost())
+                        .confidence(fuelForecast.confidence())
+                        .build())
+                .toList();
+    }
+
+    /**
+     * Soma custos diretos do veículo e parcelas de cartão vencendo no período, evitando contar compras parceladas pelo valor total.
+     */
+    private BigDecimal calculateVehicleCost(UUID vehicleId, long start, long end) {
+        BigDecimal directCost = transactionRepository.getNetVehicleCost(vehicleId, start, end);
+        BigDecimal installmentCost = transactionRepository.getNetVehicleInstallmentCost(vehicleId, start, end);
+        return valueOrZero(directCost).add(valueOrZero(installmentCost));
+    }
+
+    /**
+     * Normaliza valores monetários opcionais para evitar nulos em somas de agregações.
+     */
+    private BigDecimal valueOrZero(BigDecimal value) {
+        return value != null ? value : BigDecimal.ZERO;
+    }
+
+    /**
+     * Calcula km rodados no período combinando leituras de diário e odômetros dos abastecimentos.
+     */
     private BigDecimal calculateKmDrivenInPeriod(UUID vehicleId, Long start, Long end, List<Transactions> periodRefuels) {
         List<OdometerPoint> odometerReadings = new ArrayList<>();
         logRepository.findByVehicleIdAndDateBetweenOrderByDateAsc(vehicleId, start, end).stream()
@@ -396,13 +739,42 @@ public class VehicleDashboardServiceImpl implements VehicleDashboardService {
         }
     }
 
-    private record FuelForecast(Double remainingKms, Long estimatedNextRefuelDate, BigDecimal estimatedNextRefuelCost) {
+    private record ForecastContract(
+            BigDecimal nextMonthEstimatedCost,
+            String nextMonthEstimatedCostConfidence,
+            VehicleDashboardDTO.VehicleRefuelPredictionDTO nextRefuelPrediction,
+            List<VehicleDashboardDTO.VehicleFuturePredictionDTO> futurePredictions) {
+        private static ForecastContract empty() {
+            return new ForecastContract(BigDecimal.ZERO, null, null, List.of());
+        }
+    }
+
+    private record VehicleCostForecast(
+            BigDecimal nextMonthEstimatedCost,
+            String nextMonthConfidence,
+            List<VehicleDashboardDTO.VehicleFuturePredictionDTO> futurePredictions) {
+        private static VehicleCostForecast empty() {
+            return new VehicleCostForecast(BigDecimal.ZERO, null, List.of());
+        }
+    }
+
+    private record HistoricalCostAverage(BigDecimal average, int monthsWithCost) {
+    }
+
+    private record FuelForecast(
+            Double remainingKms,
+            Long estimatedNextRefuelDate,
+            BigDecimal estimatedNextRefuelCost,
+            Double estimatedLiters,
+            FuelType fuelType,
+            String confidence,
+            Long averageDaysBetweenRefuels) {
         private static FuelForecast empty() {
-            return new FuelForecast(null, null, BigDecimal.ZERO);
+            return new FuelForecast(null, null, BigDecimal.ZERO, null, null, null, null);
         }
 
-        private static FuelForecast withRemainingKms(Double remainingKms) {
-            return new FuelForecast(remainingKms, null, BigDecimal.ZERO);
+        private static FuelForecast withRemainingKms(Double remainingKms, Double estimatedLiters, FuelType fuelType, String confidence) {
+            return new FuelForecast(remainingKms, null, BigDecimal.ZERO, estimatedLiters, fuelType, confidence, null);
         }
     }
 }

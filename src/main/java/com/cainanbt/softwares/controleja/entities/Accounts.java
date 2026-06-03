@@ -6,6 +6,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -24,7 +25,10 @@ import java.math.BigDecimal;
 import java.util.UUID;
 
 @Entity
-@Table(name = "accounts")
+@Table(name = "accounts", indexes = {
+        @Index(name = "idx_accounts_user_deleted_type", columnList = "user_id, deletedAt, type"),
+        @Index(name = "idx_accounts_user_name_type_deleted", columnList = "user_id, name, type, deletedAt")
+})
 @Getter
 @Builder
 @AllArgsConstructor

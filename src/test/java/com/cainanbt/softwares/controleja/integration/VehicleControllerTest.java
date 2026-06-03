@@ -28,6 +28,7 @@ import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 
 public class VehicleControllerTest extends BaseTest {
 
@@ -72,6 +73,7 @@ public class VehicleControllerTest extends BaseTest {
         vDto.setYear(2012);
         vDto.setPlate("ABC-1234");
         vDto.setCurrentOdometer(new BigDecimal("50000.00"));
+        vDto.setTankCapacity(55.0);
 
         String vehicleId = given().header("Authorization", "Bearer " + token)
                 .contentType(ContentType.JSON).body(vDto).post("/vehicles")
@@ -103,7 +105,8 @@ public class VehicleControllerTest extends BaseTest {
         given().header("Authorization", "Bearer " + token).get("/vehicles/" + vehicleId)
                 .then().statusCode(200)
                 .body("currentOdometer", is(50400.0f))
-                .body("avgGasoline", is(10.0f));
+                .body("tankCapacity", is(55.0f))
+                .body("avgGasoline", nullValue());
 
         vDto.setName("Golzera");
         given().header("Authorization", "Bearer " + token)
@@ -116,8 +119,8 @@ public class VehicleControllerTest extends BaseTest {
     }
 
     @Test
-    @DisplayName("Não deve atualizar o odômetro se for menor que o atual (Ignorar Fraude)")
-    void shouldNotUpdateOdometerIfLower() {
+    @DisplayName("Não deve salvar despesa de veículo com odômetro menor que o atual")
+    void shouldRejectVehicleExpenseIfOdometerIsLower() {
         // 1. Cria com 20.000 KM
         VehicleDTO vDto = new VehicleDTO();
         vDto.setName("Caminhonete");
@@ -145,11 +148,191 @@ public class VehicleControllerTest extends BaseTest {
 
         given().header("Authorization", "Bearer " + token)
                 .contentType(ContentType.JSON).body(tDto).post("/transactions")
-                .then().statusCode(200);
+                .then().statusCode(400);
 
         // 3. Valida que o veículo manteve 20.000 (Proteção)
         given().header("Authorization", "Bearer " + token).get("/vehicles/" + vehicleId)
                 .then().body("currentOdometer", is(20000.0f));
+    }
+
+    @Test
+    @DisplayName("Deve salvar despesa de veículo mantendo odômetro absoluto em KM")
+    void shouldKeepVehicleExpenseOdometerAsAbsoluteKilometers() {
+        VehicleDTO vDto = new VehicleDTO();
+        vDto.setName("Odômetro Absoluto");
+        vDto.setBrand("Fiat");
+        vDto.setModel("Toro");
+        vDto.setYear(2023);
+        vDto.setCurrentOdometer(new BigDecimal("180000.00"));
+
+        String vehicleId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(vDto).post("/vehicles")
+                .then().statusCode(200).extract().path("id");
+
+        TransactionDTO tDto = vehicleTransactionDTO(vehicleId, "Troca de óleo", DateUtils.getEpochNow(), new BigDecimal("180080.00"));
+
+        String transactionId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(tDto).post("/transactions")
+                .then().statusCode(200)
+                .body("currentOdometer", is(180080.0f))
+                .extract().path("id");
+
+        given().header("Authorization", "Bearer " + token).get("/transactions/" + transactionId)
+                .then().statusCode(200)
+                .body("currentOdometer", is(180080.0f));
+
+        tDto.setAmount(new BigDecimal("120.00"));
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(tDto).put("/transactions/" + transactionId)
+                .then().statusCode(200)
+                .body("currentOdometer", is(180080.0f));
+
+        given().header("Authorization", "Bearer " + token).get("/vehicles/" + vehicleId)
+                .then().statusCode(200)
+                .body("currentOdometer", is(180080.0f));
+    }
+
+    @Test
+    @DisplayName("Deve aceitar odômetro decimal em despesa de veículo")
+    void shouldAcceptDecimalOdometerInVehicleExpense() {
+        VehicleDTO vDto = new VehicleDTO();
+        vDto.setName("Odômetro Decimal");
+        vDto.setBrand("Fiat");
+        vDto.setModel("Argo");
+        vDto.setYear(2024);
+        vDto.setCurrentOdometer(new BigDecimal("1000.0"));
+
+        String vehicleId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(vDto).post("/vehicles")
+                .then().statusCode(200).extract().path("id");
+
+        TransactionDTO tDto = vehicleTransactionDTO(vehicleId, "Abastecimento decimal", DateUtils.getEpochNow(), new BigDecimal("1034.7"));
+        tDto.setLiters(10.0);
+        tDto.setFuelType(FuelType.GASOLINA);
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(tDto).post("/transactions")
+                .then().statusCode(200)
+                .body("currentOdometer", is(1034.7f));
+
+        given().header("Authorization", "Bearer " + token).get("/vehicles/" + vehicleId)
+                .then().statusCode(200)
+                .body("currentOdometer", is(1034.7f));
+    }
+
+    @Test
+    @DisplayName("Deve rejeitar odômetro com mais de uma casa decimal")
+    void shouldRejectOdometerWithMoreThanOneDecimalPlace() {
+        VehicleDTO vDto = new VehicleDTO();
+        vDto.setName("Odômetro Precisão");
+        vDto.setBrand("VW");
+        vDto.setModel("Polo");
+        vDto.setYear(2024);
+        vDto.setCurrentOdometer(new BigDecimal("1000.0"));
+
+        String vehicleId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(vDto).post("/vehicles")
+                .then().statusCode(200).extract().path("id");
+
+        TransactionDTO tDto = vehicleTransactionDTO(vehicleId, "Decimal demais", DateUtils.getEpochNow(), new BigDecimal("1034.75"));
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(tDto).post("/transactions")
+                .then().statusCode(400);
+    }
+
+    @Test
+    @DisplayName("Deve rejeitar odômetro enviado como texto em transação veicular")
+    void shouldRejectTextFormattedOdometerInVehicleTransaction() {
+        VehicleDTO vDto = new VehicleDTO();
+        vDto.setName("Odômetro Texto");
+        vDto.setBrand("VW");
+        vDto.setModel("Virtus");
+        vDto.setYear(2024);
+        vDto.setCurrentOdometer(new BigDecimal("1000.0"));
+
+        String vehicleId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(vDto).post("/vehicles")
+                .then().statusCode(200).extract().path("id");
+
+        String body = """
+                {
+                  "name": "Odômetro como texto",
+                  "type": "DESPESA",
+                  "amount": 100.00,
+                  "date": %d,
+                  "paid": true,
+                  "accountId": "%s",
+                  "categoryId": "%s",
+                  "isFixed": false,
+                  "vehicleId": "%s",
+                  "currentOdometer": "1034.7"
+                }
+                """.formatted(DateUtils.getEpochNow(), walletId, categoryId, vehicleId);
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(body).post("/transactions")
+                .then().statusCode(400);
+    }
+
+    @Test
+    @DisplayName("Deve rejeitar odômetro absurdo em despesa de veículo")
+    void shouldRejectAbsurdVehicleExpenseOdometer() {
+        VehicleDTO vDto = new VehicleDTO();
+        vDto.setName("Odômetro Absurdo");
+        vDto.setBrand("VW");
+        vDto.setModel("Nivus");
+        vDto.setYear(2024);
+        vDto.setCurrentOdometer(new BigDecimal("180080.00"));
+
+        String vehicleId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(vDto).post("/vehicles")
+                .then().statusCode(200).extract().path("id");
+
+        TransactionDTO tDto = vehicleTransactionDTO(vehicleId, "Valor formatado errado", DateUtils.getEpochNow(), new BigDecimal("1808080000"));
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(tDto).post("/transactions")
+                .then().statusCode(400);
+
+        given().header("Authorization", "Bearer " + token).get("/vehicles/" + vehicleId)
+                .then().statusCode(200)
+                .body("currentOdometer", is(180080.0f));
+    }
+
+    @Test
+    @DisplayName("Deve rejeitar categoria pai Veículos em lançamento")
+    void shouldRejectVehicleParentCategory() {
+        CategoryDTO parent = new CategoryDTO();
+        parent.setName("Veículos");
+        parent.setCategoryType("DESPESA");
+        UUID vehicleParentId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(parent).post("/categories")
+                .then().statusCode(200)
+                .extract().as(CategoryResponseDTO.class).getId();
+
+        CategoryDTO child = new CategoryDTO();
+        child.setName("Gasolina comum");
+        child.setCategoryType("DESPESA");
+        child.setParentId(vehicleParentId);
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(child).post("/categories")
+                .then().statusCode(200);
+
+        TransactionDTO dto = new TransactionDTO();
+        dto.setName("Despesa com categoria pai");
+        dto.setType(TransactionType.DESPESA);
+        dto.setAmount(new BigDecimal("50.00"));
+        dto.setDate(DateUtils.getEpochNow());
+        dto.setPaid(true);
+        dto.setAccountId(walletId);
+        dto.setCategoryId(vehicleParentId);
+        dto.setIsFixed(false);
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(dto).post("/transactions")
+                .then().statusCode(400);
     }
 
     @Test
@@ -213,7 +396,7 @@ public class VehicleControllerTest extends BaseTest {
         long date = DateUtils.getEpochNow();
         createVehicleTransaction(vehicleId, "Anterior 1", date, new BigDecimal("1500.00"));
         createVehicleTransaction(vehicleId, "Anterior 2", date + 1000, new BigDecimal("2000.00"));
-        String wrongTransactionId = createVehicleTransaction(vehicleId, "Errado", date + 2000, new BigDecimal("280980.00"));
+        String wrongTransactionId = createVehicleTransaction(vehicleId, "Errado", date + 2000, new BigDecimal("2800.00"));
 
         TransactionDTO correction = vehicleTransactionDTO(vehicleId, "Corrigido", date + 2000, new BigDecimal("2780.00"));
         given().header("Authorization", "Bearer " + token)
@@ -267,10 +450,163 @@ public class VehicleControllerTest extends BaseTest {
                 .then().statusCode(400);
     }
 
+    @Test
+    @DisplayName("Deve aceitar odômetro decimal no diário de bordo")
+    void shouldAcceptDecimalOdometerInVehicleLog() {
+        VehicleDTO vDto = new VehicleDTO();
+        vDto.setName("Diário Decimal");
+        vDto.setBrand("Honda");
+        vDto.setModel("City");
+        vDto.setYear(2023);
+        vDto.setCurrentOdometer(new BigDecimal("10000.0"));
+
+        String vehicleId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(vDto).post("/vehicles")
+                .then().statusCode(200).extract().path("id");
+
+        VehicleLogDTO log = new VehicleLogDTO();
+        log.setVehicleId(UUID.fromString(vehicleId));
+        log.setDate(DateUtils.getEpochNow());
+        log.setOdometerReading(new BigDecimal("10034.7"));
+        log.setDashboardKml(11.5);
+        log.setDrivingPredominance(DrivingPredominance.CITY);
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(log).post("/vehicles/logs")
+                .then().statusCode(200)
+                .body("odometerReading", is(10034.7f))
+                .body("dashboardKml", is(11.5f));
+
+        given().header("Authorization", "Bearer " + token).get("/vehicles/" + vehicleId)
+                .then().statusCode(200)
+                .body("currentOdometer", is(10034.7f));
+    }
+
+    @Test
+    @DisplayName("Deve rejeitar odômetro enviado como texto no diário de bordo")
+    void shouldRejectTextFormattedOdometerInVehicleLog() {
+        VehicleDTO vDto = new VehicleDTO();
+        vDto.setName("Diário Texto");
+        vDto.setBrand("Honda");
+        vDto.setModel("Civic");
+        vDto.setYear(2023);
+        vDto.setCurrentOdometer(new BigDecimal("10000.0"));
+
+        String vehicleId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(vDto).post("/vehicles")
+                .then().statusCode(200).extract().path("id");
+
+        String body = """
+                {
+                  "vehicleId": "%s",
+                  "date": %d,
+                  "odometerReading": "10034.7",
+                  "dashboardKml": 11.5,
+                  "drivingPredominance": "CITY"
+                }
+                """.formatted(vehicleId, DateUtils.getEpochNow());
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(body).post("/vehicles/logs")
+                .then().statusCode(400);
+    }
+
+    @Test
+    @DisplayName("Deve excluir último diário de bordo e recalcular odômetro")
+    void shouldDeleteLastVehicleLogAndRecalculateOdometer() {
+        VehicleDTO vDto = new VehicleDTO();
+        vDto.setName("Diário Delete");
+        vDto.setBrand("Honda");
+        vDto.setModel("Fit");
+        vDto.setYear(2023);
+        vDto.setCurrentOdometer(new BigDecimal("10000.0"));
+
+        String vehicleId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(vDto).post("/vehicles")
+                .then().statusCode(200).extract().path("id");
+
+        long date = DateUtils.getEpochNow();
+        createVehicleLog(vehicleId, date, new BigDecimal("10050.0"));
+        String lastLogId = createVehicleLog(vehicleId, date + 1000, new BigDecimal("10100.0"));
+
+        given().header("Authorization", "Bearer " + token)
+                .delete("/vehicles/logs/" + lastLogId)
+                .then().statusCode(200)
+                .body("message", is("Registro excluído com sucesso."));
+
+        given().header("Authorization", "Bearer " + token).get("/vehicles/" + vehicleId)
+                .then().statusCode(200)
+                .body("currentOdometer", is(10050.0f));
+    }
+
+    @Test
+    @DisplayName("Deve permitir excluir diário único e restaurar odômetro inicial")
+    void shouldDeleteOnlyVehicleLogAndRestoreInitialOdometer() {
+        VehicleDTO vDto = new VehicleDTO();
+        vDto.setName("Diário Único");
+        vDto.setBrand("Honda");
+        vDto.setModel("Civic");
+        vDto.setYear(2023);
+        vDto.setCurrentOdometer(new BigDecimal("10000.0"));
+
+        String vehicleId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(vDto).post("/vehicles")
+                .then().statusCode(200).extract().path("id");
+
+        String logId = createVehicleLog(vehicleId, DateUtils.getEpochNow(), new BigDecimal("10050.0"));
+
+        given().header("Authorization", "Bearer " + token)
+                .delete("/vehicles/logs/" + logId)
+                .then().statusCode(200)
+                .body("message", is("Registro excluído com sucesso."));
+
+        given().header("Authorization", "Bearer " + token).get("/vehicles/" + vehicleId)
+                .then().statusCode(200)
+                .body("currentOdometer", is(10000.0f));
+    }
+
+    @Test
+    @DisplayName("Deve bloquear exclusão de diário intermediário")
+    void shouldRejectDeletingMiddleVehicleLog() {
+        VehicleDTO vDto = new VehicleDTO();
+        vDto.setName("Diário Meio");
+        vDto.setBrand("Honda");
+        vDto.setModel("City");
+        vDto.setYear(2023);
+        vDto.setCurrentOdometer(new BigDecimal("10000.0"));
+
+        String vehicleId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(vDto).post("/vehicles")
+                .then().statusCode(200).extract().path("id");
+
+        long date = DateUtils.getEpochNow();
+        createVehicleLog(vehicleId, date, new BigDecimal("10050.0"));
+        String middleLogId = createVehicleLog(vehicleId, date + 1000, new BigDecimal("10100.0"));
+        createVehicleLog(vehicleId, date + 2000, new BigDecimal("10150.0"));
+
+        given().header("Authorization", "Bearer " + token)
+                .delete("/vehicles/logs/" + middleLogId)
+                .then().statusCode(400);
+    }
+
     private String createVehicleTransaction(String vehicleId, String name, long date, BigDecimal currentOdometer) {
         return given().header("Authorization", "Bearer " + token)
                 .contentType(ContentType.JSON).body(vehicleTransactionDTO(vehicleId, name, date, currentOdometer))
                 .post("/transactions")
+                .then().statusCode(200)
+                .extract().path("id");
+    }
+
+    private String createVehicleLog(String vehicleId, long date, BigDecimal odometerReading) {
+        VehicleLogDTO log = new VehicleLogDTO();
+        log.setVehicleId(UUID.fromString(vehicleId));
+        log.setDate(date);
+        log.setOdometerReading(odometerReading);
+        log.setDashboardKml(11.5);
+        log.setDrivingPredominance(DrivingPredominance.CITY);
+
+        return given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(log).post("/vehicles/logs")
                 .then().statusCode(200)
                 .extract().path("id");
     }

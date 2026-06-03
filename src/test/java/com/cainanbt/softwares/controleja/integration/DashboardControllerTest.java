@@ -3,20 +3,31 @@ package com.cainanbt.softwares.controleja.integration;
 import com.cainanbt.softwares.controleja.config.BaseTest;
 import com.cainanbt.softwares.controleja.dtos.AccountDTO;
 import com.cainanbt.softwares.controleja.dtos.CategoryDTO;
+import com.cainanbt.softwares.controleja.dtos.CreditCardDTO;
 import com.cainanbt.softwares.controleja.dtos.InsertUpdateUserDTO;
 import com.cainanbt.softwares.controleja.dtos.TransactionDTO;
 import com.cainanbt.softwares.controleja.dtos.UserLoginDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.AccountResponseDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.CategoryResponseDTO;
+import com.cainanbt.softwares.controleja.entities.CreditCard;
+import com.cainanbt.softwares.controleja.entities.Invoices;
+import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.enums.AccountType;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
+import com.cainanbt.softwares.controleja.repositories.CreditCardRepository;
+import com.cainanbt.softwares.controleja.repositories.InvoicesRepository;
+import com.cainanbt.softwares.controleja.repositories.UsersRepository;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import io.restassured.http.ContentType;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.UUID;
 
 import static io.restassured.RestAssured.given;
@@ -26,14 +37,24 @@ import static org.hamcrest.Matchers.notNullValue;
 public class DashboardControllerTest extends BaseTest {
 
     private String token;
+    private String email;
     private UUID walletId;
     private UUID catFoodId;
     private UUID catCarId;
 
+    @Autowired
+    private UsersRepository usersRepository;
+
+    @Autowired
+    private CreditCardRepository creditCardRepository;
+
+    @Autowired
+    private InvoicesRepository invoicesRepository;
+
     @BeforeEach
     void setup() {
         String unique = UUID.randomUUID().toString().substring(0, 8);
-        String email = "dash_" + unique + "@test.com";
+        email = "dash_" + unique + "@test.com";
         InsertUpdateUserDTO user = new InsertUpdateUserDTO();
         user.setUsername("Dashboard User");
         user.setEmail(email);
@@ -95,6 +116,10 @@ public class DashboardControllerTest extends BaseTest {
                 .then().statusCode(200).body("size()", is(2));
 
         given().header("Authorization", "Bearer " + token).param("start", start).param("end", end)
+                .when().get("/dashboard/credit-expenses-category")
+                .then().statusCode(200).body("size()", is(0));
+
+        given().header("Authorization", "Bearer " + token).param("start", start).param("end", end)
                 .when().get("/dashboard/incomes-category")
                 .then().statusCode(200).body("size()", is(1));
 
@@ -110,6 +135,11 @@ public class DashboardControllerTest extends BaseTest {
         given().header("Authorization", "Bearer " + token).param("start", start).param("end", end)
                 .when().get("/dashboard/fuel-comparison")
                 .then().statusCode(200);
+
+        given().header("Authorization", "Bearer " + token).param("start", end).param("end", start)
+                .when().get("/dashboard/summary")
+                .then().statusCode(400)
+                .body("title", is("Erro"));
     }
 
     @Test
@@ -155,5 +185,91 @@ public class DashboardControllerTest extends BaseTest {
                 .body("projectedBalance", is(5833.33f))
                 .body("pendingPayables.size()", is(1))
                 .body("pendingReceivables.size()", is(1));
+    }
+
+    @Test
+    @DisplayName("Deve ignorar contas marcadas para não calcular saldo no full-summary")
+    void shouldIgnoreAccountsWithCalculateBalanceDisabledInFullSummary() {
+        AccountDTO hiddenAccount = new AccountDTO();
+        hiddenAccount.setName("Conta fora da dashboard");
+        hiddenAccount.setType(AccountType.BANK);
+        hiddenAccount.setInitialBalance(new BigDecimal("5000.00"));
+        hiddenAccount.setCalculateBalance(false);
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON)
+                .body(hiddenAccount)
+                .post("/accounts")
+                .then()
+                .statusCode(200)
+                .body("calculateBalance", is(false));
+
+        long now = DateUtils.getEpochNow();
+        long start = now - 86400000L;
+        long end = now + 86400000L;
+
+        given().header("Authorization", "Bearer " + token).param("start", start).param("end", end)
+                .when().get("/dashboard/full-summary")
+                .then().statusCode(200)
+                .body("availableBalance", is(5650.0f));
+    }
+
+    @Test
+    @DisplayName("Deve classificar faturas pagas, abertas, pendentes e vencidas no full-summary")
+    void shouldClassifyInvoicesInFullSummary() {
+        LocalDate today = LocalDate.now(DateUtils.zoneId);
+        long start = DateUtils.localDateToEpoch(today.minusDays(1));
+        long end = DateUtils.localDateToEpoch(today.plusDays(60));
+        UUID cardId = createCard("Dashboard Card");
+
+        Users user = usersRepository.findByEmailIgnoreCase(email).orElseThrow();
+        CreditCard card = creditCardRepository.findByIdAndNotDeleted(cardId).orElseThrow();
+
+        createInvoice(user, card, YearMonth.from(today.minusMonths(1)), new BigDecimal("70.00"), today.minusDays(1), false);
+        createInvoice(user, card, YearMonth.from(today), new BigDecimal("80.00"), today.plusDays(7), false);
+        createInvoice(user, card, YearMonth.from(today.plusMonths(1)), new BigDecimal("90.00"), today.plusDays(40), false);
+        createInvoice(user, card, YearMonth.from(today), new BigDecimal("100.00"), today.plusDays(8), true);
+
+        given().header("Authorization", "Bearer " + token).param("start", start).param("end", end)
+                .when().get("/dashboard/full-summary")
+                .then().statusCode(200)
+                .body("projectedPayables", is(150.0f))
+                .body("pendingInvoices.size()", is(1))
+                .body("pendingInvoices[0].amount", is(80.0f))
+                .body("overdueInvoices.size()", is(1))
+                .body("overdueInvoices[0].amount", is(70.0f));
+    }
+
+    private UUID createCard(String name) {
+        CreditCardDTO dto = new CreditCardDTO();
+        dto.setName(name);
+        dto.setTotalLimit(new BigDecimal("5000.00"));
+        dto.setCloseDay(1);
+        dto.setBestDay(28);
+
+        String id = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON)
+                .body(dto)
+                .when().post("/cards")
+                .then().statusCode(200)
+                .extract().path("id");
+        return UUID.fromString(id);
+    }
+
+    private void createInvoice(Users user, CreditCard card, YearMonth invoiceMonth, BigDecimal amount, LocalDate dueDate, boolean paid) {
+        Invoices invoice = Invoices.builder()
+                .id(UUID.randomUUID())
+                .month(invoiceMonth.getMonthValue())
+                .year(invoiceMonth.getYear())
+                .amount(amount)
+                .expirationDate(DateUtils.localDateToEpoch(dueDate))
+                .paid(paid)
+                .enabled(true)
+                .createdAt(DateUtils.getEpochNow())
+                .creditCard(card)
+                .user(user)
+                .build();
+        Invoices saved = invoicesRepository.save(invoice);
+        Assertions.assertNotNull(saved.getId());
     }
 }

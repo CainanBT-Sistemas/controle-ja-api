@@ -17,7 +17,7 @@ public class VehicleResponseDTO {
     private Double avgEthanol;
     private Integer year;
     private String plate;
-    private Double tankCapacity; // NOVO CAMPO
+    private Double tankCapacity;
 
     public static VehicleResponseDTO toDTO(Vehicle entity) {
         VehicleResponseDTO dto = new VehicleResponseDTO();

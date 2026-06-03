@@ -17,12 +17,15 @@ public class CategoryResponseDTO {
     private Boolean isDefault;
     private UUID parentId;
 
+    /**
+     * Converte a entidade de categoria para o contrato público retornado pela API.
+     */
     public static CategoryResponseDTO toDTO(Category entity) {
         CategoryResponseDTO dto = new CategoryResponseDTO();
         dto.setId(entity.getId());
         dto.setName(entity.getName());
         dto.setCategoryType(entity.getCategoryType());
-        dto.setSubCategory(entity.getIsSubCategory());
+        dto.setSubCategory(Boolean.TRUE.equals(entity.getIsSubCategory()));
         dto.setIcon(entity.getIcon());
         dto.setColor(entity.getColor());
         dto.setIsDefault(entity.getIsDefault());

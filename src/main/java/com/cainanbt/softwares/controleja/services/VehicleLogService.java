@@ -7,9 +7,23 @@ import java.util.List;
 import java.util.UUID;
 
 public interface VehicleLogService {
+    /**
+     * Cria uma leitura de diário de bordo para o veículo informado.
+     */
     VehicleLog createLog(VehicleLogDTO dto);
 
+    /**
+     * Lista todas as leituras do veículo autenticado.
+     */
     List<VehicleLog> listLogsByVehicle(UUID vehicleId);
 
+    /**
+     * Lista leituras do veículo autenticado em um período opcional.
+     */
     List<VehicleLog> listLogsByVehicle(UUID vehicleId, Long start, Long end);
+
+    /**
+     * Exclui a última leitura de diário de bordo do veículo autenticado.
+     */
+    void deleteLastLog(UUID id);
 }

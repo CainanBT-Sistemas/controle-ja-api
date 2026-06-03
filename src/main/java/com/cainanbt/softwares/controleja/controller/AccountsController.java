@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -32,36 +33,54 @@ public class AccountsController {
         this.transactionService = transactionService;
     }
 
+    /**
+     * Cria uma conta financeira comum para o usuário autenticado.
+     */
     @PostMapping
-    public ResponseEntity<?> create(@RequestBody @Valid AccountDTO accountDTO) {
+    public ResponseEntity<AccountResponseDTO> create(@RequestBody @Valid AccountDTO accountDTO) {
         return ResponseEntity.ok(AccountResponseDTO.toDTO(accountsService.createAccount(accountDTO)));
     }
 
+    /**
+     * Lista contas do usuário que podem ser usadas em lançamentos e saldo, sem contas espelho de cartão.
+     */
     @GetMapping
-    public ResponseEntity<?> listAll() {
+    public ResponseEntity<List<AccountResponseDTO>> listAll() {
         return ResponseEntity.ok(accountsService.listMyAccountsExceptCrediCard().stream().map(AccountResponseDTO::toDTO).toList());
     }
-    
+
+    /**
+     * Consulta uma conta ativa do usuário autenticado.
+     */
     @GetMapping("/{id}")
-    public ResponseEntity<?> getById(@PathVariable UUID id) {
-        return ResponseEntity.ok(AccountResponseDTO.toDTO(accountsService.findByIdOrThrow(id)));
+    public ResponseEntity<AccountResponseDTO> getById(@PathVariable UUID id) {
+        return ResponseEntity.ok(AccountResponseDTO.toDTO(accountsService.findMyAccountById(id)));
     }
-    
+
+    /**
+     * Atualiza dados cadastrais da conta sem alterar o saldo corrente.
+     */
     @PutMapping("/{id}")
-    public ResponseEntity<?> update(@PathVariable UUID id, @RequestBody @Valid AccountDTO accountDTO) {
+    public ResponseEntity<AccountResponseDTO> update(@PathVariable UUID id, @RequestBody @Valid AccountDTO accountDTO) {
         return ResponseEntity.ok(AccountResponseDTO.toDTO(accountsService.updateAccount(id, accountDTO)));
     }
-    
+
+    /**
+     * Remove logicamente a conta quando ela não é a conta principal do usuário.
+     */
     @DeleteMapping("/{id}")
-    public ResponseEntity<?> delete(@PathVariable UUID id) {
+    public ResponseEntity<Map<String, String>> delete(@PathVariable UUID id) {
         accountsService.softDelete(id);
         Map<String, String> response = new HashMap<>();
         response.put("message", ConstsMessages.DELETE_SUCCESS);
         return ResponseEntity.ok(response);
     }
 
+    /**
+     * Ajusta o saldo criando uma transação de compensação para manter rastreabilidade financeira.
+     */
     @PutMapping("/{id}/adjust")
-    public ResponseEntity<?> adjustBalance(@PathVariable UUID id, @RequestBody @Valid BalanceAdjustmentDTO dto) {
+    public ResponseEntity<Map<String, String>> adjustBalance(@PathVariable UUID id, @RequestBody @Valid BalanceAdjustmentDTO dto) {
         transactionService.adjustBalance(id, dto.getNewBalance());
         Map<String, String> response = new HashMap<>();
         response.put("message", ConstsMessages.BALANCE_ADJUSTMENT_SUCCESS);

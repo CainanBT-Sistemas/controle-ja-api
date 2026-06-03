@@ -1,12 +1,12 @@
 package com.cainanbt.softwares.controleja.configs;
 
+import com.cainanbt.softwares.controleja.exceptions.models.ApiErrorResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 
 import java.io.IOException;
-import java.util.Map;
 
 public final class SecurityErrorResponseWriter {
 
@@ -33,10 +33,10 @@ public final class SecurityErrorResponseWriter {
         response.setStatus(status.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding("UTF-8");
-        OBJECT_MAPPER.writeValue(response.getWriter(), Map.of(
-                "code", status.value(),
-                "title", title,
-                "message", message
-        ));
+        OBJECT_MAPPER.writeValue(response.getWriter(), ApiErrorResponse.builder()
+                .code(status.value())
+                .title(title)
+                .message(message)
+                .build());
     }
 }

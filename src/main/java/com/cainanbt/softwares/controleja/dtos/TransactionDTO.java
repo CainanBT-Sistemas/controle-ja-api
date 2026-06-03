@@ -1,13 +1,17 @@
 package com.cainanbt.softwares.controleja.dtos;
 
-import com.cainanbt.softwares.controleja.enums.FuelType;
 import com.cainanbt.softwares.controleja.enums.DrivingPredominance;
+import com.cainanbt.softwares.controleja.enums.FuelType;
 import com.cainanbt.softwares.controleja.enums.RecurrenceFrequency;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
+import com.cainanbt.softwares.controleja.utils.StrictBigDecimalDeserializer;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -16,9 +20,11 @@ import java.util.UUID;
 @Data
 public class TransactionDTO {
 
-    @NotBlank(message = "o Nome é obrigatóro")
+    @NotBlank(message = "O nome é obrigatório")
+    @Size(max = 120, message = "O nome deve ter no máximo 120 caracteres")
     private String name;
 
+    @Size(max = 500, message = "A descrição deve ter no máximo 500 caracteres")
     private String description;
 
     @NotNull(message = "O tipo é obrigatório (RECEITA, DESPESA)")
@@ -54,9 +60,13 @@ public class TransactionDTO {
 
     //VEICULOS
     private UUID vehicleId;
+    @DecimalMin(value = "0.00", message = "O odômetro não pode ser negativo")
+    @JsonDeserialize(using = StrictBigDecimalDeserializer.class)
     private BigDecimal currentOdometer;
+    @Positive(message = "Litros deve ser maior que zero")
     private Double liters;
     private FuelType fuelType;
+    @Positive(message = "A eficiência deve ser maior que zero")
     private Double efficiency;
     private DrivingPredominance drivingPredominance;
     private UUID gasStationId;

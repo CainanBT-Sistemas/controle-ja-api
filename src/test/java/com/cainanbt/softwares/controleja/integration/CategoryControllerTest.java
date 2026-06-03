@@ -10,6 +10,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.UUID;
+
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasSize;
@@ -24,14 +26,7 @@ public class CategoryControllerTest extends BaseTest {
     @BeforeEach
     void setupUser() {
         log.info("Starting CategoryControllerTest");
-        InsertUpdateUserDTO user = new InsertUpdateUserDTO();
-        user.setUsername("cat_user");
-        user.setEmail("cat@test.com");
-        user.setPassword("123456");
-        given().contentType(ContentType.JSON).body(user).post("/users/register");
-
-        UserLoginDTO login = UserLoginDTO.builder().email("cat@test.com").password("123456").build();
-        token = given().contentType(ContentType.JSON).body(login).post("/auth").then().extract().path("tokens.accessToken");
+        token = registerAndLoginUser();
     }
 
     @Test
@@ -77,5 +72,80 @@ public class CategoryControllerTest extends BaseTest {
                 .when().delete("/categories/" + categoryId)
                 .then().statusCode(200)
                 .body("message", is("Registro excluído com sucesso."));
+    }
+
+    @Test
+    @DisplayName("Deve bloquear acesso a categoria de outro usuário")
+    void shouldBlockAccessToAnotherUsersCategory() {
+        String firstUserCategoryId = createCategoryAux("Categoria Privada");
+        String secondUserToken = registerAndLoginUser();
+
+        CategoryDTO updateDto = new CategoryDTO();
+        updateDto.setName("Tentativa Indevida");
+        updateDto.setCategoryType("DESPESA");
+
+        given().header("Authorization", "Bearer " + secondUserToken)
+                .when().get("/categories/" + firstUserCategoryId)
+                .then().statusCode(400)
+                .body("title", is("Acesso negado"));
+
+        given().header("Authorization", "Bearer " + secondUserToken)
+                .contentType(ContentType.JSON)
+                .body(updateDto)
+                .when().put("/categories/" + firstUserCategoryId)
+                .then().statusCode(400)
+                .body("title", is("Acesso negado"));
+
+        given().header("Authorization", "Bearer " + secondUserToken)
+                .when().delete("/categories/" + firstUserCategoryId)
+                .then().statusCode(400)
+                .body("title", is("Acesso negado"));
+    }
+
+    @Test
+    @DisplayName("Deve criar subcategoria somente em categoria pai do mesmo usuário")
+    void shouldCreateSubCategoryOnlyForOwnedParent() {
+        String parentId = createCategoryAux("Veículo Teste");
+
+        CategoryDTO child = new CategoryDTO();
+        child.setName("Abastecimento Teste");
+        child.setCategoryType("DESPESA");
+        child.setParentId(UUID.fromString(parentId));
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON)
+                .body(child)
+                .when().post("/categories")
+                .then().statusCode(200)
+                .body("name", is("Abastecimento Teste"))
+                .body("parentId", is(parentId));
+    }
+
+    private String createCategoryAux(String name) {
+        CategoryDTO dto = new CategoryDTO();
+        dto.setName(name);
+        dto.setCategoryType("DESPESA");
+
+        return given()
+                .header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON)
+                .body(dto)
+                .when().post("/categories")
+                .then().statusCode(200)
+                .extract().path("id");
+    }
+
+    private String registerAndLoginUser() {
+        String uniqueId = UUID.randomUUID().toString().substring(0, 8);
+        String email = "cat_" + uniqueId + "@test.com";
+
+        InsertUpdateUserDTO user = new InsertUpdateUserDTO();
+        user.setUsername("Category User " + uniqueId);
+        user.setEmail(email);
+        user.setPassword("123456");
+        given().contentType(ContentType.JSON).body(user).post("/users/register").then().statusCode(200);
+
+        UserLoginDTO login = UserLoginDTO.builder().email(email).password("123456").build();
+        return given().contentType(ContentType.JSON).body(login).post("/auth").then().extract().path("tokens.accessToken");
     }
 }

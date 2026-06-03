@@ -8,11 +8,13 @@ import com.cainanbt.softwares.controleja.exceptions.models.EntityNotFoundExcepti
 import com.cainanbt.softwares.controleja.repositories.CategoryRepository;
 import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.services.CategoryService;
+import com.cainanbt.softwares.controleja.services.categories.CategoryDomainValidator;
+import com.cainanbt.softwares.controleja.services.categories.CategoryFactory;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
-import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,144 +24,114 @@ import java.util.UUID;
 
 @RequiredArgsConstructor
 @Service
+@Slf4j
 public class CategoryServiceImpl implements CategoryService {
+
+    private final CategoryDomainValidator categoryDomainValidator = new CategoryDomainValidator();
+    private final CategoryFactory categoryFactory = new CategoryFactory();
 
     private final CategoryRepository repository;
     private final TransactionRepository transactionRepository;
 
+    /**
+     * Cria categoria ou subcategoria respeitando propriedade, limite e profundidade máxima.
+     */
     @Override
+    @Transactional
     public Category createCategory(CategoryDTO dto) {
         Users user = SecurityContextUtils.getCurrentUser();
-        Category parent = null;
+        Category parent = resolveParentForCreate(dto, user);
 
-        if (dto.getParentId() != null) {
-            parent = repository.findByIdAndNotDeleted(dto.getParentId())
-                    .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.PARENT_CATEGORY_NOT_FOUND));
-
-            if (!parent.getUser().getId().equals(user.getId())) {
-                throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_CATEGORY);
-            }
-            if (parent.getIsSubCategory()) {
-                throw new BadRequestException("Ação não permitida", "Não é possível criar uma subcategoria dentro de outra. O limite é de 1 nível.");
-            }
-            long totalFilhos = repository.countActiveSubCategories(parent.getId());
-            if (totalFilhos >= 2) {
-                throw new BadRequestException("Limite Atingido", "Você atingiu o limite de 2 subcategorias por categoria pai. Assine o Premium para liberar acesso ilimitado!");
-            }
-        }
-
-        Category category = Category.builder()
-                .id(ID.generate())
-                .name(dto.getName())
-                .categoryType(dto.getCategoryType())
-                .icon(dto.getIcon())
-                .color(dto.getColor())
-                .enabled(true)
-                .isSubCategory(parent != null)
-                .isDefault(false)
-                .subCategory(parent)
-                .user(user)
-                .createdAt(DateUtils.getEpochNow())
-                .build();
-
-        return repository.save(category);
+        Category savedCategory = repository.save(categoryFactory.create(dto, user, parent, DateUtils.getEpochNow()));
+        log.info("Category created: categoryId={}, parentId={}", savedCategory.getId(), parent != null ? parent.getId() : null);
+        return savedCategory;
     }
 
+    /**
+     * Lista somente categorias ativas do usuário autenticado.
+     */
     @Override
     public List<Category> listMyCategories() {
         Users user = SecurityContextUtils.getCurrentUser();
         return repository.findByUserIdAndDeletedAtIsNull(user.getId());
     }
 
+    /**
+     * Busca categoria ativa por id sem validar usuário, usado por fluxos que fazem essa regra fora daqui.
+     */
     @Override
     public Optional<Category> findById(UUID id) {
         return repository.findByIdAndNotDeleted(id);
     }
 
+    /**
+     * Busca categoria ativa por id ou lança erro padronizado.
+     */
     @Override
     public Category findByIdOrThrow(UUID id) {
         return findById(id)
                 .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.ERROR_TITLE, ConstsMessages.CATEGORY_NOT_FOUND));
     }
 
+    /**
+     * Busca categoria ativa e garante que ela pertence ao usuário autenticado.
+     */
     @Override
-    public Category updateCategory(UUID id, CategoryDTO dto) {
+    public Category findMyCategoryById(UUID id) {
         Category category = findByIdOrThrow(id);
+        categoryDomainValidator.validateOwner(category, SecurityContextUtils.getCurrentUser());
+        return category;
+    }
+
+    /**
+     * Atualiza dados simples da categoria e permite mover para outro pai válido.
+     */
+    @Override
+    @Transactional
+    public Category updateCategory(UUID id, CategoryDTO dto) {
+        Category category = findMyCategoryById(id);
         Users currentUser = SecurityContextUtils.getCurrentUser();
 
-        if (!category.getUser().getId().equals(currentUser.getId())) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_CATEGORY);
-        }
-
-        if (dto.getName() != null) category.setName(dto.getName());
-        if (dto.getCategoryType() != null) category.setCategoryType(dto.getCategoryType());
-        if (dto.getIcon() != null) category.setIcon(dto.getIcon());
-        if (dto.getColor() != null) category.setColor(dto.getColor());
-
-        if (dto.getParentId() != null) {
-            Category parent = repository.findByIdAndNotDeleted(dto.getParentId())
-                    .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.PARENT_CATEGORY_NOT_FOUND));
-
-            if (!parent.getUser().getId().equals(currentUser.getId())) {
-                throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_CATEGORY);
-            }
-
-            if (parent.getIsSubCategory()) {
-                throw new BadRequestException("Ação não permitida", "A categoria destino já é uma subcategoria.");
-            }
-
-            category.setSubCategory(parent);
-            category.setIsSubCategory(true);
-        }
+        applyCategoryFields(category, dto);
+        applyParentChange(category, dto, currentUser);
 
         category.setUpdatedAt(DateUtils.getEpochNow());
 
-        return repository.save(category);
+        Category updatedCategory = repository.save(category);
+        log.info("Category updated: categoryId={}", updatedCategory.getId());
+        return updatedCategory;
     }
 
+    /**
+     * Remove logicamente a categoria e suas subcategorias quando permitido.
+     */
     @Override
     @Transactional
     public void softDelete(UUID id) {
-        Category category = findByIdOrThrow(id);
-        Users currentUser = SecurityContextUtils.getCurrentUser();
-
-        if (!category.getUser().getId().equals(currentUser.getId())) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_CATEGORY);
-        }
-
-        if (Boolean.TRUE.equals(category.getIsDefault())) {
-            throw new BadRequestException(
-                    ConstsMessages.ERROR_TITLE,
-                    "Categorias de sistema não podem ser excluídas." // Pode adicionar essa no seu ConstsMessages depois!
-            );
-        }
-
+        Category category = findMyCategoryById(id);
+        categoryDomainValidator.validateCanDelete(category);
         List<Category> subCategories = repository.findBySubCategoryIdAndDeletedAtIsNull(category.getId());
-        long dependentTransactions = transactionRepository.countByCategoryId(id);
-        for (Category sub : subCategories) {
-            dependentTransactions += transactionRepository.countByCategoryId(sub.getId());
-        }
-        if (category.getDeletedAt() != null) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.ENTITY_ALREADY_DELETED);
-        }
+        validateNoDependentTransactions(category, subCategories);
 
         long now = DateUtils.getEpochNow();
+        softDeleteSubCategories(subCategories, now);
 
-        if (!subCategories.isEmpty()) {
-            for (Category sub : subCategories) {
-                sub.setDeletedAt(now);
-            }
-            repository.saveAll(subCategories);
-        }
         category.setDeletedAt(now);
         repository.save(category);
+        log.info("Category deleted: categoryId={}, subCategories={}", id, subCategories.size());
     }
 
+    /**
+     * Persiste categoria montada por fluxos internos sem aplicar regras de usuário autenticado.
+     */
     @Override
     public Category save(Category category) {
         return repository.save(category);
     }
 
+    /**
+     * Busca categoria do usuário por nome em fluxos internos críticos.
+     */
     @Override
     public Category findCategoryByUserAndName(Users user, String categoryName) {
         return repository.findByUserIdAndNameAndDeletedAtIsNull(user.getId(), categoryName)
@@ -167,5 +139,89 @@ public class CategoryServiceImpl implements CategoryService {
                         ConstsMessages.CRITICAL_ERROR_TITLE,
                         ConstsMessages.CATEGORY_NOT_FOUND + " (" + categoryName + "). " + ConstsMessages.SYSTEM_CRITICAL_ERROR
                 ));
+    }
+
+    /**
+     * Resolve e valida o pai informado na criação de subcategoria.
+     */
+    private Category resolveParentForCreate(CategoryDTO dto, Users user) {
+        if (dto.getParentId() == null) {
+            return null;
+        }
+
+        Category parent = findParentOrThrow(dto.getParentId());
+        categoryDomainValidator.validateParentCategory(parent, user);
+        categoryDomainValidator.validateCanAddChildCategory(repository.countActiveSubCategories(parent.getId()));
+        return parent;
+    }
+
+    /**
+     * Busca a categoria pai ativa ou lança erro claro para o cliente.
+     */
+    private Category findParentOrThrow(UUID parentId) {
+        return repository.findByIdAndNotDeleted(parentId)
+                .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.PARENT_CATEGORY_NOT_FOUND));
+    }
+
+    /**
+     * Atualiza os campos simples da categoria quando enviados.
+     */
+    private void applyCategoryFields(Category category, CategoryDTO dto) {
+        if (dto.getName() != null) {
+            category.setName(dto.getName());
+        }
+        if (dto.getCategoryType() != null) {
+            category.setCategoryType(dto.getCategoryType());
+        }
+        if (dto.getIcon() != null) {
+            category.setIcon(dto.getIcon());
+        }
+        if (dto.getColor() != null) {
+            category.setColor(dto.getColor());
+        }
+    }
+
+    /**
+     * Move a categoria para outro pai válido quando parentId é informado.
+     */
+    private void applyParentChange(Category category, CategoryDTO dto, Users currentUser) {
+        if (dto.getParentId() == null) {
+            return;
+        }
+
+        Category parent = findParentOrThrow(dto.getParentId());
+        if (category.getId().equals(parent.getId())) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "A categoria não pode ser pai dela mesma.");
+        }
+        categoryDomainValidator.validateParentCategory(parent, currentUser);
+
+        category.setSubCategory(parent);
+        category.setIsSubCategory(true);
+    }
+
+    /**
+     * Bloqueia remoção quando a categoria ou suas filhas possuem transações vinculadas.
+     */
+    private void validateNoDependentTransactions(Category category, List<Category> subCategories) {
+        long dependentTransactions = transactionRepository.countByCategoryId(category.getId());
+        for (Category subCategory : subCategories) {
+            dependentTransactions += transactionRepository.countByCategoryId(subCategory.getId());
+        }
+        if (dependentTransactions > 0) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Não é possível excluir categoria com transações vinculadas.");
+        }
+    }
+
+    /**
+     * Marca subcategorias como removidas usando a mesma data da categoria pai.
+     */
+    private void softDeleteSubCategories(List<Category> subCategories, long now) {
+        if (subCategories.isEmpty()) {
+            return;
+        }
+        for (Category subCategory : subCategories) {
+            subCategory.setDeletedAt(now);
+        }
+        repository.saveAll(subCategories);
     }
 }

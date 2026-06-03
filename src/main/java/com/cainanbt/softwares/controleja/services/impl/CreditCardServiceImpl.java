@@ -4,17 +4,19 @@ import com.cainanbt.softwares.controleja.dtos.CreditCardDTO;
 import com.cainanbt.softwares.controleja.entities.Accounts;
 import com.cainanbt.softwares.controleja.entities.CreditCard;
 import com.cainanbt.softwares.controleja.entities.Users;
-import com.cainanbt.softwares.controleja.enums.AccountType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.exceptions.models.EntityNotFoundException;
 import com.cainanbt.softwares.controleja.repositories.AccountsRepository;
 import com.cainanbt.softwares.controleja.repositories.CreditCardRepository;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
+import com.cainanbt.softwares.controleja.services.creditcards.CreditCardAccountFactory;
+import com.cainanbt.softwares.controleja.services.creditcards.CreditCardDomainValidator;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,159 +27,195 @@ import java.util.UUID;
 
 @RequiredArgsConstructor
 @Service
+@Slf4j
 public class CreditCardServiceImpl implements CreditCardService {
+
+    private final CreditCardDomainValidator creditCardDomainValidator = new CreditCardDomainValidator();
+    private final CreditCardAccountFactory creditCardAccountFactory = new CreditCardAccountFactory();
 
     private final CreditCardRepository creditCardRepository;
     private final AccountsRepository accountsRepository;
 
+    /**
+     * Cria o cartão e a conta espelho usada pelo fluxo de faturas.
+     */
     @Override
     @Transactional
     public CreditCard createCard(CreditCardDTO dto) {
         Users user = SecurityContextUtils.getCurrentUser();
         long now = DateUtils.getEpochNow();
 
-        long totalCards = creditCardRepository.countByUserId(user.getId());
-        if (totalCards >= 2) {
-            throw new BadRequestException(ConstsMessages.LIMIT_REACHED_TITLE, ConstsMessages.LIMIT_REACHED_CARDS);
-        }
+        creditCardDomainValidator.validateCanCreate(creditCardRepository.countByUserId(user.getId()));
+        Accounts savedAccount = accountsRepository.save(creditCardAccountFactory.createInvoiceAccount(dto, user, now));
+        CreditCard savedCard = creditCardRepository.save(buildCreditCard(dto, user, savedAccount, now));
 
-        Accounts cardAccount = Accounts.builder()
-                .id(ID.generate())
-                .name(dto.getName() + " (Fatura)")
-                .type(AccountType.CREDIT_CARD)
-                .institution(dto.getName() != null && !dto.getName().trim().isEmpty() ? dto.getName() : "")
-                .currency("BRL")
-                .currentBalance(BigDecimal.ZERO)
-                .initialBalance(BigDecimal.ZERO)
-                .calculateBalance(false)
-                .enabled(true)
-                .user(user)
-                .createdAt(now)
-                .icon(dto.getIcon() != null ? dto.getIcon() : "credit_card")
-                .color(dto.getColor() != null ? dto.getColor() : "#9C27B0")
-                .build();
-
-        Accounts savedAccount = accountsRepository.save(cardAccount);
-
-        CreditCard card = CreditCard.builder()
-                .id(ID.generate())
-                .name(dto.getName())
-                .totalLimit(dto.getTotalLimit()) // Ajustado para getTotalLimit()
-                .currentLimit(dto.getTotalLimit()) // Ajustado para getTotalLimit()
-                .closeDay(dto.getCloseDay())
-                .bestDay(dto.getBestDay())
-                .user(user)
-                .accounts(savedAccount)
-                .enabled(true)
-                .createdAt(now)
-                .icon(dto.getIcon() != null ? dto.getIcon() : "credit_card")
-                .color(dto.getColor() != null ? dto.getColor() : "#9C27B0")
-                .build();
-
-        return creditCardRepository.save(card);
+        log.info("Credit card created: cardId={}, accountId={}", savedCard.getId(), savedAccount.getId());
+        return savedCard;
     }
 
+    /**
+     * Retorna somente cartões ativos do usuário autenticado.
+     */
     @Override
     public List<CreditCard> listMyCards() {
         Users user = SecurityContextUtils.getCurrentUser();
         return creditCardRepository.findByUserId(user.getId());
     }
 
+    /**
+     * Encontra o cartão pela conta espelho usada em transações de cartão.
+     */
     @Override
     public CreditCard findByAccountId(UUID accountId) {
         return creditCardRepository.findByAccountsId(accountId)
                 .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.CARD_ACCOUNT_NOT_FOUND));
     }
 
+    /**
+     * Salva alterações de limite geradas por compras, exclusões, pagamentos e estornos.
+     */
     @Override
     public void updateLimit(CreditCard card) {
+        log.debug("Credit card limit updated: cardId={}, currentLimit={}, totalLimit={}",
+                card.getId(), card.getCurrentLimit(), card.getTotalLimit());
         creditCardRepository.save(card);
     }
 
+    /**
+     * Busca cartão ativo por id sem checar o usuário, usado por fluxos que validam propriedade fora daqui.
+     */
     @Override
     public Optional<CreditCard> findById(UUID id) {
         return creditCardRepository.findByIdAndNotDeleted(id);
     }
 
+    /**
+     * Busca cartão ativo por id ou lança erro padronizado quando não existir.
+     */
     @Override
     public CreditCard findByIdOrThrow(UUID id) {
         return findById(id)
                 .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.ERROR_TITLE, ConstsMessages.CREDIT_CARD_NOT_FOUND));
     }
 
+    /**
+     * Busca um cartão e confirma que ele pertence ao usuário autenticado.
+     */
+    @Override
+    public CreditCard findMyCardById(UUID id) {
+        CreditCard card = findByIdOrThrow(id);
+        creditCardDomainValidator.validateOwner(card, SecurityContextUtils.getCurrentUser());
+        return card;
+    }
+
+    /**
+     * Atualiza dados cadastrais e ajusta o limite disponível preservando o valor já utilizado.
+     */
     @Override
     @Transactional
     public CreditCard updateCard(UUID id, CreditCardDTO dto) {
-        CreditCard card = findByIdOrThrow(id);
-        Users currentUser = SecurityContextUtils.getCurrentUser();
+        CreditCard card = findMyCardById(id);
+        applyLimitChange(card, dto.getTotalLimit());
+        applyLinkedAccountChanges(card, dto);
+        applyCardFields(card, dto);
 
-        if (!card.getUser().getId().equals(currentUser.getId())) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_CARD);
-        }
-
-        // --- VALIDAÇÃO DE SEGURANÇA DO LIMITE ---
-        if (dto.getTotalLimit() != null) {
-            // Valor já utilizado = Limite Total - Limite Disponível
-            BigDecimal usedAmount = card.getTotalLimit().subtract(card.getCurrentLimit());
-
-            // Se o novo limite total for menor que o que já foi gasto, barramos.
-            if (dto.getTotalLimit().compareTo(usedAmount) < 0) {
-                throw new BadRequestException(
-                        "Limite Inválido",
-                        "O novo limite não pode ser menor que o valor já utilizado na fatura (R$ " + usedAmount + ")."
-                );
-            }
-
-            // Calcula a diferença para ajustar o limite atual livre
-            BigDecimal difference = dto.getTotalLimit().subtract(card.getTotalLimit());
-            card.setTotalLimit(dto.getTotalLimit());
-            card.setCurrentLimit(card.getCurrentLimit().add(difference));
-        }
-
-        // Atualização da conta vinculada
-        if (card.getAccounts() != null) {
-            Accounts account = card.getAccounts();
-            if (dto.getName() != null) {
-                account.setName(dto.getName() + " (Fatura)");
-                account.setInstitution(dto.getName());
-            }
-            if (dto.getIcon() != null) account.setIcon(dto.getIcon());
-            if (dto.getColor() != null) account.setColor(dto.getColor());
-            accountsRepository.save(account);
-        }
-
-        if (dto.getName() != null) card.setName(dto.getName());
-        if (dto.getCloseDay() > 0) card.setCloseDay(dto.getCloseDay());
-        if (dto.getBestDay() > 0) card.setBestDay(dto.getBestDay());
-        if (dto.getIcon() != null) card.setIcon(dto.getIcon());
-        if (dto.getColor() != null) card.setColor(dto.getColor());
-
-        card.setUpdatedAt(DateUtils.getEpochNow());
-
-        return creditCardRepository.save(card);
+        CreditCard updatedCard = creditCardRepository.save(card);
+        log.info("Credit card updated: cardId={}", updatedCard.getId());
+        return updatedCard;
     }
 
+    /**
+     * Remove logicamente o cartão e a conta espelho vinculada.
+     */
     @Override
     @Transactional
     public void softDelete(UUID id) {
-        CreditCard card = findByIdOrThrow(id);
-        Users currentUser = SecurityContextUtils.getCurrentUser();
+        CreditCard card = findMyCardById(id);
+        creditCardDomainValidator.validateCanDelete(card);
 
-        if (!card.getUser().getId().equals(currentUser.getId())) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_CARD);
-        }
-
-        if (card.getDeletedAt() != null) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.ENTITY_ALREADY_DELETED);
-        }
-
-        if (card.getAccounts() != null) {
-            Accounts account = card.getAccounts();
-            account.setDeletedAt(DateUtils.getEpochNow());
-            accountsRepository.save(account);
-        }
-
-        card.setDeletedAt(DateUtils.getEpochNow());
+        long now = DateUtils.getEpochNow();
+        softDeleteLinkedAccount(card, now);
+        card.setDeletedAt(now);
         creditCardRepository.save(card);
+
+        log.info("Credit card deleted: cardId={}", id);
+    }
+
+    /**
+     * Monta a entidade de cartão com limite inicial completo e vínculo à conta espelho salva.
+     */
+    private CreditCard buildCreditCard(CreditCardDTO dto, Users user, Accounts savedAccount, long now) {
+        return CreditCard.builder()
+                .id(ID.generate())
+                .name(dto.getName())
+                .totalLimit(dto.getTotalLimit())
+                .currentLimit(dto.getTotalLimit())
+                .closeDay(dto.getCloseDay())
+                .bestDay(dto.getBestDay())
+                .user(user)
+                .accounts(savedAccount)
+                .enabled(true)
+                .createdAt(now)
+                .icon(creditCardAccountFactory.resolveIcon(dto))
+                .color(creditCardAccountFactory.resolveColor(dto))
+                .build();
+    }
+
+    /**
+     * Recalcula o limite disponível quando o limite total do cartão é alterado.
+     */
+    private void applyLimitChange(CreditCard card, BigDecimal newTotalLimit) {
+        if (newTotalLimit == null) {
+            return;
+        }
+        BigDecimal usedAmount = card.getTotalLimit().subtract(card.getCurrentLimit());
+        creditCardDomainValidator.validateTotalLimitCanCoverUsedAmount(newTotalLimit, usedAmount);
+
+        BigDecimal difference = newTotalLimit.subtract(card.getTotalLimit());
+        card.setTotalLimit(newTotalLimit);
+        card.setCurrentLimit(card.getCurrentLimit().add(difference));
+    }
+
+    /**
+     * Propaga alterações visuais e de nome para a conta espelho do cartão.
+     */
+    private void applyLinkedAccountChanges(CreditCard card, CreditCardDTO dto) {
+        if (card.getAccounts() == null) {
+            return;
+        }
+        creditCardAccountFactory.applyCardChangesToAccount(card.getAccounts(), dto);
+        accountsRepository.save(card.getAccounts());
+    }
+
+    /**
+     * Atualiza os campos cadastrais simples do cartão.
+     */
+    private void applyCardFields(CreditCard card, CreditCardDTO dto) {
+        if (dto.getName() != null) {
+            card.setName(dto.getName());
+        }
+        if (dto.getCloseDay() > 0) {
+            card.setCloseDay(dto.getCloseDay());
+        }
+        if (dto.getBestDay() > 0) {
+            card.setBestDay(dto.getBestDay());
+        }
+        if (dto.getIcon() != null) {
+            card.setIcon(dto.getIcon());
+        }
+        if (dto.getColor() != null) {
+            card.setColor(dto.getColor());
+        }
+        card.setUpdatedAt(DateUtils.getEpochNow());
+    }
+
+    /**
+     * Marca a conta espelho como removida junto com o cartão.
+     */
+    private void softDeleteLinkedAccount(CreditCard card, long now) {
+        if (card.getAccounts() != null) {
+            card.getAccounts().setDeletedAt(now);
+            accountsRepository.save(card.getAccounts());
+        }
     }
 }

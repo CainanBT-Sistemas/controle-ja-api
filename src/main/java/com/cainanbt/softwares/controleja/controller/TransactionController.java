@@ -2,6 +2,7 @@ package com.cainanbt.softwares.controleja.controller;
 
 import com.cainanbt.softwares.controleja.dtos.TransactionDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.TransactionResponseDTO;
+import com.cainanbt.softwares.controleja.enums.OperationScope;
 import com.cainanbt.softwares.controleja.services.TransactionService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import jakarta.validation.Valid;
@@ -52,22 +53,23 @@ public class TransactionController {
     public ResponseEntity<TransactionResponseDTO> update(
             @PathVariable UUID id,
             @RequestBody @Valid TransactionDTO dto,
-            @RequestParam(defaultValue = "false") Boolean updateFuture) {
+            @RequestParam(defaultValue = "ONLY_THIS") OperationScope operationScope) {
 
-        var dtoResponse = transactionService.updateTransactionDTO(id, dto, updateFuture);
+        var dtoResponse = transactionService.updateTransactionDTO(id, dto, operationScope);
         return ResponseEntity.ok(dtoResponse);
     }
 
-    // NOVO: Recebe o parâmetro cancelFuture
     @DeleteMapping("/{id}")
     public ResponseEntity<?> delete(
             @PathVariable UUID id,
-            @RequestParam(defaultValue = "false") Boolean cancelFuture) {
+            @RequestParam(defaultValue = "ONLY_THIS") OperationScope operationScope) {
 
-        transactionService.softDelete(id, cancelFuture);
+        transactionService.softDelete(id, operationScope);
 
         Map<String, String> response = new HashMap<>();
-        response.put("message", cancelFuture ? "Assinatura cancelada e transações futuras removidas." : ConstsMessages.DELETE_SUCCESS);
+        response.put("message", operationScope == OperationScope.FROM_THIS_FORWARD
+                ? "Lançamento atual e futuros afetados conforme escopo informado."
+                : ConstsMessages.DELETE_SUCCESS);
         return ResponseEntity.ok(response);
     }
 

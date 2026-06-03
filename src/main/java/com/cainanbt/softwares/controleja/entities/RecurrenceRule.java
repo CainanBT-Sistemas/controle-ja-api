@@ -9,6 +9,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -26,7 +27,11 @@ import java.math.BigDecimal;
 import java.util.UUID;
 
 @Entity
-@Table(name = "recurrence_rules")
+@Table(name = "recurrence_rules", indexes = {
+        @Index(name = "idx_recurrence_user_status_deleted", columnList = "user_id, status, deleted_at"),
+        @Index(name = "idx_recurrence_status_deleted", columnList = "status, deleted_at"),
+        @Index(name = "idx_recurrence_account_deleted", columnList = "account_id, deleted_at")
+})
 @Getter
 @Builder
 @AllArgsConstructor

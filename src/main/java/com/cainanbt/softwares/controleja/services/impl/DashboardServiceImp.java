@@ -1,7 +1,6 @@
 package com.cainanbt.softwares.controleja.services.impl;
 
 import com.cainanbt.softwares.controleja.dtos.dashboard.ChartDataDTO;
-import com.cainanbt.softwares.controleja.dtos.dashboard.DashboardAlertDTO;
 import com.cainanbt.softwares.controleja.dtos.dashboard.DashboardFullSummaryDTO;
 import com.cainanbt.softwares.controleja.dtos.dashboard.FinancialSummaryDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.AccountResponseDTO;
@@ -15,67 +14,100 @@ import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.services.AccountsService;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
 import com.cainanbt.softwares.controleja.services.DashboardService;
+import com.cainanbt.softwares.controleja.services.dashboard.DashboardAlertBuckets;
+import com.cainanbt.softwares.controleja.services.dashboard.DashboardAlertMapper;
+import com.cainanbt.softwares.controleja.services.dashboard.DashboardPeriodValidator;
+import com.cainanbt.softwares.controleja.services.dashboard.DashboardProjectionCalculator;
+import com.cainanbt.softwares.controleja.services.invoices.InvoiceDateService;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.time.DayOfWeek;
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.UUID;
 
 @RequiredArgsConstructor
 @Service
+@Slf4j
+@Transactional(readOnly = true)
 public class DashboardServiceImp implements DashboardService {
+    private static final long THREE_MONTHS_IN_MILLIS = 90L * 24 * 60 * 60 * 1000;
+
+    private final DashboardPeriodValidator periodValidator = new DashboardPeriodValidator();
+    private final DashboardAlertMapper alertMapper = new DashboardAlertMapper();
+    private final DashboardProjectionCalculator projectionCalculator = new DashboardProjectionCalculator();
+
     private final TransactionRepository repository;
     private final AccountsRepository accountsRepository;
     private final InvoicesRepository invoicesRepository;
-
-    // Injeção dos novos serviços
     private final AccountsService accountsService;
     private final CreditCardService creditCardService;
+    private final InvoiceDateService invoiceDateService;
 
+    /**
+     * Lista despesas pagas por categoria, exceto despesas de cartão de crédito.
+     */
     @Override
     public List<ChartDataDTO> getExpensesByCategory(Long start, Long end) {
-        return repository.getGeneralExpensesByCategory(getUser(), start, end, TransactionType.DESPESA);
+        periodValidator.validate(start, end);
+        return repository.getGeneralExpensesByCategory(currentUserId(), start, end, TransactionType.DESPESA);
     }
 
+    /**
+     * Lista despesas de cartão de crédito por categoria usando parcelas do período.
+     */
     @Override
     public List<ChartDataDTO> getCreditCardExpensesByCategory(Long start, Long end) {
-        return repository.getCreditCardExpensesByCategory(getUser(), start, end, TransactionType.DESPESA);
+        periodValidator.validate(start, end);
+        return repository.getCreditCardExpensesByCategory(currentUserId(), start, end, TransactionType.DESPESA);
     }
 
+    /**
+     * Lista receitas pagas por categoria.
+     */
     @Override
     public List<ChartDataDTO> getIncomesByCategory(Long start, Long end) {
-        return repository.getExpensesByCategory(getUser(), start, end, TransactionType.RECEITA);
+        periodValidator.validate(start, end);
+        return repository.getExpensesByCategory(currentUserId(), start, end, TransactionType.RECEITA);
     }
 
+    /**
+     * Agrupa gastos de abastecimento por tipo de combustível.
+     */
     @Override
     public List<ChartDataDTO> getFuelComparison(Long start, Long end) {
-        return repository.getExpensesByFuelType(getUser(), start, end);
+        periodValidator.validate(start, end);
+        return repository.getExpensesByFuelType(currentUserId(), start, end);
     }
 
+    /**
+     * Retorna evolução de despesas do período, filtrando por categoria quando informado.
+     */
     @Override
     public List<ChartDataDTO> getEvolution(Long start, Long end, UUID categoryId) {
+        periodValidator.validate(start, end);
         if (categoryId == null) {
-            return repository.getEvolutionRawDataAll(getUser(), start, end);
-        } else {
-            return repository.getEvolutionRawDataByCategory(getUser(), start, end, categoryId);
+            return repository.getEvolutionRawDataAll(currentUserId(), start, end);
         }
+        return repository.getEvolutionRawDataByCategory(currentUserId(), start, end, categoryId);
     }
 
+    /**
+     * Calcula receita, despesa e saldo simples do período.
+     */
     @Override
     public FinancialSummaryDTO getSummary(Long start, Long end) {
-        UUID userId = getUser();
+        periodValidator.validate(start, end);
+        UUID userId = currentUserId();
         BigDecimal income = repository.getTotalByType(userId, TransactionType.RECEITA, start, end);
         BigDecimal expense = repository.getTotalByType(userId, TransactionType.DESPESA, start, end);
-        if (income == null) income = BigDecimal.ZERO;
-        if (expense == null) expense = BigDecimal.ZERO;
+        income = projectionCalculator.nullToZero(income);
+        expense = projectionCalculator.nullToZero(expense);
 
         return FinancialSummaryDTO.builder()
                 .totalIncome(income)
@@ -84,16 +116,18 @@ public class DashboardServiceImp implements DashboardService {
                 .build();
     }
 
+    /**
+     * Monta o resumo completo com saldo, contas, cartões, alertas e projeções.
+     */
     @Override
     public DashboardFullSummaryDTO getFullSummary(Long start, Long end) {
-        UUID userId = getUser();
+        periodValidator.validate(start, end);
+        UUID userId = currentUserId();
         long nowEpoch = DateUtils.getEpochNow();
         LocalDate today = LocalDate.now(DateUtils.zoneId);
-        long todayEpoch = DateUtils.localDateToEpoch(today); // Início do dia de hoje
+        long todayEpoch = DateUtils.localDateToEpoch(today);
 
-        // 1. SNAPSHOT: Saldos, Contas e Cartões
-        BigDecimal availableBalance = accountsRepository.getAvailableBalanceByUserId(userId);
-        if (availableBalance == null) availableBalance = BigDecimal.ZERO;
+        BigDecimal availableBalance = projectionCalculator.nullToZero(accountsRepository.getAvailableBalanceByUserId(userId));
 
         List<AccountResponseDTO> accounts = accountsService.listMyAccountsExceptCrediCard().stream()
                 .map(AccountResponseDTO::toDTO).toList();
@@ -101,125 +135,73 @@ public class DashboardServiceImp implements DashboardService {
         List<CreditCardResponseDTO> creditCards = creditCardService.listMyCards().stream()
                 .map(CreditCardResponseDTO::toDTO).toList();
 
-        // 2. BUSCA NO BANCO
-        List<Transactions> allPayables = repository.findPendingUpToDate(userId, TransactionType.DESPESA, end);
-        List<Transactions> receivables = repository.findPendingUpToDate(userId, TransactionType.RECEITA, end);
-        List<Invoices> rawInvoices = invoicesRepository.findPendingInvoicesUpToDate(userId, end);
+        DashboardAlertBuckets payableBuckets = splitTransactions(repository.findPendingUpToDate(userId, TransactionType.DESPESA, end), todayEpoch);
+        DashboardAlertBuckets receivableBuckets = splitTransactions(repository.findPendingUpToDate(userId, TransactionType.RECEITA, end), todayEpoch);
+        DashboardAlertBuckets invoiceBuckets = splitInvoices(invoicesRepository.findPendingInvoicesUpToDate(userId, end), today, todayEpoch);
 
-        // 3. SEPARAÇÃO: Despesas Atrasadas vs Pendentes no Mês
-        List<DashboardAlertDTO> overduePayables = new ArrayList<>();
-        List<DashboardAlertDTO> pendingPayables = new ArrayList<>();
-
-        for (Transactions t : allPayables) {
-            DashboardAlertDTO alert = mapToAlertDTO(t);
-            if (t.getDate() < todayEpoch) {
-                overduePayables.add(alert); // Venceu antes de hoje = ATRASADO
-            } else {
-                pendingPayables.add(alert); // Vence hoje em diante = PENDENTE
-            }
-        }
-
-        List<DashboardAlertDTO> overdueReceivables = new ArrayList<>();
-        List<DashboardAlertDTO> pendingReceivables = new ArrayList<>();
-
-        for (Transactions t : receivables) {
-            DashboardAlertDTO alert = mapToAlertDTO(t);
-            if (t.getDate() < todayEpoch) {
-                overdueReceivables.add(alert);
-            } else {
-                pendingReceivables.add(alert);
-            }
-        }
-
-        // 4. SEPARAÇÃO: Faturas Atrasadas vs Abertas
-        List<DashboardAlertDTO> overdueInvoices = new ArrayList<>();
-        List<DashboardAlertDTO> pendingInvoices = new ArrayList<>();
-
-        for (Invoices inv : rawInvoices) {
-            LocalDate closeDate = calculateCloseDate(inv);
-
-            // Verifica se a fatura já fechou no mundo real
-            boolean isPreviousMonth = (inv.getYear() < today.getYear()) || (inv.getYear() == today.getYear() && inv.getMonth() < today.getMonthValue());
-
-            if (isPreviousMonth || !today.isBefore(closeDate)) {
-                DashboardAlertDTO alert = DashboardAlertDTO.builder()
-                        .id(inv.getId())
-                        .referenceId(inv.getCreditCard() != null ? inv.getCreditCard().getId() : null)
-                        .description("Fatura " + (inv.getCreditCard() != null ? inv.getCreditCard().getName() : ""))
-                        .amount(inv.getAmount())
-                        .dueDate(inv.getExpirationDate())
-                        .icon(inv.getCreditCard() != null ? inv.getCreditCard().getIcon() : null)
-                        .color(inv.getCreditCard() != null ? inv.getCreditCard().getColor() : null)
-                        .type("FATURA")
-                        .month(inv.getMonth())
-                        .year(inv.getYear())
-                        .build();
-
-                if (inv.getExpirationDate() < todayEpoch) {
-                    overdueInvoices.add(alert); // Venceu = ATRASADA
-                } else {
-                    pendingInvoices.add(alert); // Aberta/Fechada a Pagar = PENDENTE
-                }
-            }
-        }
-
-        // 5. CÁLCULO DE PROJEÇÕES
-        BigDecimal projectedPayables = overduePayables.stream().map(DashboardAlertDTO::getAmount).filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add)
-                .add(pendingPayables.stream().map(DashboardAlertDTO::getAmount).filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add))
-                .add(overdueInvoices.stream().map(DashboardAlertDTO::getAmount).filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add))
-                .add(pendingInvoices.stream().map(DashboardAlertDTO::getAmount).filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add));
-
-        BigDecimal projectedReceivables = overdueReceivables.stream().map(DashboardAlertDTO::getAmount).filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add)
-                .add(pendingReceivables.stream().map(DashboardAlertDTO::getAmount).filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add));
-
-        long startThreeMonthsAgo = Math.max(0L, nowEpoch - (90L * 24 * 60 * 60 * 1000));
+        BigDecimal projectedPayables = payableBuckets.totalAmount().add(invoiceBuckets.totalAmount());
+        BigDecimal projectedReceivables = receivableBuckets.totalAmount();
+        long startThreeMonthsAgo = Math.max(0L, nowEpoch - THREE_MONTHS_IN_MILLIS);
         BigDecimal totalLast3Months = repository.getTotalByType(userId, TransactionType.DESPESA, startThreeMonthsAgo, nowEpoch);
-        if (totalLast3Months == null) totalLast3Months = BigDecimal.ZERO;
-        BigDecimal projectedVariables = totalLast3Months.divide(new BigDecimal(3), 2, RoundingMode.HALF_UP);
+        BigDecimal projectedVariables = projectionCalculator.averageLastThreeMonths(totalLast3Months);
+        BigDecimal projectedBalance = projectionCalculator.projectedBalance(availableBalance, projectedReceivables, projectedPayables, projectedVariables);
 
-        BigDecimal projectedBalance = availableBalance.add(projectedReceivables).subtract(projectedPayables).subtract(projectedVariables);
-
+        log.debug("Dashboard full summary calculated: userId={}, pendingPayables={}, pendingInvoices={}",
+                userId, payableBuckets.getPending().size(), invoiceBuckets.getPending().size());
         return DashboardFullSummaryDTO.builder()
                 .availableBalance(availableBalance)
                 .projectedBalance(projectedBalance)
                 .projectedPayables(projectedPayables)
                 .projectedVariables(projectedVariables)
-                .pendingPayables(pendingPayables)
-                .pendingReceivables(pendingReceivables)
-                .pendingInvoices(pendingInvoices)
-                .overdueReceivables(overdueReceivables)
-                .accounts(accounts)                 // Listas formatadas
+                .pendingPayables(payableBuckets.getPending())
+                .pendingReceivables(receivableBuckets.getPending())
+                .pendingInvoices(invoiceBuckets.getPending())
+                .overdueReceivables(receivableBuckets.getOverdue())
+                .accounts(accounts)
                 .creditCards(creditCards)
-                .overduePayables(overduePayables)
-                .overdueInvoices(overdueInvoices)
+                .overduePayables(payableBuckets.getOverdue())
+                .overdueInvoices(invoiceBuckets.getOverdue())
                 .build();
     }
 
-    private DashboardAlertDTO mapToAlertDTO(Transactions t) {
-        return DashboardAlertDTO.builder()
-                .id(t.getId())
-                .description(t.getName())
-                .amount(t.getAmount())
-                .dueDate(t.getDate())
-                .icon(t.getCategory() != null ? t.getCategory().getIcon() : null)
-                .color(t.getCategory() != null ? t.getCategory().getColor() : null)
-                .type(t.getType().name())
-                .build();
+    /**
+     * Separa transacoes pendentes entre vencidas e futuras.
+     */
+    private DashboardAlertBuckets splitTransactions(List<Transactions> transactions, long todayEpoch) {
+        DashboardAlertBuckets buckets = new DashboardAlertBuckets();
+        transactions.forEach(transaction -> buckets.add(alertMapper.fromTransaction(transaction), todayEpoch));
+        return buckets;
     }
 
-    private UUID getUser() {
+    /**
+     * Separa faturas ja fechadas entre vencidas e a vencer.
+     */
+    private DashboardAlertBuckets splitInvoices(List<Invoices> invoices, LocalDate today, long todayEpoch) {
+        DashboardAlertBuckets buckets = new DashboardAlertBuckets();
+        invoices.stream()
+                .filter(invoice -> shouldExposeInvoice(invoice, today))
+                .forEach(invoice -> buckets.add(alertMapper.fromInvoice(invoice), todayEpoch));
+        return buckets;
+    }
+
+    /**
+     * Exibe apenas faturas de meses anteriores ou faturas cujo fechamento ja ocorreu.
+     */
+    private boolean shouldExposeInvoice(Invoices invoice, LocalDate today) {
+        if (invoice.getCreditCard() == null) {
+            log.debug("Dashboard invoice ignored without credit card: invoiceId={}", invoice.getId());
+            return false;
+        }
+        boolean isPreviousMonth = invoice.getYear() < today.getYear()
+                || (invoice.getYear() == today.getYear() && invoice.getMonth() < today.getMonthValue());
+        LocalDate closeDate = invoiceDateService.calculateCloseDate(invoice.getCreditCard(), invoice.getMonth(), invoice.getYear());
+        return isPreviousMonth || !today.isBefore(closeDate);
+    }
+
+    /**
+     * Retorna o usuario autenticado para escopar todas as consultas do dashboard.
+     */
+    private UUID currentUserId() {
         return SecurityContextUtils.getCurrentUser().getId();
-    }
-
-    private LocalDate calculateCloseDate(Invoices invoice) {
-        int monthLength = LocalDate.of(invoice.getYear(), invoice.getMonth(), 1).lengthOfMonth();
-        LocalDate closeDate = LocalDate.of(invoice.getYear(), invoice.getMonth(), Math.min(invoice.getCreditCard().getCloseDay(), monthLength));
-        if (invoice.getCreditCard().getCloseDay() > invoice.getCreditCard().getBestDay()) {
-            closeDate = closeDate.minusMonths(1);
-        }
-        while (closeDate.getDayOfWeek() == DayOfWeek.SATURDAY || closeDate.getDayOfWeek() == DayOfWeek.SUNDAY) {
-            closeDate = closeDate.plusDays(1);
-        }
-        return closeDate;
     }
 }
