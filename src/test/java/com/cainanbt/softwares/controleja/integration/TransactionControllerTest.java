@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static io.restassured.RestAssured.given;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
@@ -153,6 +154,36 @@ public class TransactionControllerTest extends BaseTest {
                 .body("find { it.type == 'TRANSFERENCIA_SAIDA' }.id", is(transferOutId))
                 .body("find { it.type == 'TRANSFERENCIA_SAIDA' }.parentTransactionId", nullValue())
                 .body("find { it.type == 'TRANSFERENCIA_ENTRADA' }.parentTransactionId", is(transferOutId));
+    }
+
+    @Test
+    @DisplayName("CENÁRIO 2.0.1: Transferência para poupança deve ser permitida mesmo fora do cálculo de saldo")
+    void shouldPerformTransferToSavingsAccountEvenWhenItDoesNotCalculateBalance() {
+        UUID savingsId = createAccount("Poupança Inter", AccountType.SAVINGS, BigDecimal.ZERO, false);
+        TransactionDTO dto = transferUpdateDto("Aplicação Poupança", new BigDecimal("1000.00"), bankId, savingsId, true);
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(dto).post("/transactions")
+                .then().statusCode(200)
+                .body("type", is("TRANSFERENCIA_SAIDA"))
+                .body("accountId", is(bankId.toString()));
+
+        given().header("Authorization", "Bearer " + token).get("/accounts/" + bankId)
+                .then().body("currentBalance", is(-1000.0f));
+        given().header("Authorization", "Bearer " + token).get("/accounts/" + savingsId)
+                .then().body("currentBalance", is(1000.0f));
+    }
+
+    @Test
+    @DisplayName("CENÁRIO 2.0.2: Transferência para investimento patrimonial deve ser recusada")
+    void shouldRejectTransferToInvestmentAccount() {
+        UUID patrimonyId = createAccount("Investimento Patrimonial", AccountType.INVESTMENT, BigDecimal.ZERO, false);
+        TransactionDTO dto = transferUpdateDto("Aplicação Investimento", new BigDecimal("500.00"), bankId, patrimonyId, true);
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(dto).post("/transactions")
+                .then().statusCode(400)
+                .body("message", containsString("Transferencia permitida apenas entre Carteira, Conta Bancaria e Poupanca"));
     }
 
     @Test
@@ -468,6 +499,19 @@ public class TransactionControllerTest extends BaseTest {
                 .body("id", notNullValue())
                 .body("parentTransactionId", nullValue())
                 .extract().path("id");
+    }
+
+    private UUID createAccount(String name, AccountType type, BigDecimal initialBalance, boolean calculateBalance) {
+        AccountDTO account = new AccountDTO();
+        account.setName(name + " " + System.nanoTime());
+        account.setType(type);
+        account.setInitialBalance(initialBalance);
+        account.setCalculateBalance(calculateBalance);
+
+        return given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(account).post("/accounts")
+                .then().statusCode(200)
+                .extract().as(AccountResponseDTO.class).getId();
     }
 
     private TransactionDTO transferUpdateDto(String name, BigDecimal amount, UUID originAccountId, UUID targetAccountId, boolean paid) {

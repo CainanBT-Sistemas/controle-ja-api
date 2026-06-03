@@ -54,8 +54,8 @@ public class ConstsMessages {
 
     // --- TRANSAÇÕES ---
     public static final String INVOICE_MISSING_TARGET = "Para pagar fatura, informe o ID da conta do cartão (targetAccountId).";
-    public static final String TRANSFER_MISSING_TARGET = "Para Transferencia, informe o ID da conta do cartão (targetAccountId).";
-    public static final String TRANSFER_TARGET_NOT_VALID_ACCOUNT = "A conta de destino deve ser uma Conta Bancaria ou Carteira.";
+    public static final String TRANSFER_MISSING_TARGET = "Para Transferencia, informe o ID da conta de destino (targetAccountId).";
+    public static final String TRANSFER_ACCOUNT_NOT_VALID = "Transferencia permitida apenas entre Carteira, Conta Bancaria e Poupanca. Cartao de credito e Investimento patrimonial nao podem ser usados como origem ou destino.";
     public static final String INVOICE_TARGET_NOT_CARD = "A conta de destino deve ser um Cartão de Crédito.";
     public static final String CARD_ONLY_EXPENSE = "Em conta de cartão, use apenas DESPESA.";
 

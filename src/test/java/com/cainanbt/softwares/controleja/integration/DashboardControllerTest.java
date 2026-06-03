@@ -215,6 +215,33 @@ public class DashboardControllerTest extends BaseTest {
     }
 
     @Test
+    @DisplayName("Deve incluir poupança no saldo quando calculateBalance estiver habilitado")
+    void shouldIncludeSavingsAccountWhenCalculateBalanceEnabledInFullSummary() {
+        AccountDTO savingsAccount = new AccountDTO();
+        savingsAccount.setName("Poupanca da dashboard");
+        savingsAccount.setType(AccountType.SAVINGS);
+        savingsAccount.setInitialBalance(new BigDecimal("700.00"));
+        savingsAccount.setCalculateBalance(true);
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON)
+                .body(savingsAccount)
+                .post("/accounts")
+                .then()
+                .statusCode(200)
+                .body("calculateBalance", is(true));
+
+        long now = DateUtils.getEpochNow();
+        long start = now - 86400000L;
+        long end = now + 86400000L;
+
+        given().header("Authorization", "Bearer " + token).param("start", start).param("end", end)
+                .when().get("/dashboard/full-summary")
+                .then().statusCode(200)
+                .body("availableBalance", is(6350.0f));
+    }
+
+    @Test
     @DisplayName("Deve classificar faturas pagas, abertas, pendentes e vencidas no full-summary")
     void shouldClassifyInvoicesInFullSummary() {
         LocalDate today = LocalDate.now(DateUtils.zoneId);

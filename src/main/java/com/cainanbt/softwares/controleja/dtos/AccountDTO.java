@@ -15,7 +15,7 @@ public class AccountDTO {
     @Size(max = 80, message = "O nome da conta deve ter no máximo 80 caracteres")
     private String name;
 
-    @NotNull(message = "O tipo é obrigatório (ex: WALLET, BANK, SAVINGS)")
+    @NotNull(message = "O tipo é obrigatório (ex: WALLET, BANK, SAVINGS, INVESTMENT)")
     private AccountType type;
 
     @Size(max = 80, message = "A instituição deve ter no máximo 80 caracteres")

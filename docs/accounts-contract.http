@@ -39,13 +39,14 @@
 ### AccountType values
 ### WALLET: dinheiro em carteira.
 ### BANK: conta corrente ou conta bancária.
-### SAVINGS: investimento/reserva.
+### SAVINGS: poupanca ou reserva movimentavel; pode receber/enviar transferencias mesmo com calculateBalance=false.
+### INVESTMENT: investimento patrimonial, como acoes, fundos ou corretora; nao pode receber/enviar transferencias.
 ### CREDIT_CARD: conta espelho criada pelo fluxo de cartão; não deve ser criada manualmente pela tela comum.
 
 ### Account request contract
 ### {
 ###   "name": "string obrigatório",
-###   "type": "WALLET | BANK | SAVINGS | CREDIT_CARD obrigatório",
+###   "type": "WALLET | BANK | SAVINGS | INVESTMENT | CREDIT_CARD obrigatório",
 ###   "institution": "string opcional; vazio vira \"\"",
 ###   "initialBalance": "decimal obrigatório; usado apenas na criação",
 ###   "icon": "string opcional",
@@ -58,7 +59,7 @@
 ### {
 ###   "id": "uuid",
 ###   "name": "string",
-###   "type": "WALLET | BANK | SAVINGS | CREDIT_CARD",
+###   "type": "WALLET | BANK | SAVINGS | INVESTMENT | CREDIT_CARD",
 ###   "institution": "string",
 ###   "currentBalance": "decimal",
 ###   "enabled": "boolean",

@@ -57,7 +57,7 @@ Usado em edicao/exclusao de transacoes e itens de fatura.
 | Campo                 | Valores comuns                                             |
 |-----------------------|------------------------------------------------------------|
 | `type` de transacao   | `RECEITA`, `DESPESA`, `TRANSFERENCIA`                      |
-| `AccountType`         | `WALLET`, `BANK`, `SAVINGS`, `CREDIT_CARD`                 |
+| `AccountType`         | `WALLET`, `BANK`, `SAVINGS`, `INVESTMENT`, `CREDIT_CARD`   |
 | `fuelType`            | `GASOLINA`, `ETANOL`, `DIESEL`, `GNV`, `ELETRICO`, `OUTRO` |
 | `drivingPredominance` | `CITY`, `HIGHWAY`, `MIXED`                                 |
 
@@ -264,8 +264,10 @@ Responsabilidade: gerenciar contas financeiras do usuario. A listagem principal 
 ```
 
 Decisao importante: ajuste de saldo nao grava saldo direto; ele cria uma transacao de compensacao para manter historico.
-`calculateBalance=false` remove a conta do saldo disponível e das projeções da dashboard, mas não bloqueia
-movimentações.
+`calculateBalance=false` remove a conta do saldo disponível e das projeções da dashboard, mas nao bloqueia
+movimentacao. Transferencias permitem `WALLET`, `BANK` e `SAVINGS` independentemente de `calculateBalance`.
+`INVESTMENT` representa investimento patrimonial, como acoes/fundos/corretora, e nao pode ser origem/destino de
+transferencia. `CREDIT_CARD` tambem nao pode ser usado em transferencia comum.
 
 ## CategoriesController
 
@@ -469,7 +471,8 @@ Decisoes importantes:
 - `operationScope` substitui o antigo conceito duplicado de `updateFuture`.
 - Primeiro abastecimento nao entra no calculo de KM/L porque nao existe abastecimento anterior confiavel.
 - Abastecimento, manutencao e demais despesas de veiculo passam por processamento especifico.
-- Transferencia gera par de transacoes de saida/entrada.
+- Transferencia gera par de transacoes de saida/entrada e permite origem/destino `WALLET`, `BANK` ou `SAVINGS`,
+  independentemente de `calculateBalance`. `CREDIT_CARD` e `INVESTMENT` sao recusadas.
 
 ## InvoicesController
 

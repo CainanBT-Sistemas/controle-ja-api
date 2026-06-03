@@ -73,6 +73,11 @@
 ###   "drivingPredominance": "CITY | HIGHWAY | MIXED opcional",
 ###   "gasStationId": "uuid opcional"
 ### }
+### Transfer rules:
+### - TRANSFERENCIA creates two linked records: TRANSFERENCIA_SAIDA from accountId and TRANSFERENCIA_ENTRADA into targetAccountId.
+### - accountId and targetAccountId can be WALLET, BANK or SAVINGS, regardless of calculateBalance.
+### - calculateBalance only controls whether the account enters dashboard/available-balance calculations.
+### - CREDIT_CARD and INVESTMENT are rejected as transfer origin/destination.
 
 ### Transaction response contract
 ### {

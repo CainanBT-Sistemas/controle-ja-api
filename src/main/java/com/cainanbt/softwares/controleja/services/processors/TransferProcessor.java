@@ -39,9 +39,8 @@ public class TransferProcessor implements TransactionProcessor {
         }
         Accounts accountDest = accountsService.findByIdOrThrow(dto.getTargetAccountId());
 
-        if (accountDest.getType() != AccountType.BANK && accountDest.getType() != AccountType.WALLET) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.TRANSFER_TARGET_NOT_VALID_ACCOUNT);
-        }
+        validateTransferableAccount(accountOrigin);
+        validateTransferableAccount(accountDest);
 
         long dateNow = DateUtils.getEpochNow();
         RecurrenceRule rule = null;
@@ -83,5 +82,14 @@ public class TransferProcessor implements TransactionProcessor {
                 .user(user)
                 .recurrenceRule(rule)
                 .build();
+    }
+
+    /**
+     * Garante que transferências movimentem apenas contas transacionais, sem depender da flag de saldo da dashboard.
+     */
+    private void validateTransferableAccount(Accounts account) {
+        if (account.getType() == AccountType.CREDIT_CARD || account.getType() == AccountType.INVESTMENT) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.TRANSFER_ACCOUNT_NOT_VALID);
+        }
     }
 }

@@ -1316,6 +1316,8 @@ public class TransactionServiceImpl implements TransactionService {
                 throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_ACCOUNT);
             }
         }
+        validateTransferableAccount(newOrigin);
+        validateTransferableAccount(newDest);
 
         BigDecimal amount = dto.getAmount() != null ? dto.getAmount() : transferOut.getAmount();
         Long date = dto.getDate() != null ? dto.getDate() : transferOut.getDate();
@@ -1439,6 +1441,15 @@ public class TransactionServiceImpl implements TransactionService {
         boolean alreadyAdded = accounts.stream().anyMatch(item -> item.getId().equals(account.getId()));
         if (!alreadyAdded) {
             accounts.add(account);
+        }
+    }
+
+    /**
+     * Garante que edição de transferência continue restrita a contas transacionais.
+     */
+    private void validateTransferableAccount(Accounts account) {
+        if (account.getType() == AccountType.CREDIT_CARD || account.getType() == AccountType.INVESTMENT) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.TRANSFER_ACCOUNT_NOT_VALID);
         }
     }
 
