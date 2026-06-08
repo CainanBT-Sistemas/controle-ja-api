@@ -538,6 +538,9 @@ pagar e cancelar pagamento.
       "amount": 116.67,
       "paid": false,
       "fixed": false,
+      "isFixed": false,
+      "recurrenceRuleId": null,
+      "recurrenceFrequency": null,
       "canEdit": true,
       "itemKind": "INSTALLMENT"
     }
@@ -580,6 +583,12 @@ Decisoes importantes:
 - Fatura paga nao pode ser editada.
 - Compra com qualquer parcela paga nao pode ser cancelada por completo.
 - Edicao/exclusao de item usa `operationScope`.
+- Na edicao de compra fixa, `ONLY_THIS` altera somente a ocorrencia selecionada e `FROM_THIS_FORWARD` altera a
+  ocorrencia selecionada e as recorrencias futuras ainda editaveis. Faturas pagas ou bloqueadas impedem a operacao.
+- O retorno informa tanto `fixed` quanto `isFixed` durante a compatibilidade entre clientes. Para novas telas, use
+  `isFixed`, `recurrenceRuleId` e `recurrenceFrequency`.
+- O campo `installments` deve ser omitido quando a quantidade de parcelas nao estiver sendo alterada. O backend
+  tolera o mesmo valor atual, mas um valor diferente representa reparcelamento e exige `operationScope=ALL`.
 - Pagamento cria transacao financeira e atualiza saldos.
 - Cancelamento de pagamento reverte os efeitos vinculados ao pagamento.
 

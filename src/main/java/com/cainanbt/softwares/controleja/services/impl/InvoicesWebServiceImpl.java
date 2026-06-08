@@ -123,7 +123,7 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         List<InstallmentPlan> items = invoiceItems.stream()
                 .filter(p -> p.getDeletedAt() == null)
                 .filter(p -> !isInvoiceSummaryItem(p, parentTransactions))
-                .sorted(Comparator.comparing(InstallmentPlan::getDate, Comparator.nullsLast(Long::compareTo)))
+                .sorted(invoiceItemNewestFirst(parentTransactions))
                 .collect(Collectors.toList());
 
         InvoiceTotalsSummary totals = calculateInvoiceDetailsTotals(inv, items);
@@ -179,6 +179,41 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         return result;
     }
 
+    /**
+     * Ordena os itens pela data da transação vinculada ao purchaseId.
+     */
+    private Comparator<InstallmentPlan> invoiceItemNewestFirst(Map<UUID, Transactions> parentTransactions) {
+        return Comparator
+                .comparing(
+                        (InstallmentPlan item) -> resolveInvoiceItemTransactionDate(item, parentTransactions),
+                        Comparator.nullsLast(Comparator.reverseOrder())
+                )
+                .thenComparing(
+                        InstallmentPlan::getCreatedAt,
+                        Comparator.nullsLast(Comparator.reverseOrder())
+                )
+                .thenComparing(
+                        InstallmentPlan::getDate,
+                        Comparator.nullsLast(Comparator.reverseOrder())
+                );
+    }
+
+    /**
+     * Resolve a data efetiva da compra usando purchaseId para localizar a transação pai.
+     */
+    private Long resolveInvoiceItemTransactionDate(
+            InstallmentPlan item,
+            Map<UUID, Transactions> parentTransactions) {
+        Transactions parent = findParentTransaction(item, parentTransactions);
+        if (parent != null && parent.getDate() != null) {
+            return parent.getDate();
+        }
+        if (item.getCreatedAt() != null) {
+            return item.getCreatedAt();
+        }
+        return item.getDate();
+    }
+
     private boolean isInvoiceSummaryItem(InstallmentPlan item, Map<UUID, Transactions> parentTransactions) {
         UUID purchaseId = item.getPurchaseId();
         if (purchaseId == null) {
@@ -206,6 +241,9 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
 
     private InvoiceItemDTO toInvoiceItemDTO(InstallmentPlan item, Transactions parentTransaction, boolean closedOrPaid) {
         String itemKind = resolveItemKind(item);
+        boolean fixed = parentTransaction != null
+                ? Boolean.TRUE.equals(parentTransaction.getFixed())
+                : Boolean.TRUE.equals(item.getFixed());
         return InvoiceItemDTO.builder()
                 .id(item.getId())
                 .transactionId(item.getPurchaseId())
@@ -224,7 +262,14 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
                 .type(item.getType())
                 .amount(item.getAmount())
                 .paid(item.getPaid())
-                .fixed(parentTransaction != null ? parentTransaction.getFixed() : item.getFixed())
+                .fixed(fixed)
+                .isFixed(fixed)
+                .recurrenceRuleId(parentTransaction != null && parentTransaction.getRecurrenceRule() != null
+                        ? parentTransaction.getRecurrenceRule().getId()
+                        : null)
+                .recurrenceFrequency(parentTransaction != null && parentTransaction.getRecurrenceRule() != null
+                        ? parentTransaction.getRecurrenceRule().getFrequency()
+                        : null)
                 .canEdit(!closedOrPaid && !Boolean.TRUE.equals(item.getPaid()) && "PURCHASE".equals(itemKind))
                 .itemKind(itemKind)
                 .build();

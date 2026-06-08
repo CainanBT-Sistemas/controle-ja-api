@@ -253,12 +253,23 @@ public class TransactionServiceImpl implements TransactionService {
                 .filter(inst -> inst.getDeletedAt() == null)
                 .map(InstallmentPlan::getAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+        int currentInstallmentCount = activeInstallments.stream()
+                .map(InstallmentPlan::getTotalInstallmentsPlan)
+                .filter(java.util.Objects::nonNull)
+                .max(Integer::compareTo)
+                .orElse(activeInstallments.size());
 
-        if (dto.getInstallments() != null) {
+        if (dto.getInstallments() != null && dto.getInstallments() != currentInstallmentCount) {
             if (scope != OperationScope.ALL) {
                 throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Alteração da quantidade de parcelas só pode ser aplicada ao lançamento inteiro.");
             }
             return updateCreditCardInstallmentCount(purchase, installments, dto, dateNow);
+        }
+
+        if (purchase != null
+                && purchase.getRecurrenceRule() != null
+                && scope == OperationScope.FROM_THIS_FORWARD) {
+            return updateRecurringCreditCardPurchases(purchase, dto, dateNow, currentUser);
         }
 
         CreditCard targetCard = resolveTargetCard(dto, purchase, activeInstallments);
@@ -352,6 +363,178 @@ public class TransactionServiceImpl implements TransactionService {
         }
 
         return buildInstallmentResponse(installmentsToUpdate.stream().findFirst().orElse(installments.get(0)));
+    }
+
+    /**
+     * Separa a série na ocorrência escolhida e atualiza somente as compras recorrentes editáveis a partir dela.
+     */
+    private TransactionResponseDTO updateRecurringCreditCardPurchases(
+            Transactions selectedPurchase,
+            TransactionDTO dto,
+            long dateNow,
+            Users currentUser) {
+        RecurrenceRule oldRule = selectedPurchase.getRecurrenceRule();
+        Long selectedOriginalDate = selectedPurchase.getDate();
+        Long originalRuleEndDate = oldRule.getEndDate();
+
+        List<Transactions> affectedPurchases = new ArrayList<>(
+                repository.findFutureUnpaidByRuleId(oldRule.getId(), selectedOriginalDate)
+        );
+        if (affectedPurchases.stream().noneMatch(tx -> tx.getId().equals(selectedPurchase.getId()))) {
+            affectedPurchases.add(selectedPurchase);
+        }
+        affectedPurchases = affectedPurchases.stream()
+                .filter(tx -> tx.getDeletedAt() == null)
+                .filter(tx -> tx.getDate() != null && tx.getDate() >= selectedOriginalDate)
+                .sorted((left, right) -> left.getDate().compareTo(right.getDate()))
+                .toList();
+
+        Map<UUID, List<InstallmentPlan>> installmentsByPurchase = new HashMap<>();
+        for (Transactions purchase : affectedPurchases) {
+            validateTransactionOwner(purchase, currentUser);
+            List<InstallmentPlan> active = installmentPlanService.findByPurchaseId(purchase.getId()).stream()
+                    .filter(installment -> installment.getDeletedAt() == null)
+                    .sorted((left, right) -> left.getCurrentInstallment().compareTo(right.getCurrentInstallment()))
+                    .toList();
+            if (active.isEmpty()) {
+                throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Compra recorrente sem parcela ativa para atualizar.");
+            }
+            validateEditableInstallments(active);
+            installmentsByPurchase.put(purchase.getId(), active);
+        }
+
+        List<InstallmentPlan> selectedInstallments = installmentsByPurchase.get(selectedPurchase.getId());
+        CreditCard targetCard = resolveTargetCard(dto, selectedPurchase, selectedInstallments);
+        if (targetCard.getUser() == null || !targetCard.getUser().getId().equals(currentUser.getId())) {
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_ACCOUNT);
+        }
+        Category targetCategory = selectedPurchase.getCategory();
+        if (dto.getCategoryId() != null) {
+            targetCategory = categoryService.findByIdOrThrow(dto.getCategoryId());
+            validateCategoryForTransaction(targetCategory);
+        }
+
+        Long newSeriesStart = dto.getDate() != null ? dto.getDate() : selectedOriginalDate;
+        Long newSeriesEnd = dto.getRecurrenceEndDate() != null ? dto.getRecurrenceEndDate() : originalRuleEndDate;
+        if (newSeriesEnd != null && newSeriesEnd < newSeriesStart) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "A data final da recorrência deve ser igual ou posterior à nova data da compra.");
+        }
+        RecurrenceFrequency frequency = dto.getRecurrenceFrequency() != null
+                ? dto.getRecurrenceFrequency()
+                : oldRule.getFrequency();
+
+        oldRule.setEndDate(DateUtils.localDateToEpoch(
+                DateUtils.epochToLocalDate(selectedOriginalDate).minusDays(1)
+        ));
+        oldRule.setUpdatedAt(dateNow);
+        recurrenceRuleService.save(oldRule);
+
+        RecurrenceRule newRule = RecurrenceRule.builder()
+                .id(ID.generate())
+                .name(dto.getName() != null ? dto.getName() : selectedPurchase.getName())
+                .description(dto.getDescription() != null ? dto.getDescription() : selectedPurchase.getDescription())
+                .baseAmount(dto.getAmount() != null ? dto.getAmount() : selectedPurchase.getAmount())
+                .type(dto.getType() != null ? dto.getType() : selectedPurchase.getType())
+                .frequency(frequency)
+                .startDate(newSeriesStart)
+                .endDate(newSeriesEnd)
+                .status(RuleStatus.ACTIVE)
+                .createdAt(dateNow)
+                .user(currentUser)
+                .category(targetCategory)
+                .account(targetCard.getAccounts())
+                .targetAccount(oldRule.getTargetAccount())
+                .build();
+        newRule = recurrenceRuleService.save(newRule);
+
+        Map<UUID, Invoices> invoicesToUpdate = new HashMap<>();
+        List<InstallmentPlan> installmentsToUpdate = new ArrayList<>();
+        BigDecimal selectedTotalBefore = selectedInstallments.stream()
+                .map(InstallmentPlan::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        LocalDateTime occurrenceDate = DateUtils.epochToLocalDateTime(newSeriesStart);
+
+        for (int index = 0; index < affectedPurchases.size(); index++) {
+            Transactions purchase = affectedPurchases.get(index);
+            if (index > 0) {
+                occurrenceDate = calculateNextDate(occurrenceDate.toLocalDate(), frequency).atStartOfDay();
+            }
+
+            List<InstallmentPlan> purchaseInstallments = installmentsByPurchase.get(purchase.getId());
+            for (InstallmentPlan installment : purchaseInstallments) {
+                BigDecimal oldAmount = installment.getAmount();
+                if (dto.getAmount() != null && dto.getAmount().compareTo(oldAmount) != 0) {
+                    installment.setAmount(dto.getAmount());
+                    applyInvoiceDelta(invoicesToUpdate, installment.getInvoices(), dto.getAmount().subtract(oldAmount), dateNow);
+                }
+                if (dto.getName() != null) {
+                    installment.setName(buildInstallmentName(dto.getName(), installment));
+                }
+                if (dto.getDescription() != null) {
+                    installment.setDescription(dto.getDescription());
+                }
+                if (dto.getType() != null) {
+                    installment.setType(dto.getType().name());
+                }
+                if (dto.getDate() != null || dto.getRecurrenceFrequency() != null || targetCardChanged(targetCard, installment)) {
+                    moveInstallmentToInvoice(
+                            installment,
+                            targetCard,
+                            occurrenceDate.plusMonths(installment.getCurrentInstallment() - 1L),
+                            invoicesToUpdate,
+                            dateNow
+                    );
+                }
+                installment.setFixed(true);
+                installment.setUpdatedAt(dateNow);
+                installmentsToUpdate.add(installment);
+            }
+
+            BigDecimal purchaseTotal = purchaseInstallments.stream()
+                    .map(InstallmentPlan::getAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            purchase.setAmount(purchaseTotal);
+            if (dto.getName() != null) purchase.setName(dto.getName());
+            if (dto.getDescription() != null) purchase.setDescription(dto.getDescription());
+            if (dto.getType() != null) purchase.setType(dto.getType());
+            purchase.setDate(DateUtils.localDateTimeToEpoch(occurrenceDate));
+            purchase.setCategory(targetCategory);
+            purchase.setCreditCard(targetCard);
+            purchase.setAccount(targetCard.getAccounts());
+            purchase.setFixed(true);
+            purchase.setRecurrenceRule(newRule);
+            purchase.setUpdatedAt(dateNow);
+        }
+
+        installmentPlanService.saveAll(installmentsToUpdate);
+        if (!invoicesToUpdate.isEmpty()) {
+            invoicesService.saveAll(invoicesToUpdate.values().stream().toList());
+        }
+        repository.saveAll(affectedPurchases);
+
+        if (dto.getAmount() != null) {
+            BigDecimal selectedTotalAfter = selectedInstallments.stream()
+                    .map(InstallmentPlan::getAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            adjustCreditCardLimitForPurchaseAmountChange(targetCard, selectedTotalBefore, selectedTotalAfter);
+        }
+
+        log.info(
+                "Recurring credit card purchase updated: purchaseId={}, recurrenceRuleId={}, occurrences={}",
+                selectedPurchase.getId(),
+                newRule.getId(),
+                affectedPurchases.size()
+        );
+        return TransactionResponseDTO.toDTO(selectedPurchase);
+    }
+
+    /**
+     * Garante que a compra recorrente pertence ao usuário autenticado antes de alterar a série.
+     */
+    private void validateTransactionOwner(Transactions transaction, Users currentUser) {
+        if (transaction.getUser() == null || !transaction.getUser().getId().equals(currentUser.getId())) {
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_TRANSACTION);
+        }
     }
 
     private void adjustCreditCardLimitForPurchaseAmountChange(CreditCard card, BigDecimal oldTotal, BigDecimal newTotal) {
@@ -988,6 +1171,7 @@ public class TransactionServiceImpl implements TransactionService {
             return;
         }
 
+        Long originalEndDate = oldRule.getEndDate();
         Long previousEnd = DateUtils.localDateToEpoch(DateUtils.epochToLocalDate(transaction.getDate()).minusDays(1));
         oldRule.setEndDate(previousEnd);
         oldRule.setUpdatedAt(dateNow);
@@ -1001,7 +1185,7 @@ public class TransactionServiceImpl implements TransactionService {
                 .type(dto.getType() != null ? dto.getType() : transaction.getType())
                 .frequency(dto.getRecurrenceFrequency() != null ? dto.getRecurrenceFrequency() : oldRule.getFrequency())
                 .startDate(transaction.getDate())
-                .endDate(dto.getRecurrenceEndDate() != null ? dto.getRecurrenceEndDate() : oldRule.getEndDate())
+                .endDate(dto.getRecurrenceEndDate() != null ? dto.getRecurrenceEndDate() : originalEndDate)
                 .status(RuleStatus.ACTIVE)
                 .createdAt(dateNow)
                 .user(currentUser)

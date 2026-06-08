@@ -1,5 +1,6 @@
 package com.cainanbt.softwares.controleja.dtos.invoices;
 
+import com.cainanbt.softwares.controleja.enums.RecurrenceFrequency;
 import lombok.Builder;
 import lombok.Data;
 
@@ -27,6 +28,9 @@ public class InvoiceItemDTO {
     private BigDecimal amount;
     private Boolean paid;
     private Boolean fixed;
+    private Boolean isFixed;
+    private UUID recurrenceRuleId;
+    private RecurrenceFrequency recurrenceFrequency;
     private Boolean canEdit;
     private String itemKind;
 }

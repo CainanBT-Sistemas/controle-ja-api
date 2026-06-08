@@ -5,10 +5,13 @@ import com.cainanbt.softwares.controleja.entities.Accounts;
 import com.cainanbt.softwares.controleja.entities.CreditCard;
 import com.cainanbt.softwares.controleja.entities.InstallmentPlan;
 import com.cainanbt.softwares.controleja.entities.Invoices;
+import com.cainanbt.softwares.controleja.entities.RecurrenceRule;
 import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.enums.AccountType;
 import com.cainanbt.softwares.controleja.enums.OperationScope;
+import com.cainanbt.softwares.controleja.enums.RecurrenceFrequency;
+import com.cainanbt.softwares.controleja.enums.RuleStatus;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
@@ -23,6 +26,7 @@ import com.cainanbt.softwares.controleja.services.RecurrenceRuleService;
 import com.cainanbt.softwares.controleja.services.VehicleService;
 import com.cainanbt.softwares.controleja.services.processors.TransactionHelper;
 import com.cainanbt.softwares.controleja.services.processors.TransactionProcessorFactory;
+import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -136,6 +140,106 @@ class TransactionServiceImplTest {
             ArgumentCaptor<List<Invoices>> invoicesCaptor = ArgumentCaptor.forClass(List.class);
             verify(invoicesService).saveAll(invoicesCaptor.capture());
             assertEquals(2, invoicesCaptor.getValue().size());
+        }
+    }
+
+    @Test
+    void updateTransactionDTO_fromThisForwardUpdatesRecurringPurchasesAndIgnoresUnchangedInstallmentCount() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            long selectedDate = DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 5, 15, 0, 0));
+            long futureDate = DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 6, 15, 0, 0));
+            long newSelectedDate = DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 5, 17, 0, 0));
+
+            Accounts cardAccount = Accounts.builder()
+                    .id(UUID.randomUUID())
+                    .type(AccountType.CREDIT_CARD)
+                    .user(currentUser)
+                    .build();
+            CreditCard card = CreditCard.builder()
+                    .id(UUID.randomUUID())
+                    .closeDay(25)
+                    .bestDay(10)
+                    .accounts(cardAccount)
+                    .user(currentUser)
+                    .currentLimit(new BigDecimal("500.00"))
+                    .totalLimit(new BigDecimal("1000.00"))
+                    .build();
+            RecurrenceRule rule = RecurrenceRule.builder()
+                    .id(UUID.randomUUID())
+                    .name("Armazenamento")
+                    .baseAmount(new BigDecimal("14.99"))
+                    .type(TransactionType.DESPESA)
+                    .frequency(RecurrenceFrequency.MONTHLY)
+                    .startDate(selectedDate)
+                    .status(RuleStatus.ACTIVE)
+                    .user(currentUser)
+                    .account(cardAccount)
+                    .build();
+
+            Transactions selectedPurchase = Transactions.builder()
+                    .id(UUID.randomUUID())
+                    .name("Armazenamento")
+                    .type(TransactionType.DESPESA)
+                    .amount(new BigDecimal("14.99"))
+                    .date(selectedDate)
+                    .account(cardAccount)
+                    .creditCard(card)
+                    .fixed(true)
+                    .recurrenceRule(rule)
+                    .user(currentUser)
+                    .build();
+            Transactions futurePurchase = Transactions.builder()
+                    .id(UUID.randomUUID())
+                    .name("Armazenamento")
+                    .type(TransactionType.DESPESA)
+                    .amount(new BigDecimal("14.99"))
+                    .date(futureDate)
+                    .account(cardAccount)
+                    .creditCard(card)
+                    .fixed(true)
+                    .recurrenceRule(rule)
+                    .user(currentUser)
+                    .build();
+
+            Invoices mayInvoice = invoice(false, "14.99", card, 5, 2026);
+            Invoices juneInvoice = invoice(false, "14.99", card, 6, 2026);
+            InstallmentPlan selectedInstallment = installment(selectedPurchase.getId(), mayInvoice, 1, 1, "14.99", false);
+            InstallmentPlan futureInstallment = installment(futurePurchase.getId(), juneInvoice, 1, 1, "14.99", false);
+
+            TransactionDTO dto = new TransactionDTO();
+            dto.setName("Google Armazenamento");
+            dto.setDate(newSelectedDate);
+            dto.setInstallments(1);
+            dto.setIsFixed(true);
+
+            when(invoicesService.findById(selectedInstallment.getId())).thenReturn(Optional.empty());
+            when(installmentPlanService.findById(selectedInstallment.getId())).thenReturn(Optional.of(selectedInstallment));
+            when(repository.findById(selectedPurchase.getId())).thenReturn(Optional.of(selectedPurchase));
+            when(installmentPlanService.findByPurchaseId(selectedPurchase.getId())).thenReturn(List.of(selectedInstallment));
+            when(installmentPlanService.findByPurchaseId(futurePurchase.getId())).thenReturn(List.of(futureInstallment));
+            when(repository.findFutureUnpaidByRuleId(rule.getId(), selectedDate))
+                    .thenReturn(List.of(selectedPurchase, futurePurchase));
+            when(recurrenceRuleService.save(any(RecurrenceRule.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+            when(helper.calculateInvoiceDate(any(LocalDateTime.class), eq(25), eq(10)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+
+            service.updateTransactionDTO(selectedInstallment.getId(), dto, OperationScope.FROM_THIS_FORWARD);
+
+            assertEquals(newSelectedDate, selectedPurchase.getDate());
+            assertEquals(
+                    DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 6, 17, 0, 0)),
+                    futurePurchase.getDate()
+            );
+            assertEquals("Google Armazenamento", selectedPurchase.getName());
+            assertEquals("Google Armazenamento", futurePurchase.getName());
+            assertEquals("Google Armazenamento", selectedInstallment.getName());
+            assertEquals("Google Armazenamento", futureInstallment.getName());
+            assertEquals(selectedPurchase.getRecurrenceRule().getId(), futurePurchase.getRecurrenceRule().getId());
+            verify(repository).saveAll(List.of(selectedPurchase, futurePurchase));
+            verify(installmentPlanService).saveAll(List.of(selectedInstallment, futureInstallment));
         }
     }
 

@@ -10,10 +10,12 @@ import com.cainanbt.softwares.controleja.entities.Category;
 import com.cainanbt.softwares.controleja.entities.CreditCard;
 import com.cainanbt.softwares.controleja.entities.InstallmentPlan;
 import com.cainanbt.softwares.controleja.entities.Invoices;
+import com.cainanbt.softwares.controleja.entities.RecurrenceRule;
 import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.enums.AccountType;
 import com.cainanbt.softwares.controleja.enums.OperationScope;
+import com.cainanbt.softwares.controleja.enums.RecurrenceFrequency;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
@@ -156,6 +158,97 @@ public class InvoicesWebServiceImplTest {
             assertEquals(2, ((InvoiceDetailsDTO) dto).getItems().size());
 
             verify(installmentPlanService).findByInvoiceIdAndUserId(inv.getId(), currentUser.getId());
+        }
+    }
+
+    @Test
+    public void getInvoiceDetails_ordersItemsByNewestPurchaseDateFirst() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            long invoiceDueDate = DateUtils.getEpochNow() + 86400000L;
+            long olderPurchaseDate = DateUtils.getEpochNow() - 86400000L;
+            long newerPurchaseDate = DateUtils.getEpochNow();
+            long olderCreationDate = DateUtils.getEpochNow() - 1000L;
+            long newerCreationDate = DateUtils.getEpochNow() - 2000L;
+
+            CreditCard card = CreditCard.builder()
+                    .id(UUID.randomUUID())
+                    .name("Card")
+                    .closeDay(5)
+                    .bestDay(10)
+                    .build();
+            Invoices invoice = Invoices.builder()
+                    .id(UUID.randomUUID())
+                    .month(6)
+                    .year(2026)
+                    .amount(new BigDecimal("100.00"))
+                    .expirationDate(invoiceDueDate)
+                    .paid(false)
+                    .creditCard(card)
+                    .user(currentUser)
+                    .build();
+
+            Transactions olderPurchase = Transactions.builder()
+                    .id(UUID.randomUUID())
+                    .name("Compra antiga")
+                    .type(TransactionType.DESPESA)
+                    .date(olderPurchaseDate)
+                    .createdAt(olderCreationDate)
+                    .build();
+            Transactions newerPurchase = Transactions.builder()
+                    .id(UUID.randomUUID())
+                    .name("Compra recente")
+                    .type(TransactionType.DESPESA)
+                    .date(newerPurchaseDate)
+                    .createdAt(newerCreationDate)
+                    .fixed(true)
+                    .recurrenceRule(RecurrenceRule.builder()
+                            .id(UUID.randomUUID())
+                            .frequency(RecurrenceFrequency.MONTHLY)
+                            .build())
+                    .build();
+
+            InstallmentPlan olderItem = InstallmentPlan.builder()
+                    .id(UUID.randomUUID())
+                    .purchaseId(olderPurchase.getId())
+                    .date(invoiceDueDate)
+                    .createdAt(olderCreationDate)
+                    .name("Compra antiga")
+                    .amount(new BigDecimal("40.00"))
+                    .currentInstallment(1)
+                    .totalInstallmentsPlan(1)
+                    .paid(false)
+                    .build();
+            InstallmentPlan newerItem = InstallmentPlan.builder()
+                    .id(UUID.randomUUID())
+                    .purchaseId(newerPurchase.getId())
+                    .date(invoiceDueDate)
+                    .createdAt(newerCreationDate)
+                    .name("Compra recente")
+                    .amount(new BigDecimal("60.00"))
+                    .currentInstallment(1)
+                    .totalInstallmentsPlan(1)
+                    .paid(false)
+                    .build();
+
+            when(invoicesService.findByCreditCardIdAndMonthAndYear(card.getId(), invoice.getMonth(), invoice.getYear()))
+                    .thenReturn(Optional.of(invoice));
+            when(installmentPlanService.findByInvoiceIdAndUserId(invoice.getId(), currentUser.getId()))
+                    .thenReturn(List.of(olderItem, newerItem));
+            when(transactionRepository.findAllById(List.of(olderPurchase.getId(), newerPurchase.getId())))
+                    .thenReturn(List.of(olderPurchase, newerPurchase));
+
+            InvoiceDetailsDTO result = service.getInvoiceDetails(card.getId(), invoice.getMonth(), invoice.getYear())
+                    .orElseThrow();
+
+            assertEquals("Compra recente", result.getItems().get(0).getName());
+            assertEquals(newerPurchaseDate, result.getItems().get(0).getTransactionDate());
+            assertTrue(result.getItems().get(0).getFixed());
+            assertTrue(result.getItems().get(0).getIsFixed());
+            assertNotNull(result.getItems().get(0).getRecurrenceRuleId());
+            assertEquals(RecurrenceFrequency.MONTHLY, result.getItems().get(0).getRecurrenceFrequency());
+            assertEquals("Compra antiga", result.getItems().get(1).getName());
         }
     }
 
