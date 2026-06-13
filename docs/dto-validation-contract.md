@@ -21,7 +21,6 @@ Este contrato documenta o padrao de validacao aplicado aos DTOs de entrada.
 | `CreditCardDTO`            | Nome obrigatorio; limite maior que zero; fechamento/vencimento entre 1 e 31.                                                        |
 | `TransactionDTO`           | Nome, tipo, valor, data, pago e fixo obrigatorios; parcelas minimo 1; campos veiculares opcionais positivos.                        |
 | `VehicleDTO`               | Nome, marca, modelo, ano e odometro obrigatorios; odometro nao negativo; aceita ate 1 casa decimal; tanque positivo quando enviado. |
-| `VehicleLogDTO`            | Veiculo, data e odometro obrigatorios; odometro nao negativo; aceita ate 1 casa decimal; media do painel positiva quando enviada.   |
 | `GasStationDTO`            | Nome obrigatorio; endereco/cidade/estado com limites.                                                                               |
 | `InvoicePaymentRequestDTO` | Conta e valor obrigatorios; valor maior que zero.                                                                                   |
 | `RefundRequestDTO`         | Parcela e valor obrigatorios; valor maior que zero.                                                                                 |

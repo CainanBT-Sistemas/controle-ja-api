@@ -3,10 +3,8 @@ package com.cainanbt.softwares.controleja.services.impl;
 import com.cainanbt.softwares.controleja.dtos.responses.GasStationRankingResponseDTO;
 import com.cainanbt.softwares.controleja.entities.GasStationRanking;
 import com.cainanbt.softwares.controleja.entities.Transactions;
-import com.cainanbt.softwares.controleja.entities.VehicleLog;
 import com.cainanbt.softwares.controleja.enums.DrivingPredominance;
 import com.cainanbt.softwares.controleja.repositories.GasStationRankingRepository;
-import com.cainanbt.softwares.controleja.repositories.VehicleLogRepository;
 import com.cainanbt.softwares.controleja.services.GasStationRankingService;
 import com.cainanbt.softwares.controleja.services.gasstations.GasStationRankingCalculator;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
@@ -27,7 +25,6 @@ public class GasStationRankingServiceImpl implements GasStationRankingService {
     private final GasStationRankingCalculator rankingCalculator = new GasStationRankingCalculator();
 
     private final GasStationRankingRepository repository;
-    private final VehicleLogRepository vehicleLogRepository;
 
     /**
      * Atualiza o ranking quando a transação representa um abastecimento com eficiência confiável.
@@ -123,18 +120,10 @@ public class GasStationRankingServiceImpl implements GasStationRankingService {
     }
 
     /**
-     * Define predominância pela transação ou pelo último diário de bordo do veículo.
+     * Usa a predominância registrada no próprio abastecimento.
      */
     private DrivingPredominance resolveDrivingPredominance(Transactions tx) {
-        if (tx.getDrivingPredominance() != null) {
-            return tx.getDrivingPredominance();
-        }
-        if (tx.getVehicle() == null || tx.getDate() == null) {
-            return null;
-        }
-        return vehicleLogRepository.findFirstByVehicleIdAndDateLessThanEqualOrderByDateDesc(tx.getVehicle().getId(), tx.getDate())
-                .map(VehicleLog::getDrivingPredominance)
-                .orElse(null);
+        return tx.getDrivingPredominance();
     }
 
     /**

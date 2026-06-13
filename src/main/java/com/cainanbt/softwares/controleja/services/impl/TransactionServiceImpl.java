@@ -19,7 +19,6 @@ import com.cainanbt.softwares.controleja.enums.TransactionType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.exceptions.models.EntityNotFoundException;
 import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
-import com.cainanbt.softwares.controleja.repositories.VehicleLogRepository;
 import com.cainanbt.softwares.controleja.services.AccountsService;
 import com.cainanbt.softwares.controleja.services.CategoryService;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
@@ -32,10 +31,10 @@ import com.cainanbt.softwares.controleja.services.VehicleService;
 import com.cainanbt.softwares.controleja.services.processors.TransactionHelper;
 import com.cainanbt.softwares.controleja.services.processors.TransactionProcessor;
 import com.cainanbt.softwares.controleja.services.processors.TransactionProcessorFactory;
+import com.cainanbt.softwares.controleja.services.vehicles.VehicleOdometerTimelineService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
-import com.cainanbt.softwares.controleja.utils.OdometerValidator;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -73,7 +72,7 @@ public class TransactionServiceImpl implements TransactionService {
     private final TransactionHelper helper;
     private final GasStationRankingService gasStationRankingService;
     private final VehicleService vehicleService;
-    private final VehicleLogRepository vehicleLogRepository;
+    private final VehicleOdometerTimelineService odometerTimelineService;
 
     @Override
     @Transactional
@@ -97,6 +96,9 @@ public class TransactionServiceImpl implements TransactionService {
         Transactions savedTransaction = processor.process(dto, account, category, user);
 
         processVehicleMetricsIfApplicable(savedTransaction, dto);
+        if (savedTransaction.getVehicle() != null && savedTransaction.getCurrentOdometer() != null) {
+            odometerTimelineService.recalculateCurrentOdometer(savedTransaction.getVehicle());
+        }
 
         // CORREÇÃO: Roda na mesma thread. É tão rápido (5ms) que não vai travar o celular.
         // Como roda dentro da mesma transação, o banco enxerga a regra que acabou de ser criada!
@@ -1141,13 +1143,25 @@ public class TransactionServiceImpl implements TransactionService {
             return false;
         }
 
+        boolean shouldValidateOdometer = dto.getCurrentOdometer() != null
+                || (dto.getDate() != null && transaction.getCurrentOdometer() != null);
         boolean shouldRecalculateVehicleOdometer = false;
-        if (dto.getCurrentOdometer() != null) {
-            validateOdometerTimelineOnUpdate(transaction, vehicle, dto.getCurrentOdometer());
+        if (shouldValidateOdometer) {
+            BigDecimal targetOdometer = dto.getCurrentOdometer() != null
+                    ? dto.getCurrentOdometer()
+                    : transaction.getCurrentOdometer();
+            odometerTimelineService.validateReading(
+                    vehicle,
+                    transaction.getDate(),
+                    targetOdometer,
+                    transaction.getId(),
+                    transaction.getCreatedAt()
+            );
             shouldRecalculateVehicleOdometer = transaction.getCurrentOdometer() == null
-                    || dto.getCurrentOdometer().compareTo(transaction.getCurrentOdometer()) != 0;
-            if (shouldRecalculateVehicleOdometer) {
-                transaction.setCurrentOdometer(dto.getCurrentOdometer());
+                    || targetOdometer.compareTo(transaction.getCurrentOdometer()) != 0
+                    || dto.getDate() != null;
+            if (dto.getCurrentOdometer() != null) {
+                transaction.setCurrentOdometer(targetOdometer);
             }
         }
         if (dto.getLiters() != null) {
@@ -1255,46 +1269,6 @@ public class TransactionServiceImpl implements TransactionService {
         }
     }
 
-    private void validateOdometerTimelineOnUpdate(Transactions transaction, Vehicle vehicle, BigDecimal newOdometer) {
-        OdometerValidator.validateValue(newOdometer);
-        long createdAt = transaction.getCreatedAt() != null ? transaction.getCreatedAt() : 0L;
-        Long date = transaction.getDate();
-        if (date == null) {
-            return;
-        }
-
-        Optional<Transactions> previousOpt = repository
-                .findPreviousOdometerTransactions(vehicle.getId(), transaction.getId(), date, createdAt)
-                .stream()
-                .findFirst();
-        BigDecimal previousOdometer = previousOpt
-                .map(Transactions::getCurrentOdometer)
-                .orElse(vehicle.getInitialOdometer());
-
-        if (previousOpt.isPresent()
-                && previousOpt.get().getCurrentOdometer() != null
-                && newOdometer.compareTo(previousOpt.get().getCurrentOdometer()) < 0) {
-            throw new BadRequestException(
-                    ConstsMessages.ERROR_TITLE,
-                    "Odômetro não pode ser menor que o lançamento anterior do veículo."
-            );
-        }
-        OdometerValidator.validateJump(previousOdometer, newOdometer);
-
-        Optional<Transactions> nextOpt = repository
-                .findNextOdometerTransactions(vehicle.getId(), transaction.getId(), date, createdAt)
-                .stream()
-                .findFirst();
-        if (nextOpt.isPresent()
-                && nextOpt.get().getCurrentOdometer() != null
-                && newOdometer.compareTo(nextOpt.get().getCurrentOdometer()) > 0) {
-            throw new BadRequestException(
-                    ConstsMessages.ERROR_TITLE,
-                    "Odômetro não pode ser maior que o próximo lançamento do veículo."
-            );
-        }
-    }
-
     private void validateVehicleOdometerOnCreate(TransactionDTO dto, Users user) {
         if (dto.getVehicleId() == null || dto.getCurrentOdometer() == null) {
             return;
@@ -1305,11 +1279,13 @@ public class TransactionServiceImpl implements TransactionService {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_VEHICLE);
         }
 
-        OdometerValidator.validateValue(dto.getCurrentOdometer());
-        if (dto.getCurrentOdometer().compareTo(vehicle.getCurrentOdometer()) < 0) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Odômetro não pode ser menor que o odômetro atual do veículo.");
-        }
-        OdometerValidator.validateJump(vehicle.getCurrentOdometer(), dto.getCurrentOdometer());
+        odometerTimelineService.validateReading(
+                vehicle,
+                dto.getDate(),
+                dto.getCurrentOdometer(),
+                null,
+                Long.MAX_VALUE
+        );
     }
 
     private void validateCategoryForTransaction(Category category) {
@@ -1330,20 +1306,7 @@ public class TransactionServiceImpl implements TransactionService {
     }
 
     private void recalculateVehicleCurrentOdometer(Vehicle vehicle) {
-        BigDecimal maxTransactionOdometer = repository.findMaxCurrentOdometerByVehicleId(vehicle.getId());
-        BigDecimal maxLogOdometer = vehicleLogRepository.findMaxOdometerReadingByVehicleId(vehicle.getId());
-        BigDecimal recalculatedOdometer = vehicle.getInitialOdometer() != null
-                ? vehicle.getInitialOdometer()
-                : BigDecimal.ZERO;
-
-        if (maxTransactionOdometer != null && maxTransactionOdometer.compareTo(recalculatedOdometer) > 0) {
-            recalculatedOdometer = maxTransactionOdometer;
-        }
-        if (maxLogOdometer != null && maxLogOdometer.compareTo(recalculatedOdometer) > 0) {
-            recalculatedOdometer = maxLogOdometer;
-        }
-
-        vehicleService.setCurrentOdometer(vehicle, recalculatedOdometer);
+        odometerTimelineService.recalculateCurrentOdometer(vehicle);
     }
 
     @Override

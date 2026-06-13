@@ -33,4 +33,4 @@ Invalidar dashboards do usuario quando houver:
 - Criacao, pagamento, estorno, adiantamento ou cancelamento de `Invoices`.
 - Criacao, edicao ou exclusao de `Accounts`.
 - Criacao, edicao ou exclusao de `CreditCard`.
-- Criacao de `VehicleLog` ou lancamento veicular com odometro/abastecimento.
+- Criacao ou alteracao de lancamento veicular com odometro/abastecimento.

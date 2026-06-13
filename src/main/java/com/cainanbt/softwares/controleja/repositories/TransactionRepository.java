@@ -3,6 +3,7 @@ package com.cainanbt.softwares.controleja.repositories;
 import com.cainanbt.softwares.controleja.dtos.dashboard.ChartDataDTO;
 import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -153,31 +154,41 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
             "ORDER BY t.date DESC, t.createdAt DESC")
     List<Transactions> findPreviousValidRefuelsByVehicleBeforeDate(@Param("vehicleId") UUID vehicleId, @Param("date") Long date);
 
+    /**
+     * Busca leituras veiculares até a data informada para compor a linha do tempo.
+     */
     @Query("SELECT t FROM Transactions t WHERE t.vehicle.id = :vehicleId " +
-            "AND t.id <> :transactionId AND t.currentOdometer IS NOT NULL AND t.currentOdometer > 0 " +
+            "AND t.currentOdometer IS NOT NULL AND t.currentOdometer > 0 " +
+            "AND (t.date < :date OR (t.date = :date AND COALESCE(t.createdAt, 0) <= :createdAt)) " +
             "AND t.deletedAt IS NULL " +
-            "AND (t.date < :date OR (t.date = :date AND COALESCE(t.createdAt, 0) < :createdAt)) " +
             "ORDER BY t.date DESC, t.createdAt DESC")
-    List<Transactions> findPreviousOdometerTransactions(
+    List<Transactions> findOdometerReadingsAtOrBefore(
             @Param("vehicleId") UUID vehicleId,
-            @Param("transactionId") UUID transactionId,
             @Param("date") Long date,
-            @Param("createdAt") Long createdAt);
+            @Param("createdAt") Long createdAt,
+            Pageable pageable);
 
+    /**
+     * Busca leituras veiculares posteriores à data informada para compor a linha do tempo.
+     */
     @Query("SELECT t FROM Transactions t WHERE t.vehicle.id = :vehicleId " +
-            "AND t.id <> :transactionId AND t.currentOdometer IS NOT NULL AND t.currentOdometer > 0 " +
-            "AND t.deletedAt IS NULL " +
+            "AND t.currentOdometer IS NOT NULL AND t.currentOdometer > 0 " +
             "AND (t.date > :date OR (t.date = :date AND COALESCE(t.createdAt, 0) > :createdAt)) " +
+            "AND t.deletedAt IS NULL " +
             "ORDER BY t.date ASC, t.createdAt ASC")
-    List<Transactions> findNextOdometerTransactions(
+    List<Transactions> findOdometerReadingsAfter(
             @Param("vehicleId") UUID vehicleId,
-            @Param("transactionId") UUID transactionId,
             @Param("date") Long date,
-            @Param("createdAt") Long createdAt);
+            @Param("createdAt") Long createdAt,
+            Pageable pageable);
 
-    @Query("SELECT MAX(t.currentOdometer) FROM Transactions t WHERE t.vehicle.id = :vehicleId " +
-            "AND t.currentOdometer IS NOT NULL AND t.currentOdometer > 0 AND t.deletedAt IS NULL")
-    BigDecimal findMaxCurrentOdometerByVehicleId(@Param("vehicleId") UUID vehicleId);
+    /**
+     * Busca todas as leituras veiculares válidas em ordem cronológica decrescente.
+     */
+    @Query("SELECT t FROM Transactions t WHERE t.vehicle.id = :vehicleId " +
+            "AND t.currentOdometer IS NOT NULL AND t.currentOdometer > 0 AND t.deletedAt IS NULL " +
+            "ORDER BY t.date DESC, t.createdAt DESC")
+    List<Transactions> findOdometerReadingsByVehicle(@Param("vehicleId") UUID vehicleId, Pageable pageable);
 
     @Query("SELECT t FROM Transactions t WHERE t.vehicle.id = :vehicleId AND t.type = 'DESPESA' " +
             "AND t.fuelType IS NOT NULL AND t.liters IS NOT NULL AND t.liters > 0 " +

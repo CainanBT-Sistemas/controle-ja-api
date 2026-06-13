@@ -22,7 +22,7 @@ Este indice cruza os contratos HTTP ja documentados com as principais decisoes d
 | DTO Validation         | [dto-validation-contract.md](./dto-validation-contract.md)             | Global                                                  | Validacoes de entrada e regras que ficam nos services.                                |
 | OpenAPI Final Notes    | [openapi-final-notes.md](./openapi-final-notes.md)                     | `/swagger-ui.html`, `/v3/api-docs`                      | Configuracao final do Swagger/OpenAPI com Bearer JWT.                                 |
 | Transactions           | [transactions-contract.http](./transactions-contract.http)             | `/controle_ja_api/v1/transactions`                      | Lancamentos, recorrencias, transferencias, cartao e veiculos.                         |
-| Vehicles               | [vehicles-contract.http](./vehicles-contract.http)                     | `/controle_ja_api/v1/vehicles`                          | Veiculos, diario de bordo e dashboard veicular.                                       |
+| Vehicles               | [vehicles-contract.http](./vehicles-contract.http)                     | `/controle_ja_api/v1/vehicles`                          | Veiculos, odometro, transacoes veiculares e dashboard.                                |
 | Vehicle Forecast Front | [vehicle-forecast-front-prompt.md](./vehicle-forecast-front-prompt.md) | `/controle_ja_api/v1/vehicles/{id}/dashboard`           | Prompt para o front consumir previsoes futuras do dashboard de veiculo.               |
 
 ## Decisoes Transversais

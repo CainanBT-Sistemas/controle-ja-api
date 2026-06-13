@@ -51,7 +51,4 @@ public interface UsersRepository extends JpaRepository<Users, UUID> {
     @Query(value = "DELETE FROM accounts WHERE user_id = CAST(:userId AS uuid)", nativeQuery = true)
     void deleteAccountsByUserId(@Param("userId") UUID userId);
 
-    @Modifying
-    @Query(value = "DELETE FROM vehicle_logs WHERE user_id = CAST(:userId AS uuid)", nativeQuery = true)
-    void deleteVehicleLogsByUserId(@Param("userId") UUID userId);
 }

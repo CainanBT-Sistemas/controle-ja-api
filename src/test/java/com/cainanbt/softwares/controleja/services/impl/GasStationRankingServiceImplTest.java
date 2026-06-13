@@ -4,12 +4,9 @@ import com.cainanbt.softwares.controleja.entities.GasStation;
 import com.cainanbt.softwares.controleja.entities.GasStationRanking;
 import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.entities.Users;
-import com.cainanbt.softwares.controleja.entities.Vehicle;
-import com.cainanbt.softwares.controleja.entities.VehicleLog;
 import com.cainanbt.softwares.controleja.enums.DrivingPredominance;
 import com.cainanbt.softwares.controleja.enums.FuelType;
 import com.cainanbt.softwares.controleja.repositories.GasStationRankingRepository;
-import com.cainanbt.softwares.controleja.repositories.VehicleLogRepository;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,9 +30,6 @@ public class GasStationRankingServiceImplTest {
 
     @Mock
     private GasStationRankingRepository repository;
-
-    @Mock
-    private VehicleLogRepository vehicleLogRepository;
 
     @InjectMocks
     private GasStationRankingServiceImpl service;
@@ -70,29 +64,19 @@ public class GasStationRankingServiceImplTest {
     }
 
     @Test
-    void updateRanking_whenTransactionHasNoPredominance_shouldUseLatestVehicleLog() {
+    void updateRanking_whenTransactionHasNoPredominance_shouldCountAsUnknown() {
         GasStation station = gasStation();
-        Vehicle vehicle = Vehicle.builder().id(UUID.randomUUID()).build();
         Transactions tx = refuel(station, 9.0, null);
-        tx.setVehicle(vehicle);
-        VehicleLog log = VehicleLog.builder()
-                .id(UUID.randomUUID())
-                .vehicle(vehicle)
-                .date(tx.getDate())
-                .drivingPredominance(DrivingPredominance.CITY)
-                .build();
 
         when(repository.findByGasStationAndFuelType(station, FuelType.GASOLINA)).thenReturn(Optional.empty());
-        when(vehicleLogRepository.findFirstByVehicleIdAndDateLessThanEqualOrderByDateDesc(vehicle.getId(), tx.getDate()))
-                .thenReturn(Optional.of(log));
 
         service.updateRanking(tx);
 
         ArgumentCaptor<GasStationRanking> captor = ArgumentCaptor.forClass(GasStationRanking.class);
         verify(repository).save(captor.capture());
 
-        assertEquals(10.0, captor.getValue().getAdjustedAvgKml(), 0.01);
-        assertEquals(1, captor.getValue().getCityRefuelCount());
+        assertEquals(9.0, captor.getValue().getAdjustedAvgKml(), 0.01);
+        assertEquals(1, captor.getValue().getUnknownRefuelCount());
     }
 
     @Test

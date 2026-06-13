@@ -2,10 +2,12 @@ package com.cainanbt.softwares.controleja.controller;
 
 import com.cainanbt.softwares.controleja.dtos.VehicleDTO;
 import com.cainanbt.softwares.controleja.dtos.dashboard.VehicleDashboardDTO;
+import com.cainanbt.softwares.controleja.dtos.responses.VehicleOdometerContextDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.VehicleResponseDTO;
 import com.cainanbt.softwares.controleja.entities.Vehicle;
 import com.cainanbt.softwares.controleja.services.VehicleDashboardService;
 import com.cainanbt.softwares.controleja.services.VehicleService;
+import com.cainanbt.softwares.controleja.services.vehicles.VehicleOdometerTimelineService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -31,10 +33,15 @@ public class VehicleController {
     private final VehicleService vehicleService;
 
     private final VehicleDashboardService dashboardService;
+    private final VehicleOdometerTimelineService odometerTimelineService;
 
-    public VehicleController(VehicleService vehicleService, VehicleDashboardService dashboardService) {
+    public VehicleController(
+            VehicleService vehicleService,
+            VehicleDashboardService dashboardService,
+            VehicleOdometerTimelineService odometerTimelineService) {
         this.vehicleService = vehicleService;
         this.dashboardService = dashboardService;
+        this.odometerTimelineService = odometerTimelineService;
     }
 
     /**
@@ -90,6 +97,17 @@ public class VehicleController {
             @RequestParam Long end) {
         Vehicle vehicle = vehicleService.findMyVehicleById(id);
         return ResponseEntity.ok(dashboardService.getDashboard(vehicle, start, end));
+    }
+
+    /**
+     * Retorna as leituras anterior e posterior usadas para lançar odômetro em uma data específica.
+     */
+    @GetMapping("/{id}/odometer-context")
+    public ResponseEntity<VehicleOdometerContextDTO> getOdometerContext(
+            @PathVariable UUID id,
+            @RequestParam Long date) {
+        Vehicle vehicle = vehicleService.findMyVehicleById(id);
+        return ResponseEntity.ok(odometerTimelineService.getContext(vehicle, date));
     }
 
 }

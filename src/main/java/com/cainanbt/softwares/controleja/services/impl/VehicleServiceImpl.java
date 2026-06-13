@@ -3,12 +3,10 @@ package com.cainanbt.softwares.controleja.services.impl;
 import com.cainanbt.softwares.controleja.dtos.VehicleDTO;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.entities.Vehicle;
-import com.cainanbt.softwares.controleja.enums.FuelType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.exceptions.models.EntityNotFoundException;
 import com.cainanbt.softwares.controleja.repositories.VehicleRepository;
 import com.cainanbt.softwares.controleja.services.VehicleService;
-import com.cainanbt.softwares.controleja.services.vehicles.VehicleConsumptionCalculator;
 import com.cainanbt.softwares.controleja.services.vehicles.VehicleDomainValidator;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
@@ -27,8 +25,6 @@ import java.util.UUID;
 @Slf4j
 public class VehicleServiceImpl implements VehicleService {
     private final VehicleDomainValidator vehicleDomainValidator = new VehicleDomainValidator();
-    private final VehicleConsumptionCalculator vehicleConsumptionCalculator = new VehicleConsumptionCalculator();
-
     private final VehicleRepository repository;
 
     /**
@@ -87,18 +83,6 @@ public class VehicleServiceImpl implements VehicleService {
     }
 
     /**
-     * Atualiza o odômetro somente quando a nova leitura é maior que a atual.
-     */
-    @Override
-    public void updateOdometer(Vehicle vehicle, BigDecimal newOdometer) {
-        vehicleDomainValidator.validateInitialOdometer(newOdometer);
-        BigDecimal currentOdometer = vehicle.getCurrentOdometer();
-        if (newOdometer != null && (currentOdometer == null || newOdometer.compareTo(currentOdometer) > 0)) {
-            setCurrentOdometer(vehicle, newOdometer);
-        }
-    }
-
-    /**
      * Define a leitura atual do veículo após validação básica de valor.
      */
     @Override
@@ -108,36 +92,6 @@ public class VehicleServiceImpl implements VehicleService {
             vehicle.setCurrentOdometer(newOdometer);
             repository.save(vehicle);
         }
-    }
-
-    /**
-     * Processa um abastecimento, calcula KM/L quando há leitura anterior válida e atualiza médias do veículo.
-     */
-    @Override
-    public Double processRefuel(Vehicle vehicle, BigDecimal newOdometer, Double liters, FuelType fuelType) {
-        vehicleDomainValidator.validateInitialOdometer(newOdometer);
-        BigDecimal previousOdometer = vehicle.getCurrentOdometer();
-        if (newOdometer == null || previousOdometer == null || newOdometer.compareTo(previousOdometer) <= 0) {
-            return null;
-        }
-        if (liters == null || liters <= 0) {
-            setCurrentOdometer(vehicle, newOdometer);
-            return null;
-        }
-
-        Double consumption = vehicleConsumptionCalculator.calculateConsumption(previousOdometer, newOdometer, liters);
-        if (consumption == null) {
-            return null;
-        }
-
-        if (fuelType == FuelType.GASOLINA) {
-            vehicle.setAvgKmPerLiterGasoline(vehicleConsumptionCalculator.calculateRollingAverage(vehicle.getAvgKmPerLiterGasoline(), consumption));
-        } else if (fuelType == FuelType.ETANOL) {
-            vehicle.setAvgKmPerLiterEthanol(vehicleConsumptionCalculator.calculateRollingAverage(vehicle.getAvgKmPerLiterEthanol(), consumption));
-        }
-        vehicle.setCurrentOdometer(newOdometer);
-        repository.save(vehicle);
-        return consumption;
     }
 
     /**

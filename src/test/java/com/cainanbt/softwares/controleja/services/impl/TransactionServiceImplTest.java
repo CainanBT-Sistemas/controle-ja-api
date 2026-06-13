@@ -15,7 +15,6 @@ import com.cainanbt.softwares.controleja.enums.RuleStatus;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
-import com.cainanbt.softwares.controleja.repositories.VehicleLogRepository;
 import com.cainanbt.softwares.controleja.services.AccountsService;
 import com.cainanbt.softwares.controleja.services.CategoryService;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
@@ -26,6 +25,7 @@ import com.cainanbt.softwares.controleja.services.RecurrenceRuleService;
 import com.cainanbt.softwares.controleja.services.VehicleService;
 import com.cainanbt.softwares.controleja.services.processors.TransactionHelper;
 import com.cainanbt.softwares.controleja.services.processors.TransactionProcessorFactory;
+import com.cainanbt.softwares.controleja.services.vehicles.VehicleOdometerTimelineService;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import org.junit.jupiter.api.BeforeEach;
@@ -80,7 +80,7 @@ class TransactionServiceImplTest {
     @Mock
     private VehicleService vehicleService;
     @Mock
-    private VehicleLogRepository vehicleLogRepository;
+    private VehicleOdometerTimelineService odometerTimelineService;
 
     @InjectMocks
     private TransactionServiceImpl service;

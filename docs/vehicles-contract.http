@@ -1,4 +1,4 @@
-### Vehicles and Vehicle Logs API Contract
+### Vehicles API Contract
 ### Base URL
 @baseUrl = http://localhost:8080/controle_ja_api/v1
 @token = replace-with-access-token
@@ -7,16 +7,14 @@
 @end = 1748636000000
 
 ### Controller summary
-### VehicleController gerencia cadastro, edição, exclusão e dashboard de veículos.
-### VehicleLogController registra e consulta leituras do diário de bordo.
+### VehicleController gerencia cadastro, edição, exclusão, contexto de odômetro e dashboard de veículos.
 
 ### Existing controller decisions
 ### - Toda rota exige Authorization Bearer token.
-### - GET /vehicles/{id}, PUT, DELETE, dashboard e logs validam que o veículo pertence ao usuário.
+### - GET /vehicles/{id}, PUT, DELETE, contexto de odômetro e dashboard validam que o veículo pertence ao usuário.
 ### - currentOdometer inicial é obrigatório no cadastro do veículo.
 ### - Atualizar odômetro exige valor maior que o atual e passa por validação de salto plausível.
-### - Diário de bordo exige odometerReading e também atualiza o odômetro atual do veículo.
-### - dashboardKml do log é opcional; quando informado deve ser maior que zero.
+### - A evolução do odômetro é derivada das transações veiculares.
 ### - Dashboard usa o Vehicle já autorizado pelo controller para evitar buscar o mesmo veículo duas vezes.
 ### - Dashboard calcula custo mensal, anual, custo por km, média de consumo e previsão quando houver dados confiáveis.
 
@@ -58,25 +56,6 @@
 ###   "year": "integer",
 ###   "plate": "string|null",
 ###   "tankCapacity": "decimal|null"
-### }
-
-### Vehicle log request contract
-### {
-###   "vehicleId": "uuid obrigatório",
-###   "date": "epoch milliseconds obrigatório",
-###   "odometerReading": "decimal obrigatório; aceita até 1 casa decimal",
-###   "dashboardKml": "decimal opcional, maior que zero",
-###   "drivingPredominance": "CITY | HIGHWAY | MIXED opcional"
-### }
-
-### Vehicle log response contract
-### {
-###   "id": "uuid",
-###   "date": "epoch milliseconds",
-###   "odometerReading": "decimal",
-###   "dashboardKml": "decimal|null",
-###   "drivingPredominance": "CITY | HIGHWAY | MIXED | null",
-###   "vehicleName": "string"
 ### }
 
 ### Create vehicle
@@ -190,7 +169,12 @@ Authorization: Bearer {{token}}
 ### - Future prediction fields are populated only when start/end represent the current month.
 ### - For historical months, estimatedNextCost, estimatedNextRefuelCost and nextMonthEstimatedCost return 0; dates and nested predictions return null/empty list.
 ### - Legacy fields estimatedNextCost, estimatedNextRefuelCost and estimatedNextRefuelDate remain for mobile compatibility.
-### - futurePredictions may include up to 3 months ahead, prioritizing the next month.
+### - futurePredictions returns one visible month: the selected month when its estimated refuel is still ahead, otherwise the immediately following month.
+### - At most one REFUEL item is returned; the backend does not repeat refuels from the average interval.
+### - Estimated refuel dates earlier than the current instant are never returned.
+### - When estimated autonomy is exhausted, remainingKms is 0 and the refuel prediction uses the current instant.
+### - The first refuel is used as an odometer/date baseline even though it has no efficiency.
+### - Forecast KML is recalculated from the latest two refuels when both odometer readings are available.
 ### - Monthly prediction uses known future vehicle costs/installments when available and falls back to recent vehicle cost average when no future cost is scheduled.
 ### - Refuel prediction uses recent fuel price per liter, estimated refuel volume, odometer, KML and average usage interval.
 ### - Credit-card purchases are not counted by their full original amount in the purchase month.
@@ -247,40 +231,3 @@ Authorization: Bearer {{token}}
 ###   "nextRefuelPrediction": null,
 ###   "futurePredictions": []
 ### }
-
-### Create vehicle log
-POST {{baseUrl}}/vehicles/logs
-Authorization: Bearer {{token}}
-Content-Type: application/json
-
-{
-  "vehicleId": "{{vehicleId}}",
-  "date": 1717100000000,
-  "odometerReading": 51250.4,
-  "dashboardKml": 11.8,
-  "drivingPredominance": "CITY"
-}
-
-### Expected 200 response
-### Vehicle log response contract.
-
-### List vehicle logs by period
-GET {{baseUrl}}/vehicles/logs/{{vehicleId}}?start={{start}}&end={{end}}
-Authorization: Bearer {{token}}
-
-### Expected 200 response
-### [ Vehicle log response contract ]
-
-### Delete last vehicle log
-DELETE {{baseUrl}}/vehicles/logs/{{vehicleLogId}}
-Authorization: Bearer {{token}}
-
-### Expected 200 response
-### {
-###   "message": "Registro excluído com sucesso."
-### }
-### Notes:
-### - Only the latest vehicle log for that vehicle can be deleted.
-### - If the first log is also the latest/only log, it can be deleted.
-### - Deleting a valid last log recalculates the vehicle currentOdometer from remaining logs, vehicle transactions and initial odometer.
-### - Vehicle dashboard values are recalculated on the next dashboard request because logs affect KM driven, KM/L fallback and cost per KM.

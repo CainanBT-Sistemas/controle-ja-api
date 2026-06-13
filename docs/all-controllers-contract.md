@@ -610,6 +610,7 @@ Responsabilidade: gerenciar veiculos e expor dashboard individual do veiculo.
 | `PUT`    | `/vehicles/{id}`                                   | `VehicleDTO`                    | `VehicleResponseDTO`.          |
 | `DELETE` | `/vehicles/{id}`                                   | Path `id`                       | Mensagem de sucesso.           |
 | `GET`    | `/vehicles/{id}/dashboard?start={start}&end={end}` | Path `id`, query `start`, `end` | `VehicleDashboardDTO`.         |
+| `GET`    | `/vehicles/{id}/odometer-context?date={date}`      | Path `id`, query `date`         | `VehicleOdometerContextDTO`.   |
 
 ### VehicleDTO
 
@@ -689,11 +690,33 @@ Responsabilidade: gerenciar veiculos e expor dashboard individual do veiculo.
 }
 ```
 
-As previsoes do dashboard do veiculo so sao preenchidas para o mes atual consultado. Em meses historicos, os custos
-previstos retornam `0`, datas retornam `null`, `nextRefuelPrediction` retorna `null` e `futurePredictions` retorna lista
-vazia. Os campos legados `estimatedNextCost`, `estimatedNextRefuelCost` e `estimatedNextRefuelDate` continuam no
-contrato para compatibilidade com o aplicativo. Quando houver dados, `futurePredictions` pode retornar ate 3 meses
-futuros, usando parcelas/gastos futuros conhecidos e media historica como fallback.
+### VehicleOdometerContextDTO
+
+```json
+{
+  "previousOdometer": 180855.0,
+  "previousDate": 1780124400000,
+  "previousSource": "TRANSACTION",
+  "nextOdometer": 181055.0,
+  "nextDate": 1780729200000,
+  "nextSource": "TRANSACTION",
+  "currentOdometer": 181055.0,
+  "latestReadingDate": 1780729200000,
+  "retroactive": true
+}
+```
+
+O contexto combina leituras de abastecimento, manutencao e outras transacoes veiculares. Em
+lancamentos retroativos, o novo odometro deve ficar entre `previousOdometer` e `nextOdometer`.
+
+As previsoes mensais usam o periodo selecionado como referencia. Se o proximo abastecimento estimado ainda cair no
+mes selecionado e sua data nao estiver no passado, `futurePredictions` retorna esse mes; caso contrario, retorna somente
+o mes imediatamente seguinte. Existe no maximo um item `REFUEL`, sem repeticoes por intervalo medio. Os campos
+legados `estimatedNextCost`, `estimatedNextRefuelCost` e `estimatedNextRefuelDate` continuam no contrato para
+compatibilidade com o aplicativo.
+
+Quando a autonomia estimada ja foi consumida, o backend retorna `remainingKms = 0` e uma previsao de abastecimento
+imediato com a data atual, em vez de ocultar a previsao.
 
 Decisões do dashboard de veículo:
 
@@ -702,56 +725,6 @@ Decisões do dashboard de veículo:
   parcela em cada fatura.
 - O histórico geral de transações continua exibindo lançamentos reais, enquanto o dashboard concentra a análise de custo
   do carro.
-
-## VehicleLogController
-
-Base:
-
-```http
-/vehicles/logs
-```
-
-Responsabilidade: registrar e consultar leituras do diario de bordo.
-
-| Metodo   | Endpoint                                             | Recebe                                          | Retorna                           |
-|----------|------------------------------------------------------|-------------------------------------------------|-----------------------------------|
-| `POST`   | `/vehicles/logs`                                     | `VehicleLogDTO`                                 | `VehicleLogResponseDTO`.          |
-| `GET`    | `/vehicles/logs/{vehicleId}?start={start}&end={end}` | Path `vehicleId`, query opcional `start`, `end` | Lista de `VehicleLogResponseDTO`. |
-| `DELETE` | `/vehicles/logs/{id}`                                | Path `id`                                       | Mensagem de sucesso.              |
-
-Decisões do controller:
-
-- A exclusão só é permitida para o último lançamento do diário de bordo do veículo.
-- O primeiro lançamento pode ser excluído quando também for o último/único lançamento do diário.
-- Ao excluir o último diário, o backend recalcula o `currentOdometer` do veículo considerando diários restantes,
-  transações veiculares e odômetro inicial.
-- O dashboard do veículo é recalculado na próxima consulta, pois o diário impacta KM rodado, fallback de KM/L e custo
-  por KM.
-
-### VehicleLogDTO
-
-```json
-{
-  "vehicleId": "uuid",
-  "date": 1717100000000,
-  "odometerReading": 51250,
-  "dashboardKml": 11.8,
-  "drivingPredominance": "CITY"
-}
-```
-
-### VehicleLogResponseDTO
-
-```json
-{
-  "id": "uuid",
-  "date": 1717100000000,
-  "odometerReading": 51250,
-  "dashboardKml": 11.8,
-  "drivingPredominance": "CITY",
-  "vehicleName": "Meu carro"
-}
-```
 
 ## GasStationController
 
@@ -905,6 +878,6 @@ Todas as rotas recebem `start` e `end` em epoch milliseconds.
 | Categories           | Categoria pai de veiculo exige subcategoria no lancamento.                                    |
 | Cards/Invoices       | Cartao cria conta espelho; fatura paga bloqueia edicoes; parcelas pagas protegem a compra.    |
 | Transactions         | `operationScope` controla edicao/exclusao em massa; `updateFuture` nao deve ser usado.        |
-| Vehicles/Logs        | Odometro deve evoluir de forma valida; diario de bordo atualiza km do veiculo.                |
+| Vehicles             | Odometro deve evoluir de forma valida a partir das transacoes veiculares.                     |
 | Gas Stations/Ranking | Ranking usa apenas abastecimentos confiaveis.                                                 |
 | Dashboard            | Consultas agregadas por periodo; `full-summary` entrega a visao mais completa da home.        |

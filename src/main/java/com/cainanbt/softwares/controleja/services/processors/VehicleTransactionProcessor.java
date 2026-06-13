@@ -9,6 +9,7 @@ import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.services.GasStationService;
 import com.cainanbt.softwares.controleja.services.VehicleService;
+import com.cainanbt.softwares.controleja.services.vehicles.VehicleConsumptionCalculator;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,6 +25,7 @@ public class VehicleTransactionProcessor {
     private final VehicleService vehicleService;
     private final GasStationService gasStationService;
     private final TransactionRepository transactionRepository;
+    private final VehicleConsumptionCalculator vehicleConsumptionCalculator;
 
     /**
      * Enriquece o builder com veiculo, posto e metricas sem misturar essa regra com processadores financeiros.
@@ -70,21 +72,23 @@ public class VehicleTransactionProcessor {
             return null;
         }
         if (!isRefuel(dto)) {
-            vehicleService.updateOdometer(vehicle, dto.getCurrentOdometer());
             return null;
         }
 
-        boolean hasPreviousRefuel = transactionRepository
+        Transactions previousRefuel = transactionRepository
                 .findPreviousValidRefuelsByVehicleBeforeDate(vehicle.getId(), dto.getDate())
                 .stream()
                 .findFirst()
-                .isPresent();
-        if (!hasPreviousRefuel) {
+                .orElse(null);
+        if (previousRefuel == null || previousRefuel.getCurrentOdometer() == null) {
             log.info("Primeiro abastecimento do veículo {} registrado sem cálculo de KM/L.", vehicle.getId());
-            vehicleService.updateOdometer(vehicle, dto.getCurrentOdometer());
             return null;
         }
-        return vehicleService.processRefuel(vehicle, dto.getCurrentOdometer(), dto.getLiters(), dto.getFuelType());
+        return vehicleConsumptionCalculator.calculateConsumption(
+                previousRefuel.getCurrentOdometer(),
+                dto.getCurrentOdometer(),
+                dto.getLiters()
+        );
     }
 
     /**
