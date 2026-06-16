@@ -1,12 +1,23 @@
 # Visão Geral do Projeto
 
+## Documento mestre para IAs
+
+Este arquivo é a fonte principal de contexto do backend Controle Já para ChatGPT, Codex e
+outras IAs em conversas futuras. Antes de propor alteração, uma IA deve ler este documento,
+verificar `git status` e confirmar o estado real da branch local. O documento descreve o
+backend atual, decisões de domínio, endpoints, regras financeiras, riscos conhecidos e
+pendências técnicas.
+
 ## Identificação
 
 - **Nome:** Controle Já API.
 - **Artefato Maven:** `com.cainanbt.softwares:controleja:0.0.1-SNAPSHOT`.
 - **Descrição declarada:** backend de aplicativo de controle financeiro.
 - **Base HTTP:** `/controle_ja_api/v1`.
-- **Estado deste documento:** retrato do código e do worktree em 11 de junho de 2026.
+- **Estado deste documento:** sincronizado em 16 de junho de 2026 na branch `dev`.
+- **Observação de branch:** no momento da atualização, `dev` estava à frente de `origin/dev`
+  em um commit local. Confirmar se esse commit já foi publicado antes de abrir PR ou orientar
+  outro agente.
 
 ## Objetivo principal
 
@@ -72,8 +83,9 @@ Flutter, mas o código do front não está neste workspace. Os contratos para o 
 - RestAssured.
 - Testcontainers 1.18.3.
 - PostgreSQL real em container nos testes de integração.
-- A suíte completa foi executada com sucesso em 11 de junho de 2026 após a remoção do diário
-  de bordo e o ajuste das previsões de abastecimento.
+- A suíte Maven completa foi executada com sucesso durante a estabilização do fluxo de
+  veículos, remoção do diário de bordo e ajuste das previsões de abastecimento. Antes de uma
+  entrega final, rodar novamente `.\mvnw.cmd test` na branch local atual.
 
 ## Banco de dados
 
@@ -184,6 +196,11 @@ parte das edições, recorrências, exclusões, transferências e compras parcel
 - CORS configurável por `CORS_ALLOWED_ORIGINS`.
 - `allowCredentials=false`.
 - Token, senha e refresh token não devem aparecer em logs.
+- As rotas `/health`, `/actuator/health` e `/controle_ja_api/v1/health` estão liberadas na
+  configuração de segurança e no filtro JWT. Porém, em 16 de junho de 2026, não foi
+  encontrado um `HealthController` nem dependência explícita de Actuator no código fonte; se
+  o app precisar de health check real para modo offline/online, implementar endpoint leve
+  que retorne 200 sem consultar `users`, `category` ou qualquer tabela de domínio.
 
 # Funcionalidades Implementadas
 
@@ -366,25 +383,48 @@ parte das edições, recorrências, exclusões, transferências e compras parcel
 
 # Funcionalidades em Desenvolvimento
 
-## Alterações presentes no worktree e ainda não consolidadas em commit
+## Fluxo offline-first e sincronização
 
-Em 11 de junho de 2026 o repositório possui mudanças locais:
+O app mobile passou a exigir operação offline/online com banco local, outbox e sincronização
+idempotente. Em 16 de junho de 2026, o backend ainda **não possui** os endpoints finais de
+sincronização:
 
-- Linha do tempo cronológica de odômetro.
-- `VehicleOdometerContextDTO`.
-- Endpoint `GET /vehicles/{id}/odometer-context?date=...&transactionId=...`, com
-  `transactionId` opcional para excluir o próprio lançamento durante uma edição.
-- Queries de eventos anterior, posterior e mais recente.
-- Recálculo do odômetro após exclusões de transações veiculares.
-- Validação retroativa em transações veiculares.
-- Remoção completa do fluxo de diário de bordo da API.
-- Dashboard limitado a um único mês futuro.
-- Testes e documentação correspondentes.
+- `GET /sync/bootstrap`;
+- `POST /sync/operations`;
+- `GET /sync/changes`.
 
-Após a remoção do diário de bordo e o ajuste das previsões, em 11 de junho de 2026, as
-referências foram verificadas estaticamente, `git diff --check` passou e a suíte Maven
-completa passou com PostgreSQL via Testcontainers. Outra IA ainda deve verificar `git status`
-antes de assumir que as mudanças foram publicadas em uma branch remota.
+Também ainda não existe tabela versionada `sync_operation_log`, nem suporte geral a
+`clientId`, `operationId`, `baseVersion` e resolução de conflito por entidade. A branch
+`codex/feat-offline-sync-backend` chegou a ser criada para esse trabalho, mas a implementação
+foi interrompida antes de alterações funcionais. Se uma IA retomar essa feature, deve tratar
+como trabalho pendente e criar migrations, DTOs, serviços, testes e documentação próprios.
+
+Regras desejadas para essa futura feature:
+
+- health público e leve, sem consulta de domínio;
+- bootstrap autenticado filtrando estritamente por usuário;
+- operações offline aplicadas em ordem e com idempotência por `operationId`;
+- mapeamento de UUID local para UUID canônico do servidor;
+- conflitos explícitos em operações financeiras em vez de sobrescrita silenciosa;
+- reuso das regras atuais de controllers/services para saldo, cartão, fatura, transferência,
+  recorrência, veículos e odômetro.
+
+## Veículos e odômetro
+
+O fluxo de veículo mais recente já contém:
+
+- linha do tempo cronológica de odômetro derivada das transações veiculares;
+- `VehicleOdometerContextDTO`;
+- endpoint `GET /vehicles/{id}/odometer-context?date=...&transactionId=...`, com
+  `transactionId` opcional para excluir o próprio lançamento durante edição;
+- queries de evento anterior, posterior e mais recente;
+- recálculo do odômetro após exclusões de transações veiculares;
+- validação retroativa em transações veiculares;
+- remoção completa do fluxo de diário de bordo da API;
+- dashboard limitado a uma previsão futura visível e no máximo um abastecimento previsto.
+
+Outra IA ainda deve verificar `git status`, `git log` e a suíte de testes antes de assumir que
+o estado local já foi enviado ao remoto.
 
 ## Motor de recorrência
 
@@ -407,20 +447,24 @@ garantir apenas pelo repositório que todos existem nos ambientes reais.
 
 Itens planejados ou recomendados nos documentos e na conversa:
 
-1. Versionar o schema com Flyway ou Liquibase.
-2. Criar migrations para tabelas, colunas, enums e índices atuais.
-3. Configurar execução automática e observável do worker de recorrência.
-4. Dividir `TransactionServiceImpl` em serviços menores por caso de uso.
-5. Avaliar cache curto por usuário/período para dashboards.
-6. Invalidar cache em mudanças de transação, fatura, conta, cartão e veículo.
-7. Criar sumarização diária/mensal se o volume de transações crescer.
-8. Monitorar e eliminar N+1 no `full-summary`.
-9. Migrar indicadores veiculares sensíveis de `Double` para `BigDecimal`, se precisão
+1. Implementar backend offline-first:
+   `GET /sync/bootstrap`, `POST /sync/operations`, `GET /sync/changes`, log de idempotência,
+   versionamento e conflitos explícitos.
+2. Criar health check público real e leve, sem consulta de domínio.
+3. Versionar o schema com Flyway ou Liquibase.
+4. Criar migrations para tabelas, colunas, enums e índices atuais.
+5. Configurar execução automática e observável do worker de recorrência.
+6. Dividir `TransactionServiceImpl` em serviços menores por caso de uso.
+7. Avaliar cache curto por usuário/período para dashboards.
+8. Invalidar cache em mudanças de transação, fatura, conta, cartão e veículo.
+9. Criar sumarização diária/mensal se o volume de transações crescer.
+10. Monitorar e eliminar N+1 no `full-summary`.
+11. Migrar indicadores veiculares sensíveis de `Double` para `BigDecimal`, se precisão
    contábil/científica se tornar requisito.
-10. Expandir testes de concorrência para pagamento, estorno, limite e saldo.
-11. Formalizar política de feriados usada no fechamento/vencimento de fatura.
-12. Documentar e testar timezone em todos os ambientes.
-13. Definir produto/planos de assinatura; o código cita plano gratuito e Premium, sem módulo
+12. Expandir testes de concorrência para pagamento, estorno, limite e saldo.
+13. Formalizar política de feriados usada no fechamento/vencimento de fatura.
+14. Documentar e testar timezone em todos os ambientes.
+15. Definir produto/planos de assinatura; o código cita plano gratuito e Premium, sem módulo
     de billing.
 
 # Regras de Negócio
@@ -949,34 +993,41 @@ Ao alterar um endpoint:
 # Pendências Técnicas
 
 1. **Ausência de migrations:** maior risco operacional atual.
-2. **Service de transações grande:** mais de 1.600 linhas no arquivo, alta carga cognitiva.
-3. **Worker sem agendamento explícito:** pode nunca executar automaticamente.
-4. **Nomenclatura legada:** `Transactions`, `Invoices`, `invoicess`, `subCategory` como pai,
+2. **Sem offline sync no backend:** ainda faltam bootstrap, changes, operations,
+   idempotência, versionamento de conflito e clientId por entidade.
+3. **Health check incompleto:** rotas liberadas pela segurança, mas sem controller/actuator
+   funcional encontrado.
+4. **Service de transações grande:** mais de 1.600 linhas no arquivo, alta carga cognitiva.
+5. **Worker sem agendamento explícito:** pode nunca executar automaticamente.
+6. **Nomenclatura legada:** `Transactions`, `Invoices`, `invoicess`, `subCategory` como pai,
    `bestDay` usado como vencimento e `Imp`/`Impl`.
-5. **Mistura de `Double` e `BigDecimal`:** combustível e eficiência podem acumular pequenas
+7. **Mistura de `Double` e `BigDecimal`:** combustível e eficiência podem acumular pequenas
    diferenças.
-6. **Feriados hardcoded ou limitados:** precisa confirmar cobertura e atualização anual.
-7. **Sem paginação em várias listagens:** risco de memória/latência com crescimento.
-8. **Sem cache de dashboard:** queries agregadas repetidas por navegação.
-9. **Exclusão física do usuário por queries nativas:** exige manutenção manual quando nova
+8. **Feriados hardcoded ou limitados:** precisa confirmar cobertura e atualização anual.
+9. **Sem paginação em várias listagens:** risco de memória/latência com crescimento.
+10. **Sem cache de dashboard:** queries agregadas repetidas por navegação.
+11. **Exclusão física do usuário por queries nativas:** exige manutenção manual quando nova
    entidade for criada.
-10. **Duplicidade de documentação:** contratos distribuídos podem divergir.
-11. **Sem observabilidade estruturada:** não há métricas, tracing ou correlação de request.
-12. **Sem locking/versionamento otimista:** pagamentos e limite podem sofrer concorrência.
-13. **Segredo JWT default inseguro em desenvolvimento:** produção depende de variável correta.
-14. **Swagger declara servidor base e controllers também contêm base path:** verificar como a
+12. **Duplicidade de documentação:** contratos distribuídos podem divergir.
+13. **Sem observabilidade estruturada:** não há métricas, tracing ou correlação de request.
+14. **Sem locking/versionamento otimista:** pagamentos e limite podem sofrer concorrência.
+15. **Segredo JWT default inseguro em desenvolvimento:** produção depende de variável correta.
+16. **Swagger declara servidor base e controllers também contêm base path:** verificar como a
     UI monta URLs em todos os ambientes.
-15. **Índices declarados não garantidos:** `ddl-auto=none`.
-16. **Referência documental quebrada:** `docs/api-contracts-index.md` aponta para
+17. **Índices declarados não garantidos:** `ddl-auto=none`.
+18. **Referência documental quebrada:** `docs/api-contracts-index.md` aponta para
     `docs/vehicle-forecast-front-prompt.md`, mas esse arquivo não existe no worktree atual.
 
 # Problemas Conhecidos
 
 ## Confirmados ou observados
 
-- O worktree está sujo; há funcionalidades testadas ainda não commitadas.
 - Não há migration que explique como reproduzir o banco do zero.
 - O worker de recorrência não possui trigger agendado visível.
+- As rotas de health estão liberadas pela segurança, mas não há controller/actuator
+  funcional encontrado no código.
+- O backend ainda não possui contratos de sincronização offline-first (`/sync/bootstrap`,
+  `/sync/operations`, `/sync/changes`).
 - O fluxo de diário de bordo foi removido; instalações existentes podem manter a tabela
   `vehicle_logs` até uma migration manual decidir sobre retenção e exclusão dos dados legados.
 - A previsão depende de dados históricos; com poucos abastecimentos retorna baixa confiança
@@ -1172,6 +1223,29 @@ visível e um único abastecimento previsto, sem datas passadas.
 - A tabela física `vehicle_logs` não foi removida automaticamente, pois o projeto não possui
   migrations versionadas.
 
+## Fase 12: estabilização de abastecimento, ranking e previsões
+
+- Após a remoção do diário de bordo, as regras de odômetro passaram a considerar somente
+  transações veiculares.
+- Edição de odômetro em abastecimento/manutenção deve respeitar a faixa entre evento anterior
+  e posterior.
+- Compras de cartão ligadas a veículo não devem bloquear novo abastecimento apenas por terem
+  odômetro antigo em uma fatura futura; a fatura representa pagamento, não novo evento físico.
+- O ranking de postos reconstrói acumuladores por usuário antes de recalcular scores.
+- A query de remoção do ranking usa SQL nativo com `gas_station_id IN (...)` para evitar SQL
+  inválido gerado pelo Hibernate em bulk delete navegando associação.
+- As previsões futuras do dashboard veicular devem mostrar no máximo um abastecimento previsto
+  e não exibir datas passadas.
+
+## Fase 13: preparação para offline sync
+
+- Foi solicitado suporte backend para app offline-first com banco local e outbox.
+- A branch `codex/feat-offline-sync-backend` foi criada durante uma tentativa inicial.
+- A implementação foi interrompida antes de criar endpoints ou arquivos de produção.
+- Em seguida, o usuário retornou para a branch `dev` e pediu este documento sincronizado.
+- Estado atual: offline sync permanece como roadmap/pendência, não como funcionalidade
+  implementada.
+
 # Informações Não Obtidas
 
 As informações abaixo não puderam ser determinadas com segurança e devem ser documentadas
@@ -1197,3 +1271,7 @@ manualmente:
 17. Política futura para contas `INVESTMENT`.
 18. Se haverá suporte a múltiplas moedas e conversão cambial.
 19. Critério de confirmação para saltos de odômetro acima de 20.000 km.
+20. Contrato definitivo do app mobile para outbox offline, especialmente nomes finais dos
+    campos de `operationId`, `entityType`, `entityId`, `baseVersion`, `clientId` e mapeamento
+    de IDs locais.
+21. Política de retenção e compactação de snapshot local no app.
