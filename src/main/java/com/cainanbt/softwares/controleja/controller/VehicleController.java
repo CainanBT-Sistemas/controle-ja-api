@@ -105,9 +105,10 @@ public class VehicleController {
     @GetMapping("/{id}/odometer-context")
     public ResponseEntity<VehicleOdometerContextDTO> getOdometerContext(
             @PathVariable UUID id,
-            @RequestParam Long date) {
+            @RequestParam Long date,
+            @RequestParam(required = false) UUID transactionId) {
         Vehicle vehicle = vehicleService.findMyVehicleById(id);
-        return ResponseEntity.ok(odometerTimelineService.getContext(vehicle, date));
+        return ResponseEntity.ok(odometerTimelineService.getContext(vehicle, date, transactionId));
     }
 
 }

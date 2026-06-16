@@ -7,6 +7,7 @@ import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.enums.DrivingPredominance;
 import com.cainanbt.softwares.controleja.enums.FuelType;
 import com.cainanbt.softwares.controleja.repositories.GasStationRankingRepository;
+import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -16,6 +17,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -30,6 +32,8 @@ public class GasStationRankingServiceImplTest {
 
     @Mock
     private GasStationRankingRepository repository;
+    @Mock
+    private TransactionRepository transactionRepository;
 
     @InjectMocks
     private GasStationRankingServiceImpl service;
@@ -86,6 +90,27 @@ public class GasStationRankingServiceImplTest {
         service.updateRanking(tx);
 
         verify(repository, never()).save(any());
+    }
+
+    @Test
+    void rebuildRankings_shouldReplaceAccumulatedDataWithActiveRefuels() {
+        GasStation station = gasStation();
+        UUID userId = station.getUser().getId();
+        Transactions first = refuel(station, 10.0, DrivingPredominance.CITY);
+        Transactions second = refuel(station, 12.0, DrivingPredominance.ROAD);
+        when(transactionRepository.findValidRefuelsForRankingByUserId(userId))
+                .thenReturn(List.of(first, second));
+
+        service.rebuildRankings(userId);
+
+        verify(repository).deleteByUserId(userId);
+        ArgumentCaptor<Iterable<GasStationRanking>> captor = ArgumentCaptor.forClass(Iterable.class);
+        verify(repository).saveAll(captor.capture());
+        GasStationRanking ranking = captor.getValue().iterator().next();
+        assertEquals(2, ranking.getRefuelCount());
+        assertEquals(20.0, ranking.getTotalLiters(), 0.01);
+        assertEquals(1, ranking.getCityRefuelCount());
+        assertEquals(1, ranking.getRoadRefuelCount());
     }
 
     private Transactions refuel(GasStation station, Double efficiency, DrivingPredominance predominance) {

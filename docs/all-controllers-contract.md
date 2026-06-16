@@ -602,15 +602,15 @@ Base:
 
 Responsabilidade: gerenciar veiculos e expor dashboard individual do veiculo.
 
-| Metodo   | Endpoint                                           | Recebe                          | Retorna                        |
-|----------|----------------------------------------------------|---------------------------------|--------------------------------|
-| `POST`   | `/vehicles`                                        | `VehicleDTO`                    | `VehicleResponseDTO`.          |
-| `GET`    | `/vehicles`                                        | Nada                            | Lista de `VehicleResponseDTO`. |
-| `GET`    | `/vehicles/{id}`                                   | Path `id`                       | `VehicleResponseDTO`.          |
-| `PUT`    | `/vehicles/{id}`                                   | `VehicleDTO`                    | `VehicleResponseDTO`.          |
-| `DELETE` | `/vehicles/{id}`                                   | Path `id`                       | Mensagem de sucesso.           |
-| `GET`    | `/vehicles/{id}/dashboard?start={start}&end={end}` | Path `id`, query `start`, `end` | `VehicleDashboardDTO`.         |
-| `GET`    | `/vehicles/{id}/odometer-context?date={date}`      | Path `id`, query `date`         | `VehicleOdometerContextDTO`.   |
+| Metodo   | Endpoint                                                         | Recebe                                            | Retorna                        |
+|----------|------------------------------------------------------------------|---------------------------------------------------|--------------------------------|
+| `POST`   | `/vehicles`                                                      | `VehicleDTO`                                      | `VehicleResponseDTO`.          |
+| `GET`    | `/vehicles`                                                      | Nada                                              | Lista de `VehicleResponseDTO`. |
+| `GET`    | `/vehicles/{id}`                                                 | Path `id`                                         | `VehicleResponseDTO`.          |
+| `PUT`    | `/vehicles/{id}`                                                 | `VehicleDTO`                                      | `VehicleResponseDTO`.          |
+| `DELETE` | `/vehicles/{id}`                                                 | Path `id`                                         | Mensagem de sucesso.           |
+| `GET`    | `/vehicles/{id}/dashboard?start={start}&end={end}`               | Path `id`, query `start`, `end`                   | `VehicleDashboardDTO`.         |
+| `GET`    | `/vehicles/{id}/odometer-context?date={date}&transactionId={id}` | Path `id`, query `date`, `transactionId` opcional | `VehicleOdometerContextDTO`.   |
 
 ### VehicleDTO
 
@@ -708,6 +708,21 @@ Responsabilidade: gerenciar veiculos e expor dashboard individual do veiculo.
 
 O contexto combina leituras de abastecimento, manutencao e outras transacoes veiculares. Em
 lancamentos retroativos, o novo odometro deve ficar entre `previousOdometer` e `nextOdometer`.
+A cronologia considera o dia civil em `America/Sao_Paulo`; dentro do mesmo dia, `createdAt`
+define a ordem. Na edicao, a propria transacao e excluida da busca pelos vizinhos. Portanto,
+o odometro editado pode variar entre a leitura anterior e a proxima, inclusive nos limites.
+Para editar, envie o ID do lancamento em `transactionId`; para criar, omita esse parametro.
+
+Criacao, edicao e exclusao de abastecimentos recalculam a cadeia completa de eficiencia do
+veiculo. O primeiro abastecimento permanece como baseline sem KM/L, os seguintes sao
+recalculados pela diferenca de odometro, e as medias do veiculo e o ranking de postos sao
+reconstruidos para nao conservar valores antigos ou duplicados.
+
+Somente a transacao operacional original do tipo `DESPESA` participa da linha do tempo do
+odometro. Parcela, vencimento de fatura, pagamento de fatura, transferencia contabil e
+representacao financeira derivada nao criam leitura veicular. Uma compra de manutencao no
+cartao continua vinculada ao veiculo e ao custo, mas usa a data real da compra; as datas das
+parcelas e da fatura servem apenas para o calendario financeiro.
 
 As previsoes mensais usam o periodo selecionado como referencia. Se o proximo abastecimento estimado ainda cair no
 mes selecionado e sua data nao estiver no passado, `futurePredictions` retorna esse mes; caso contrario, retorna somente

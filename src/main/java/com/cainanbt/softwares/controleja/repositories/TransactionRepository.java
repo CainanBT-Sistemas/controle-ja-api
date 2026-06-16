@@ -159,12 +159,17 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
      */
     @Query("SELECT t FROM Transactions t WHERE t.vehicle.id = :vehicleId " +
             "AND t.currentOdometer IS NOT NULL AND t.currentOdometer > 0 " +
-            "AND (t.date < :date OR (t.date = :date AND COALESCE(t.createdAt, 0) <= :createdAt)) " +
+            "AND t.type = com.cainanbt.softwares.controleja.enums.TransactionType.DESPESA " +
+            "AND t.targetInvoice IS NULL AND t.parentTransaction IS NULL " +
+            "AND (t.date < :dayStart OR (t.date BETWEEN :dayStart AND :dayEnd " +
+            "AND COALESCE(t.createdAt, 0) <= :createdAt)) " +
             "AND t.deletedAt IS NULL " +
-            "ORDER BY t.date DESC, t.createdAt DESC")
+            "ORDER BY CASE WHEN t.date BETWEEN :dayStart AND :dayEnd THEN 1 ELSE 0 END DESC, " +
+            "CASE WHEN t.date BETWEEN :dayStart AND :dayEnd THEN COALESCE(t.createdAt, 0) ELSE t.date END DESC")
     List<Transactions> findOdometerReadingsAtOrBefore(
             @Param("vehicleId") UUID vehicleId,
-            @Param("date") Long date,
+            @Param("dayStart") Long dayStart,
+            @Param("dayEnd") Long dayEnd,
             @Param("createdAt") Long createdAt,
             Pageable pageable);
 
@@ -173,12 +178,17 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
      */
     @Query("SELECT t FROM Transactions t WHERE t.vehicle.id = :vehicleId " +
             "AND t.currentOdometer IS NOT NULL AND t.currentOdometer > 0 " +
-            "AND (t.date > :date OR (t.date = :date AND COALESCE(t.createdAt, 0) > :createdAt)) " +
+            "AND t.type = com.cainanbt.softwares.controleja.enums.TransactionType.DESPESA " +
+            "AND t.targetInvoice IS NULL AND t.parentTransaction IS NULL " +
+            "AND (t.date > :dayEnd OR (t.date BETWEEN :dayStart AND :dayEnd " +
+            "AND COALESCE(t.createdAt, 0) > :createdAt)) " +
             "AND t.deletedAt IS NULL " +
-            "ORDER BY t.date ASC, t.createdAt ASC")
+            "ORDER BY CASE WHEN t.date BETWEEN :dayStart AND :dayEnd THEN 0 ELSE 1 END ASC, " +
+            "CASE WHEN t.date BETWEEN :dayStart AND :dayEnd THEN COALESCE(t.createdAt, 0) ELSE t.date END ASC")
     List<Transactions> findOdometerReadingsAfter(
             @Param("vehicleId") UUID vehicleId,
-            @Param("date") Long date,
+            @Param("dayStart") Long dayStart,
+            @Param("dayEnd") Long dayEnd,
             @Param("createdAt") Long createdAt,
             Pageable pageable);
 
@@ -186,7 +196,10 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
      * Busca todas as leituras veiculares válidas em ordem cronológica decrescente.
      */
     @Query("SELECT t FROM Transactions t WHERE t.vehicle.id = :vehicleId " +
-            "AND t.currentOdometer IS NOT NULL AND t.currentOdometer > 0 AND t.deletedAt IS NULL " +
+            "AND t.currentOdometer IS NOT NULL AND t.currentOdometer > 0 " +
+            "AND t.type = com.cainanbt.softwares.controleja.enums.TransactionType.DESPESA " +
+            "AND t.targetInvoice IS NULL AND t.parentTransaction IS NULL " +
+            "AND t.deletedAt IS NULL " +
             "ORDER BY t.date DESC, t.createdAt DESC")
     List<Transactions> findOdometerReadingsByVehicle(@Param("vehicleId") UUID vehicleId, Pageable pageable);
 
@@ -195,4 +208,16 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
             "AND t.currentOdometer IS NOT NULL AND t.date <= :date AND t.deletedAt IS NULL " +
             "ORDER BY t.date DESC, t.createdAt DESC")
     List<Transactions> findValidRefuelsByVehicleUpToDate(@Param("vehicleId") UUID vehicleId, @Param("date") Long date);
+
+    /**
+     * Lista os abastecimentos válidos do usuário usados para reconstruir o ranking de postos.
+     */
+    @Query("SELECT t FROM Transactions t WHERE t.user.id = :userId " +
+            "AND t.gasStation IS NOT NULL AND t.fuelType IS NOT NULL " +
+            "AND t.liters IS NOT NULL AND t.liters > 0 " +
+            "AND t.efficiency IS NOT NULL AND t.efficiency > 0 " +
+            "AND t.amount IS NOT NULL AND t.amount > 0 " +
+            "AND t.deletedAt IS NULL " +
+            "ORDER BY t.date ASC, t.createdAt ASC")
+    List<Transactions> findValidRefuelsForRankingByUserId(@Param("userId") UUID userId);
 }

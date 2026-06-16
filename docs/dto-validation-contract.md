@@ -33,4 +33,14 @@ Este contrato documenta o padrao de validacao aplicado aos DTOs de entrada.
 - Parcela paga nao pode ser removida ou alterada.
 - Compra com parcela paga nao pode ser cancelada por inteiro.
 - Primeiro abastecimento nao entra no calculo de KM/L.
+- Leituras veiculares sao ordenadas pelo dia civil e, no mesmo dia, por `createdAt`.
+- Na edicao, o odometro deve permanecer entre as leituras anterior e posterior, desconsiderando
+  a propria transacao na busca dos limites.
+- Alterar ou excluir abastecimento recalcula eficiencias posteriores, medias do veiculo e
+  ranking de postos.
+- Campos `vehicleId`, `currentOdometer`, `gasStationId`, `liters` e combustível só produzem
+  evento veicular em transação operacional `DESPESA`. Pagamento de fatura e demais registros
+  contábeis derivados não participam da linha do tempo.
+- Em item de cartão, `transactionDate` é a data real da compra; `date` é a data financeira
+  da parcela/fatura.
 - `OperationScope` decide se altera apenas o item atual, futuros ou compra inteira.

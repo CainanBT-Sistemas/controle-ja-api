@@ -7,6 +7,7 @@ import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.services.VehicleService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
+import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.OdometerValidator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -25,6 +26,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class VehicleOdometerTimelineService {
     private static final Pageable NEAREST_CANDIDATES = PageRequest.of(0, 2);
+    private static final Pageable LATEST_CANDIDATES = PageRequest.of(0, 100);
 
     private final TransactionRepository transactionRepository;
     private final VehicleService vehicleService;
@@ -73,9 +75,18 @@ public class VehicleOdometerTimelineService {
     /**
      * Retorna as leituras vizinhas usadas pelo front para lançamentos retroativos.
      */
-    public VehicleOdometerContextDTO getContext(Vehicle vehicle, Long date) {
-        TimelineContext context = resolveContext(vehicle, date, Long.MAX_VALUE, null);
-        Optional<OdometerPoint> latest = findLatest(vehicle.getId(), null);
+    public VehicleOdometerContextDTO getContext(Vehicle vehicle, Long date, UUID excludedTransactionId) {
+        Long createdAt = excludedTransactionId == null
+                ? Long.MAX_VALUE
+                : transactionRepository.findById(excludedTransactionId)
+                .filter(transaction -> transaction.getVehicle() != null)
+                .filter(transaction -> transaction.getVehicle().getId().equals(vehicle.getId()))
+                .map(Transactions::getCreatedAt)
+                .orElseThrow(() -> new BadRequestException(
+                        ConstsMessages.ERROR_TITLE,
+                        ConstsMessages.TRANSACTION_NOT_FOUND));
+        TimelineContext context = resolveContext(vehicle, date, createdAt, excludedTransactionId);
+        Optional<OdometerPoint> latest = findLatest(vehicle.getId(), excludedTransactionId);
         Optional<OdometerPoint> previous = context.previous();
         Optional<OdometerPoint> next = context.next();
 
@@ -112,14 +123,16 @@ public class VehicleOdometerTimelineService {
             Long date,
             Long createdAt,
             UUID excludedTransactionId) {
+        long dayStart = DateUtils.localDateToEpoch(DateUtils.epochToLocalDate(date));
+        long dayEnd = DateUtils.localDateToEpoch(DateUtils.epochToLocalDate(date).plusDays(1)) - 1;
         Optional<OdometerPoint> previous = transactionRepository.findOdometerReadingsAtOrBefore(
-                        vehicle.getId(), date, createdAt, NEAREST_CANDIDATES).stream()
+                        vehicle.getId(), dayStart, dayEnd, createdAt, NEAREST_CANDIDATES).stream()
                 .filter(transaction -> !transaction.getId().equals(excludedTransactionId))
                 .map(this::fromTransaction)
                 .max(pointComparator());
 
         Optional<OdometerPoint> next = transactionRepository.findOdometerReadingsAfter(
-                        vehicle.getId(), date, createdAt, NEAREST_CANDIDATES).stream()
+                        vehicle.getId(), dayStart, dayEnd, createdAt, NEAREST_CANDIDATES).stream()
                 .filter(transaction -> !transaction.getId().equals(excludedTransactionId))
                 .map(this::fromTransaction)
                 .min(pointComparator());
@@ -133,14 +146,15 @@ public class VehicleOdometerTimelineService {
     private Optional<OdometerPoint> findLatest(
             UUID vehicleId,
             UUID excludedTransactionId) {
-        return transactionRepository.findOdometerReadingsByVehicle(vehicleId, NEAREST_CANDIDATES).stream()
+        return transactionRepository.findOdometerReadingsByVehicle(vehicleId, LATEST_CANDIDATES).stream()
                 .filter(transaction -> !transaction.getId().equals(excludedTransactionId))
                 .map(this::fromTransaction)
                 .max(pointComparator());
     }
 
     private Comparator<OdometerPoint> pointComparator() {
-        return Comparator.comparing(OdometerPoint::date)
+        return Comparator.<OdometerPoint, java.time.LocalDate>comparing(
+                        point -> DateUtils.epochToLocalDate(point.date()))
                 .thenComparing(OdometerPoint::createdAt)
                 .thenComparing(OdometerPoint::source);
     }

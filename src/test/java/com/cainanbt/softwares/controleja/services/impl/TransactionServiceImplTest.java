@@ -26,6 +26,7 @@ import com.cainanbt.softwares.controleja.services.VehicleService;
 import com.cainanbt.softwares.controleja.services.processors.TransactionHelper;
 import com.cainanbt.softwares.controleja.services.processors.TransactionProcessorFactory;
 import com.cainanbt.softwares.controleja.services.vehicles.VehicleOdometerTimelineService;
+import com.cainanbt.softwares.controleja.services.vehicles.VehicleRefuelMetricsService;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import org.junit.jupiter.api.BeforeEach;
@@ -81,6 +82,8 @@ class TransactionServiceImplTest {
     private VehicleService vehicleService;
     @Mock
     private VehicleOdometerTimelineService odometerTimelineService;
+    @Mock
+    private VehicleRefuelMetricsService refuelMetricsService;
 
     @InjectMocks
     private TransactionServiceImpl service;

@@ -32,6 +32,7 @@ import com.cainanbt.softwares.controleja.services.processors.TransactionHelper;
 import com.cainanbt.softwares.controleja.services.processors.TransactionProcessor;
 import com.cainanbt.softwares.controleja.services.processors.TransactionProcessorFactory;
 import com.cainanbt.softwares.controleja.services.vehicles.VehicleOdometerTimelineService;
+import com.cainanbt.softwares.controleja.services.vehicles.VehicleRefuelMetricsService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
@@ -55,7 +56,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 
 @RequiredArgsConstructor
 @Service
@@ -73,6 +73,7 @@ public class TransactionServiceImpl implements TransactionService {
     private final GasStationRankingService gasStationRankingService;
     private final VehicleService vehicleService;
     private final VehicleOdometerTimelineService odometerTimelineService;
+    private final VehicleRefuelMetricsService refuelMetricsService;
 
     @Override
     @Transactional
@@ -95,9 +96,10 @@ public class TransactionServiceImpl implements TransactionService {
         // Salva a transação atual e a regra de recorrência
         Transactions savedTransaction = processor.process(dto, account, category, user);
 
-        processVehicleMetricsIfApplicable(savedTransaction, dto);
         if (savedTransaction.getVehicle() != null && savedTransaction.getCurrentOdometer() != null) {
             odometerTimelineService.recalculateCurrentOdometer(savedTransaction.getVehicle());
+            refuelMetricsService.recalculate(savedTransaction.getVehicle());
+            rebuildGasStationRankingsIfApplicable(savedTransaction);
         }
 
         // CORREÇÃO: Roda na mesma thread. É tão rápido (5ms) que não vai travar o celular.
@@ -110,13 +112,12 @@ public class TransactionServiceImpl implements TransactionService {
         return savedTransaction;
     }
 
-    private void processVehicleMetricsIfApplicable(Transactions tx, TransactionDTO dto) {
-        if (tx.getVehicle() != null) {
-            // Se for abastecimento (tem posto e litros), atualiza o ranking de postos
-            if (tx.getGasStation() != null && tx.getLiters() != null && tx.getLiters() > 0) {
-                // Como você já tem a lógica prontinha no GasStationRankingService!
-                gasStationRankingService.updateRanking(tx);
-            }
+    private void rebuildGasStationRankingsIfApplicable(Transactions transaction) {
+        if (transaction.getUser() != null
+                && transaction.getGasStation() != null
+                && transaction.getLiters() != null
+                && transaction.getLiters() > 0) {
+            gasStationRankingService.rebuildRankings(transaction.getUser().getId());
         }
     }
 
@@ -948,6 +949,10 @@ public class TransactionServiceImpl implements TransactionService {
 
         if (transaction.getVehicle() != null && transaction.getCurrentOdometer() != null) {
             recalculateVehicleCurrentOdometer(transaction.getVehicle());
+            refuelMetricsService.recalculate(transaction.getVehicle());
+            if (transaction.getUser() != null) {
+                gasStationRankingService.rebuildRankings(transaction.getUser().getId());
+            }
         }
     }
 
@@ -1028,6 +1033,7 @@ public class TransactionServiceImpl implements TransactionService {
         BigDecimal oldAmount = transaction.getAmount();
         boolean wasPaid = transaction.getPaid();
         TransactionType oldType = transaction.getType();
+        boolean affectedGasStationRanking = transaction.getGasStation() != null;
 
         if (wasPaid && oldAccount.getType() != AccountType.CREDIT_CARD) {
             if (oldType == TransactionType.DESPESA) oldAccount.credit(oldAmount);
@@ -1115,9 +1121,13 @@ public class TransactionServiceImpl implements TransactionService {
         if (shouldRecalculateVehicleOdometer && savedTransaction.getVehicle() != null) {
             recalculateVehicleCurrentOdometer(savedTransaction.getVehicle());
         }
+        if (savedTransaction.getVehicle() != null) {
+            refuelMetricsService.recalculate(savedTransaction.getVehicle());
+        }
 
-        if (transaction.getGasStation() != null) {
-            CompletableFuture.runAsync(() -> gasStationRankingService.updateRanking(savedTransaction));
+        if (savedTransaction.getUser() != null
+                && (affectedGasStationRanking || savedTransaction.getGasStation() != null)) {
+            gasStationRankingService.rebuildRankings(savedTransaction.getUser().getId());
         }
 
         // 2. AGORA SIM GERA AS PROJEÇÕES (O banco já consegue enxergar a transação do passo 1)
@@ -1130,6 +1140,9 @@ public class TransactionServiceImpl implements TransactionService {
     }
 
     private boolean applyVehicleFieldsOnUpdate(Transactions transaction, TransactionDTO dto, Users currentUser) {
+        if (transaction.getType() != TransactionType.DESPESA) {
+            return false;
+        }
         Vehicle vehicle = transaction.getVehicle();
         if (dto.getVehicleId() != null) {
             vehicle = vehicleService.findById(dto.getVehicleId());
@@ -1270,7 +1283,9 @@ public class TransactionServiceImpl implements TransactionService {
     }
 
     private void validateVehicleOdometerOnCreate(TransactionDTO dto, Users user) {
-        if (dto.getVehicleId() == null || dto.getCurrentOdometer() == null) {
+        if (dto.getType() != TransactionType.DESPESA
+                || dto.getVehicleId() == null
+                || dto.getCurrentOdometer() == null) {
             return;
         }
 

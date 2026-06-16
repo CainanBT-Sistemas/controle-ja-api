@@ -372,7 +372,8 @@ Em 11 de junho de 2026 o repositório possui mudanças locais:
 
 - Linha do tempo cronológica de odômetro.
 - `VehicleOdometerContextDTO`.
-- Endpoint `GET /vehicles/{id}/odometer-context?date=...`.
+- Endpoint `GET /vehicles/{id}/odometer-context?date=...&transactionId=...`, com
+  `transactionId` opcional para excluir o próprio lançamento durante uma edição.
 - Queries de eventos anterior, posterior e mais recente.
 - Recálculo do odômetro após exclusões de transações veiculares.
 - Validação retroativa em transações veiculares.
@@ -517,7 +518,16 @@ Itens planejados ou recomendados nos documentos e na conversa:
 - Salto positivo superior a 20.000 km é bloqueado sem mecanismo de confirmação.
 - Uma nova leitura não pode ser menor que a leitura anterior.
 - Uma nova leitura não pode ser maior que uma leitura cronologicamente posterior.
-- Empates de data são ordenados também por `createdAt` e fonte.
+- A cronologia compara o dia civil em `America/Sao_Paulo`, não o horário bruto do epoch.
+- Leituras do mesmo dia são ordenadas por `createdAt` e fonte.
+- Na edição, a própria transação é excluída da busca; o valor pode ficar entre os vizinhos
+  anterior e posterior, inclusive nos limites.
+- Somente a despesa operacional original participa da cronologia do odômetro.
+- Parcelas, vencimentos, pagamentos de fatura e transações contábeis derivadas não são
+  leituras veiculares, mesmo quando conservam vínculo financeiro com uma compra de veículo.
+- Em compra no cartão, `Transactions.date` representa a data real da compra e
+  `InstallmentPlan.date` representa o vencimento da parcela; esses conceitos não podem ser
+  intercambiados.
 - O odômetro atual usa o evento mais recente por data.
 - Lançamento retroativo não altera o odômetro atual se já existe evento posterior.
 - Exclusão de transação veicular recalcula o odômetro a partir das transações restantes e do
@@ -537,6 +547,10 @@ Itens planejados ou recomendados nos documentos e na conversa:
 - Médias de gasolina e etanol são mantidas separadamente.
 - Diesel, GNV, elétrico e outros não atualizam necessariamente as mesmas médias.
 - Ranking do posto só recebe abastecimento utilizável.
+- Criação, edição e exclusão reconstroem a cadeia de eficiência. O primeiro abastecimento
+  continua sem KM/L e os posteriores são recalculados contra o abastecimento anterior.
+- As médias do veículo e o ranking de postos também são reconstruídos, evitando dados
+  acumulados duplicados ou obsoletos após correções.
 
 ## Dashboard financeiro
 

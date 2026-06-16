@@ -31,6 +31,9 @@ public class VehicleTransactionProcessor {
      * Enriquece o builder com veiculo, posto e metricas sem misturar essa regra com processadores financeiros.
      */
     public void apply(TransactionDTO dto, Transactions.TransactionsBuilder builder, Users user) {
+        if (dto.getType() != com.cainanbt.softwares.controleja.enums.TransactionType.DESPESA) {
+            return;
+        }
         applyGasStation(dto, builder, user);
         if (dto.getVehicleId() == null) {
             return;

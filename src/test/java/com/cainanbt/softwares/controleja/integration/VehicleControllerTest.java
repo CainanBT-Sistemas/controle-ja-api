@@ -414,6 +414,68 @@ public class VehicleControllerTest extends BaseTest {
     }
 
     @Test
+    @DisplayName("Deve tratar lançamentos do mesmo dia pela ordem de criação")
+    void shouldAllowHigherOdometerOnSameDayEvenWhenPayloadTimeIsEarlier() {
+        VehicleDTO vehicleDTO = new VehicleDTO();
+        vehicleDTO.setName("Mesmo Dia");
+        vehicleDTO.setBrand("Honda");
+        vehicleDTO.setModel("Civic");
+        vehicleDTO.setYear(2020);
+        vehicleDTO.setCurrentOdometer(new BigDecimal("180000.0"));
+
+        String vehicleId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(vehicleDTO).post("/vehicles")
+                .then().statusCode(200).extract().path("id");
+
+        long afternoon = DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 6, 13, 15, 0));
+        long midnight = DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 6, 13, 0, 0));
+        createVehicleTransaction(vehicleId, "Leitura existente", afternoon, new BigDecimal("180983.6"));
+
+        createVehicleTransaction(vehicleId, "Novo abastecimento", midnight, new BigDecimal("181400.0"));
+
+        given().header("Authorization", "Bearer " + token).get("/vehicles/" + vehicleId)
+                .then().statusCode(200)
+                .body("currentOdometer", is(181400.0f));
+    }
+
+    @Test
+    @DisplayName("Deve permitir editar odômetro somente entre as leituras vizinhas")
+    void shouldEditOdometerOnlyBetweenPreviousAndNextReadings() {
+        VehicleDTO vehicleDTO = new VehicleDTO();
+        vehicleDTO.setName("Faixa de Edição");
+        vehicleDTO.setBrand("Honda");
+        vehicleDTO.setModel("Fit");
+        vehicleDTO.setYear(2020);
+        vehicleDTO.setCurrentOdometer(new BigDecimal("1000.0"));
+
+        String vehicleId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(vehicleDTO).post("/vehicles")
+                .then().statusCode(200).extract().path("id");
+
+        long date = DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 6, 13, 0, 0));
+        createVehicleTransaction(vehicleId, "Anterior", date, new BigDecimal("1500.0"));
+        String middleId = createVehicleTransaction(vehicleId, "Intermediário", date, new BigDecimal("2000.0"));
+        createVehicleTransaction(vehicleId, "Posterior", date, new BigDecimal("2800.0"));
+
+        TransactionDTO validCorrection = vehicleTransactionDTO(
+                vehicleId, "Intermediário corrigido", date, new BigDecimal("2500.0"));
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(validCorrection).put("/transactions/" + middleId)
+                .then().statusCode(200)
+                .body("currentOdometer", is(2500.0f));
+
+        validCorrection.setCurrentOdometer(new BigDecimal("2900.0"));
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(validCorrection).put("/transactions/" + middleId)
+                .then().statusCode(400);
+
+        validCorrection.setCurrentOdometer(new BigDecimal("1400.0"));
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(validCorrection).put("/transactions/" + middleId)
+                .then().statusCode(400);
+    }
+
+    @Test
     @DisplayName("Deve retornar contexto de odômetro usando transações veiculares")
     void shouldReturnOdometerContextFromVehicleTransactions() {
         VehicleDTO vehicleDTO = new VehicleDTO();
