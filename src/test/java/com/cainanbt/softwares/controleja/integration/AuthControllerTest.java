@@ -14,6 +14,7 @@ import java.util.Collections;
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 
 @Slf4j
 public class AuthControllerTest extends BaseTest {
@@ -41,8 +42,30 @@ public class AuthControllerTest extends BaseTest {
         given().contentType(ContentType.JSON).body(login)
                 .when().post("/auth")
                 .then().statusCode(200)
+                .body("id", notNullValue())
+                .body("username", is("login_user"))
+                .body("email", is("login@teste.com"))
+                .body("createdAt", notNullValue())
                 .body("tokens.accessToken", notNullValue())
                 .body("tokens.refreshToken", notNullValue());
+    }
+
+    @Test
+    @DisplayName("Deve cadastrar usuario sem retornar tokens de sessao")
+    void shouldRegisterWithoutAuthenticatedSession() {
+        InsertUpdateUserDTO user = new InsertUpdateUserDTO();
+        user.setUsername("register_user");
+        user.setEmail("register@teste.com");
+        user.setPassword("123456");
+
+        given().contentType(ContentType.JSON).body(user)
+                .when().post("/users/register")
+                .then().statusCode(200)
+                .body("id", notNullValue())
+                .body("username", is("register_user"))
+                .body("email", is("register@teste.com"))
+                .body("createdAt", notNullValue())
+                .body("tokens", nullValue());
     }
 
     @Test
@@ -85,6 +108,10 @@ public class AuthControllerTest extends BaseTest {
         given().contentType(ContentType.JSON).body(Collections.singletonMap("token", refreshToken))
                 .when().post("/auth/auto-login")
                 .then().statusCode(200)
+                .body("id", notNullValue())
+                .body("username", is("auto_user"))
+                .body("email", is("auto@teste.com"))
+                .body("createdAt", notNullValue())
                 .body("tokens.accessToken", notNullValue())
                 .body("tokens.refreshToken", notNullValue());
     }

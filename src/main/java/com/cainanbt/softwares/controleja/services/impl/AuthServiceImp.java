@@ -1,6 +1,7 @@
 package com.cainanbt.softwares.controleja.services.impl;
 
 import com.cainanbt.softwares.controleja.dtos.GoogleLoginDTO;
+import com.cainanbt.softwares.controleja.dtos.GoogleIdentityDTO;
 import com.cainanbt.softwares.controleja.dtos.InsertUpdateUserDTO;
 import com.cainanbt.softwares.controleja.dtos.TokenLoginDTO;
 import com.cainanbt.softwares.controleja.dtos.UserAuthenticateDTO;
@@ -11,6 +12,7 @@ import com.cainanbt.softwares.controleja.dtos.responses.UserResponseDTO;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.services.AuthService;
+import com.cainanbt.softwares.controleja.services.GoogleIdTokenValidator;
 import com.cainanbt.softwares.controleja.services.UsersService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.ID;
@@ -32,6 +34,7 @@ public class AuthServiceImp implements AuthService {
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final JwtServiceImp jwtService;
+    private final GoogleIdTokenValidator googleIdTokenValidator;
 
     /**
      * Autentica por email e senha, valida situacao cadastral e rotaciona o refresh token.
@@ -61,27 +64,49 @@ public class AuthServiceImp implements AuthService {
     @Transactional
     public UserResponseDTO loginGoogle(GoogleLoginDTO dto, HttpServletRequest request) {
         Users user;
-        String email = dto.getEmail().trim().toLowerCase();
+        GoogleIdentityDTO googleIdentity = googleIdTokenValidator.validate(dto.getIdToken());
+        String email = googleIdentity.email();
         Optional<Users> userByEmail = usersService.getUserByEmail(email);
         if (userByEmail.isPresent()) {
             user = userByEmail.get();
-            if (!Boolean.TRUE.equals(user.getOauth2User())) {
-                user.setOauth2User(true);
-                user.setOauth2Provider("GOOGLE");
-                user.setOauth2ProviderId(dto.getGoogleId());
-            }
+            associateGoogleIdentity(user, googleIdentity);
         } else {
             InsertUpdateUserDTO newUserDto = new InsertUpdateUserDTO();
             newUserDto.setEmail(email);
-            newUserDto.setUsername(dto.getDisplayName() != null ? dto.getDisplayName().trim() : "Usuário Google");
+            newUserDto.setUsername(resolveGoogleDisplayName(googleIdentity.displayName()));
             newUserDto.setPassword(java.util.UUID.randomUUID().toString());
             user = usersService.createNewUser(newUserDto, request);
             user.setOauth2User(true);
             user.setOauth2Provider("GOOGLE");
-            user.setOauth2ProviderId(dto.getGoogleId());
+            user.setOauth2ProviderId(googleIdentity.subject());
         }
         validateActiveUser(user);
         return buildAuthenticatedResponse(user, new UserAuthenticateDTO(user));
+    }
+
+    /**
+     * Associa uma identidade Google validada sem confiar nos dados enviados pelo cliente.
+     */
+    private void associateGoogleIdentity(Users user, GoogleIdentityDTO googleIdentity) {
+        if (Boolean.TRUE.equals(user.getOauth2User())) {
+            boolean sameProvider = "GOOGLE".equalsIgnoreCase(user.getOauth2Provider());
+            boolean sameSubject = googleIdentity.subject().equals(user.getOauth2ProviderId());
+            if (!sameProvider || !sameSubject) {
+                throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.GOOGLE_EMAIL_CONFLICT);
+            }
+            return;
+        }
+
+        user.setOauth2User(true);
+        user.setOauth2Provider("GOOGLE");
+        user.setOauth2ProviderId(googleIdentity.subject());
+    }
+
+    private String resolveGoogleDisplayName(String displayName) {
+        if (displayName != null && !displayName.isBlank()) {
+            return displayName.trim();
+        }
+        return "Usuário Google";
     }
 
     /**

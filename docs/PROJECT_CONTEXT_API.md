@@ -209,6 +209,11 @@ parte das edições, recorrências, exclusões, transferências e compras parcel
 - Cadastro de usuário.
 - Login com e-mail/senha.
 - Login Google.
+- Login Google valida `idToken` no backend por JWKS publico do Google, issuer, audience/client id e expiracao.
+- O audience esperado fica em `app.config.google.id-token.audience`, alimentado por `GOOGLE_CLIENT_ID`, `MVP_GOOGLE_CLIENT_ID` ou `PROD_GOOGLE_CLIENT_ID`.
+- No login Google, dados de perfil enviados pelo cliente sao compatibilidade; a identidade confiavel vem das claims validadas do token.
+- `POST /auth`, `POST /auth/google` e `POST /auth/auto-login` retornam o contrato canonico autenticado: `id`, `username`, `email`, `createdAt`, `tokens.accessToken` e `tokens.refreshToken`.
+- `POST /users/register` cria usuario e dados padrao, mas nao faz login automatico; retorna `UserResponseDTO` com `tokens` nulo.
 - Auto-login/renovação por refresh token.
 - Alteração de senha.
 - Edição de perfil.

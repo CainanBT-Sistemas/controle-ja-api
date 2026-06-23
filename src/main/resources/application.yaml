@@ -27,6 +27,9 @@ spring:
 
 app:
   config:
+    google:
+      id-token:
+        audience: ${GOOGLE_CLIENT_ID:}
     jwt:
       secret: ${JWT_SECRET:verysecretkeythatshouldbeatleast32chars!}
       expiration-ms: 604800000

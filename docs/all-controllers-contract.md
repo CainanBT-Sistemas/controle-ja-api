@@ -73,9 +73,9 @@ Responsabilidade: autenticar por email/senha, Google ou refresh token.
 
 | Metodo | Endpoint           | Recebe           | Retorna                                |
 |--------|--------------------|------------------|----------------------------------------|
-| `POST` | `/auth`            | `UserLoginDTO`   | Usuario autenticado com tokens.        |
-| `POST` | `/auth/google`     | `GoogleLoginDTO` | Usuario autenticado/criado com tokens. |
-| `POST` | `/auth/auto-login` | `TokenLoginDTO`  | Novo par de tokens.                    |
+| `POST` | `/auth`            | `UserLoginDTO`   | Usuario autenticado com contrato canonico e tokens.        |
+| `POST` | `/auth/google`     | `GoogleLoginDTO` | Usuario autenticado/criado com contrato canonico e tokens. |
+| `POST` | `/auth/auto-login` | `TokenLoginDTO`  | Usuario autenticado com contrato canonico e tokens atuais. |
 
 ### POST /auth
 
@@ -111,10 +111,19 @@ Request:
 {
   "email": "usuario@email.com",
   "googleId": "google-provider-id",
+  "idToken": "google-id-token",
   "displayName": "Nome opcional",
   "photoUrl": "https://example.com/photo.png"
 }
 ```
+
+Contrato canonico autenticado usado por `POST /auth`, `POST /auth/google` e `POST /auth/auto-login`.
+O mobile deve persistir `tokens.accessToken` como `auth_token`, `tokens.refreshToken` como `refresh_token`
+e `username`, `email`, `id` como `UserName`, `UserEmail`, `UserId`.
+
+`idToken` e obrigatorio. `email`, `googleId`, `displayName` e `photoUrl` sao mantidos por compatibilidade com o mobile,
+mas a API valida assinatura, issuer, audience/client id e expiracao do `idToken` e usa as claims validadas como fonte de
+verdade para e-mail, subject Google, nome e foto.
 
 Response: mesmo contrato do login.
 
@@ -127,6 +136,9 @@ Request:
   "token": "refresh-token"
 }
 ```
+
+Cadastro nao faz login automatico por decisao da `AUTH-005`; apos criar a conta, o usuario deve autenticar por
+`POST /auth` ou `POST /auth/google`.
 
 Response: mesmo contrato do login.
 
@@ -888,7 +900,7 @@ Todas as rotas recebem `start` e `end` em epoch milliseconds.
 
 | Modulo               | O que o front deve saber                                                                      |
 |----------------------|-----------------------------------------------------------------------------------------------|
-| Auth/Users           | Login devolve usuario com tokens; cadastro devolve usuario sem tokens; reset recria defaults. |
+| Auth/Users           | Login, Google e auto-login devolvem contrato canonico com tokens; cadastro devolve usuario sem tokens; reset recria defaults. |
 | Accounts             | Saldo muda por transacao ou ajuste; conta default nao deve ser excluida.                      |
 | Categories           | Categoria pai de veiculo exige subcategoria no lancamento.                                    |
 | Cards/Invoices       | Cartao cria conta espelho; fatura paga bloqueia edicoes; parcelas pagas protegem a compra.    |

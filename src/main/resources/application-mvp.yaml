@@ -19,6 +19,9 @@ spring:
 
 app:
   config:
+    google:
+      id-token:
+        audience: ${MVP_GOOGLE_CLIENT_ID}
     jwt:
       secret: ${MVP_JWT_SECRET}
 
