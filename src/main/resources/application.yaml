@@ -36,6 +36,8 @@ app:
       refresh-expiration-ms: 86400000
     token:
       issue: controle_ja_api
+    entitlements:
+      tester-emails: ${TESTER_EMAILS:}
 
     springdoc:
       api-docs:

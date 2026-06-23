@@ -12,6 +12,7 @@ import com.cainanbt.softwares.controleja.dtos.responses.UserResponseDTO;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.services.AuthService;
+import com.cainanbt.softwares.controleja.services.EntitlementService;
 import com.cainanbt.softwares.controleja.services.GoogleIdTokenValidator;
 import com.cainanbt.softwares.controleja.services.UsersService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
@@ -35,6 +36,7 @@ public class AuthServiceImp implements AuthService {
     private final AuthenticationManager authenticationManager;
     private final JwtServiceImp jwtService;
     private final GoogleIdTokenValidator googleIdTokenValidator;
+    private final EntitlementService entitlementService;
 
     /**
      * Autentica por email e senha, valida situacao cadastral e rotaciona o refresh token.
@@ -165,6 +167,13 @@ public class AuthServiceImp implements AuthService {
         String refreshToken = jwtService.generateRefreshToken(userAuthenticate);
         AuthResponseDTO authResponse = new AuthResponseDTO(accessToken, refreshToken);
         usersService.updateTokens(new UserUpdateTokenDTO(user.getId(), authResponse.getRefreshToken(), jwtService.getRefreshExpiration()));
-        return new UserResponseDTO(ID.toString(user.getId()), user.getUsername(), user.getEmail(), user.getCreatedAt(), authResponse);
+        return new UserResponseDTO(
+                ID.toString(user.getId()),
+                user.getUsername(),
+                user.getEmail(),
+                user.getCreatedAt(),
+                authResponse,
+                entitlementService.buildForUser(user)
+        );
     }
 }

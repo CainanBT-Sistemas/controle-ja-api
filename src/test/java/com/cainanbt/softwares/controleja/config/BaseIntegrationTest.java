@@ -27,5 +27,6 @@ public abstract class BaseIntegrationTest {
         registry.add("spring.datasource.password", postgres::getPassword);
         registry.add("spring.jpa.database-platform", () -> "org.hibernate.dialect.PostgreSQLDialect");
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "create-drop");
+        registry.add("app.config.entitlements.tester-emails", () -> "tester@controleja.local");
     }
 }

@@ -7,6 +7,7 @@ import com.cainanbt.softwares.controleja.dtos.UserUpdateTokenDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.UserResponseDTO;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
+import com.cainanbt.softwares.controleja.services.EntitlementService;
 import com.cainanbt.softwares.controleja.services.GoogleIdTokenValidator;
 import com.cainanbt.softwares.controleja.services.UsersService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
@@ -56,17 +57,20 @@ class AuthServiceImpTest {
     @Mock
     private GoogleIdTokenValidator googleIdTokenValidator;
     @Mock
+    private EntitlementService entitlementService;
+    @Mock
     private HttpServletRequest request;
 
     private AuthServiceImp authService;
 
     @BeforeEach
     void setUp() {
-        authService = new AuthServiceImp(usersService, passwordEncoder, authenticationManager, jwtService, googleIdTokenValidator);
+        authService = new AuthServiceImp(usersService, passwordEncoder, authenticationManager, jwtService, googleIdTokenValidator, entitlementService);
         lenient().when(jwtService.generateAccessToken(any())).thenReturn("access-token");
         lenient().when(jwtService.generateRefreshToken(any())).thenReturn("refresh-token");
         lenient().when(jwtService.getRefreshExpiration()).thenReturn(123456L);
         lenient().when(usersService.updateTokens(any())).thenAnswer(invocation -> userWithGoogleIdentity());
+        lenient().when(entitlementService.buildForUser(any())).thenReturn(null);
     }
 
     @Test
