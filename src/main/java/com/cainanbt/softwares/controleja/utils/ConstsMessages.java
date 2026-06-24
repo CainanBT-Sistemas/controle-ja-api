@@ -17,6 +17,9 @@ public class ConstsMessages {
     public static final String BLOCKED_USER = "Sua conta está inativa ou bloqueada.";
     public static final String FALHA_ATUALIZAR_USUARIO = "Falha ao atualizar Usuário.";
     public static final String INVALID_TOKEN = "Sessão expirada. Faça login novamente.";
+    public static final String INVALID_GOOGLE_TOKEN = "Não foi possível validar sua conta Google. Faça login novamente.";
+    public static final String GOOGLE_LOGIN_NOT_CONFIGURED = "Login Google indisponível neste ambiente.";
+    public static final String GOOGLE_EMAIL_CONFLICT = "Este email já está vinculado a outra forma de login.";
     public static final String EMAIL_IN_USE = "Este email já está em uso.";
     public static final String DATABASE_SAVE_ERROR = "Erro ao processar o cadastro no banco de dados.";
     public static final String SYSTEM_CRITICAL_ERROR = "Parece que houve um erro crítico no sistema, informe o desenvolvedor.";

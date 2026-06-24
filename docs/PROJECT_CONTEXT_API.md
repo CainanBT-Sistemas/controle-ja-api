@@ -14,7 +14,7 @@ pendências técnicas.
 - **Artefato Maven:** `com.cainanbt.softwares:controleja:0.0.1-SNAPSHOT`.
 - **Descrição declarada:** backend de aplicativo de controle financeiro.
 - **Base HTTP:** `/controle_ja_api/v1`.
-- **Estado deste documento:** sincronizado em 16 de junho de 2026 na branch `dev`.
+- **Estado deste documento:** sincronizado em 24 de junho de 2026 na branch local atual.
 - **Observação de branch:** no momento da atualização, `dev` estava à frente de `origin/dev`
   em um commit local. Confirmar se esse commit já foi publicado antes de abrir PR ou orientar
   outro agente.
@@ -65,6 +65,7 @@ Flutter, mas o código do front não está neste workspace. Os contratos para o 
 ## Frameworks e bibliotecas
 
 - Spring Boot 3.1.2.
+- Flyway 9.16.3, gerenciado pelo Spring Boot.
 - Spring Web MVC.
 - Spring Data JPA.
 - Hibernate ORM 6.
@@ -113,7 +114,7 @@ Flutter, mas o código do front não está neste workspace. Os contratos para o 
     - build com Maven 3.9.9 e Temurin 17;
     - runtime com Temurin 17 JRE;
     - processo executado por usuário Linux sem privilégios.
-- Perfis: `dev`, `mvp` e `prod`.
+- Perfis: `dev`, `homolog` e `prod`.
 - Variáveis sensíveis são esperadas pelo ambiente.
 - Swagger UI: `/swagger-ui.html`.
 - OpenAPI JSON: `/v3/api-docs`.
@@ -158,7 +159,13 @@ Outras pastas:
 - `src/test/java`: testes unitários e de integração.
 - `src/main/resources`: configurações Spring.
 - `docs`: contratos HTTP e decisões transversais.
-- Não há diretório versionado de migrations.
+- `src/main/resources/db/migration` contém migrations SQL Flyway.
+- `V1__initial_schema.sql` cria as 11 tabelas atuais, preservando
+  `invoicess`, com 26 FKs e 33 índices.
+- `homolog` e `prod` usam `ddl-auto=validate`.
+- `dev` mantém Flyway desabilitado por padrão para proteger bancos locais
+  preexistentes.
+- Procedimento operacional: `docs/DATABASE_MIGRATIONS.md`.
 
 ## Fluxo geral de uma requisição
 
@@ -196,11 +203,14 @@ parte das edições, recorrências, exclusões, transferências e compras parcel
 - CORS configurável por `CORS_ALLOWED_ORIGINS`.
 - `allowCredentials=false`.
 - Token, senha e refresh token não devem aparecer em logs.
-- As rotas `/health`, `/actuator/health` e `/controle_ja_api/v1/health` estão liberadas na
-  configuração de segurança e no filtro JWT. Porém, em 16 de junho de 2026, não foi
-  encontrado um `HealthController` nem dependência explícita de Actuator no código fonte; se
-  o app precisar de health check real para modo offline/online, implementar endpoint leve
-  que retorne 200 sem consultar `users`, `category` ou qualquer tabela de domínio.
+- `GET /actuator/health` e o health check publico oficial da API.
+- Spring Boot Actuator expoe somente `health`; discovery e demais endpoints
+  Actuator ficam desabilitados.
+- O indicador `db` valida a conexao do `DataSource` PostgreSQL sem consultar
+  `users`, `category` ou qualquer tabela de dominio.
+- A resposta publica oculta detalhes: `{"status":"UP"}` com HTTP 200 ou
+  `{"status":"DOWN"}` com HTTP 503.
+- Configuracao e operacao no Railway estao em `docs/HEALTH_CHECK_RAILWAY.md`.
 
 # Funcionalidades Implementadas
 
@@ -209,6 +219,11 @@ parte das edições, recorrências, exclusões, transferências e compras parcel
 - Cadastro de usuário.
 - Login com e-mail/senha.
 - Login Google.
+- Login Google valida `idToken` no backend por JWKS publico do Google, issuer, audience/client id e expiracao.
+- O audience esperado fica em `app.config.google.id-token.audience`, alimentado por `GOOGLE_CLIENT_ID`.
+- No login Google, dados de perfil enviados pelo cliente sao compatibilidade; a identidade confiavel vem das claims validadas do token.
+- `POST /auth`, `POST /auth/google` e `POST /auth/auto-login` retornam o contrato canonico autenticado: `id`, `username`, `email`, `createdAt`, `tokens.accessToken` e `tokens.refreshToken`.
+- `POST /users/register` cria usuario e dados padrao, mas nao faz login automatico; retorna `UserResponseDTO` com `tokens` nulo.
 - Auto-login/renovação por refresh token.
 - Alteração de senha.
 - Edição de perfil.
@@ -440,8 +455,20 @@ por perfil além das médias existentes.
 
 ## Schema e índices
 
-Índices estão declarados nas entidades, porém `ddl-auto=none`. Sem migrations, não é possível
-garantir apenas pelo repositório que todos existem nos ambientes reais.
+O schema inicial está versionado por Flyway em
+`db/migration/V1__initial_schema.sql`. A V1 foi derivada das entidades e do
+DDL Hibernate em PostgreSQL real e validada por teste de integração:
+
+- 11 tabelas de domínio;
+- UUID nas chaves primárias;
+- 26 chaves estrangeiras;
+- 33 índices declarados nas entidades;
+- enums persistidos como texto com constraints;
+- valores monetários em `numeric(38,2)`;
+- nome legado `invoicess` preservado.
+
+Flyway executa antes do JPA. Os perfis `homolog` e `prod` usam
+`ddl-auto=validate`; alterações futuras de schema exigem nova migration.
 
 # Roadmap
 
@@ -450,10 +477,9 @@ Itens planejados ou recomendados nos documentos e na conversa:
 1. Implementar backend offline-first:
    `GET /sync/bootstrap`, `POST /sync/operations`, `GET /sync/changes`, log de idempotência,
    versionamento e conflitos explícitos.
-2. Criar health check público real e leve, sem consulta de domínio.
-3. Versionar o schema com Flyway ou Liquibase.
-4. Criar migrations para tabelas, colunas, enums e índices atuais.
-5. Configurar execução automática e observável do worker de recorrência.
+2. Criar novas migrations Flyway para toda alteração futura de schema.
+3. Validar banco legado antes de baseline manual na versão 1.
+4. Configurar execução automática e observável do worker de recorrência.
 6. Dividir `TransactionServiceImpl` em serviços menores por caso de uso.
 7. Avaliar cache curto por usuário/período para dashboards.
 8. Invalidar cache em mudanças de transação, fatura, conta, cartão e veículo.
@@ -992,13 +1018,12 @@ Ao alterar um endpoint:
 
 # Pendências Técnicas
 
-1. **Ausência de migrations:** maior risco operacional atual.
+1. **Banco legado sem histórico Flyway:** exige backup, comparação com a V1 e
+   baseline manual somente se o schema for equivalente.
 2. **Sem offline sync no backend:** ainda faltam bootstrap, changes, operations,
    idempotência, versionamento de conflito e clientId por entidade.
-3. **Health check incompleto:** rotas liberadas pela segurança, mas sem controller/actuator
-   funcional encontrado.
-4. **Service de transações grande:** mais de 1.600 linhas no arquivo, alta carga cognitiva.
-5. **Worker sem agendamento explícito:** pode nunca executar automaticamente.
+3. **Service de transações grande:** mais de 1.600 linhas no arquivo, alta carga cognitiva.
+4. **Worker sem agendamento explícito:** pode nunca executar automaticamente.
 6. **Nomenclatura legada:** `Transactions`, `Invoices`, `invoicess`, `subCategory` como pai,
    `bestDay` usado como vencimento e `Imp`/`Impl`.
 7. **Mistura de `Double` e `BigDecimal`:** combustível e eficiência podem acumular pequenas
@@ -1014,7 +1039,8 @@ Ao alterar um endpoint:
 15. **Segredo JWT default inseguro em desenvolvimento:** produção depende de variável correta.
 16. **Swagger declara servidor base e controllers também contêm base path:** verificar como a
     UI monta URLs em todos os ambientes.
-17. **Índices declarados não garantidos:** `ddl-auto=none`.
+17. **Flyway 9 e PostgreSQL 16:** testes passam, mas a versão gerenciada emite
+    aviso de suporte formal até PostgreSQL 15.
 18. **Referência documental quebrada:** `docs/api-contracts-index.md` aponta para
     `docs/vehicle-forecast-front-prompt.md`, mas esse arquivo não existe no worktree atual.
 
@@ -1022,10 +1048,10 @@ Ao alterar um endpoint:
 
 ## Confirmados ou observados
 
-- Não há migration que explique como reproduzir o banco do zero.
+- A V1 reproduz o banco do zero e foi validada em PostgreSQL 16 vazio.
 - O worker de recorrência não possui trigger agendado visível.
-- As rotas de health estão liberadas pela segurança, mas não há controller/actuator
-  funcional encontrado no código.
+- `GET /actuator/health` esta implementado com Actuator e indicador PostgreSQL;
+  responde HTTP 503 quando o banco fica indisponivel depois da inicializacao.
 - O backend ainda não possui contratos de sincronização offline-first (`/sync/bootstrap`,
   `/sync/operations`, `/sync/changes`).
 - O fluxo de diário de bordo foi removido; instalações existentes podem manter a tabela
@@ -1056,7 +1082,9 @@ docker compose up -d db
 ```
 
 3. Criar variáveis a partir de `.env.dev.example`.
-4. Confirmar que o schema já existe, pois a aplicação não cria tabelas.
+4. Para banco vazio, ativar o perfil `homolog` ou `prod` e deixar Flyway
+   criar o schema. Para banco legado, seguir `docs/DATABASE_MIGRATIONS.md`
+   antes de habilitar Flyway.
 5. Executar:
 
 ```powershell

@@ -12,6 +12,7 @@ public class UserResponseDTO {
     private String email;
     private long createdAt;
     private AuthResponseDTO tokens;
+    private UserEntitlementsDTO entitlements;
 
     public static UserResponseDTO toDTO(Users newUser) {
         return new UserResponseDTO(
@@ -19,6 +20,7 @@ public class UserResponseDTO {
                 newUser.getUsername(),
                 newUser.getEmail(),
                 newUser.getCreatedAt(),
+                null,
                 null
         );
     }
