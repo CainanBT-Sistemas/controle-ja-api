@@ -11,12 +11,14 @@
 ### - Users cria, atualiza perfil, troca senha, desativa e reinicializa dados do usuario.
 ### - Auth autentica por senha, Google ou refresh token.
 ### - Ao registrar ou resetar, a API cria carteira padrao e categorias iniciais.
+### - Contrato canonico autenticado: id, username, email, createdAt, tokens.accessToken, tokens.refreshToken.
+### - Cadastro nao faz login automatico por decisao da AUTH-005; retorna tokens null/ausente e o usuario deve fazer login depois.
 ### - Reset apaga dados operacionais do usuario autenticado e recria defaults.
 ### - DELETE desativa a conta, invalida refresh token e bloqueia novo login.
 
 ### Register
 ### Request: username, email, password.
-### Response 200: id, username, email, createdAt, tokens ausente.
+### Response 200: id, username, email, createdAt, tokens null/ausente.
 POST {{baseUrl}}/users/register
 Content-Type: application/json
 
@@ -38,7 +40,8 @@ Content-Type: application/json
 }
 
 ### Google Login
-### Request: email, googleId, displayName opcional, photoUrl opcional.
+### Request: idToken obrigatorio. email, googleId, displayName e photoUrl sao aceitos por compatibilidade mobile,
+### mas a API usa como fonte de verdade as claims validadas do idToken Google.
 ### Response 200: mesmo contrato do login.
 POST {{baseUrl}}/auth/google
 Content-Type: application/json
@@ -46,13 +49,14 @@ Content-Type: application/json
 {
   "email": "cainan@email.com",
   "googleId": "google-provider-id",
+  "idToken": "google-id-token",
   "displayName": "Cainan Beltrame",
   "photoUrl": "https://example.com/photo.png"
 }
 
 ### Auto Login / Refresh
 ### Request: token.
-### Response 200: novo accessToken e novo refreshToken.
+### Response 200: mesmo contrato do login, com accessToken e refreshToken emitidos para a sessao atual.
 POST {{baseUrl}}/auth/auto-login
 Content-Type: application/json
 
