@@ -18,6 +18,8 @@ spring:
     properties:
       hibernate:
         format_sql: true
+  flyway:
+    enabled: ${DEV_FLYWAY_ENABLED:false}
 
 app:
   config:

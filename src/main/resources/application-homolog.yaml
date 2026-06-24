@@ -1,30 +1,16 @@
 spring:
   datasource:
-    url: ${MVP_DB_URL}
-    username: ${MVP_DB_USERNAME}
-    password: ${MVP_DB_PASSWORD}
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
 
   jpa:
+    hibernate:
+      ddl-auto: validate
     show-sql: false
     properties:
       hibernate:
         format_sql: false
-
-  security:
-    oauth2:
-      client:
-        registration:
-          google:
-            client-id: ${MVP_GOOGLE_CLIENT_ID}
-            client-secret: ${MVP_GOOGLE_CLIENT_SECRET}
-
-app:
-  config:
-    google:
-      id-token:
-        audience: ${MVP_GOOGLE_CLIENT_ID}
-    jwt:
-      secret: ${MVP_JWT_SECRET}
-    entitlements:
-      tester-emails: ${MVP_TESTER_EMAILS}
+  flyway:
+    enabled: true
