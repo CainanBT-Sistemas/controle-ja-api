@@ -217,9 +217,9 @@ class FlywayBaselineIntegrationTest {
                 .run(
                         "--spring.profiles.active=homolog",
                         "--server.port=0",
-                        "--DB_URL_HOMOLOG=" + POSTGRES.getJdbcUrl(),
-                        "--DB_USERNAME_HOMOLOG=" + POSTGRES.getUsername(),
-                        "--DB_PASSWORD_HOMOLOG=" + POSTGRES.getPassword(),
+                        "--DB_URL=" + POSTGRES.getJdbcUrl(),
+                        "--DB_USERNAME=" + POSTGRES.getUsername(),
+                        "--DB_PASSWORD=" + POSTGRES.getPassword(),
                         "--GOOGLE_CLIENT_ID=test-client.apps.googleusercontent.com",
                         "--GOOGLE_CLIENT_SECRET=test-secret",
                         "--JWT_SECRET=flyway-test-secret-that-is-long-enough-for-hmac",
