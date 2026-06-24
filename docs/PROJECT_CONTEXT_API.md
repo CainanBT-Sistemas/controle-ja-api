@@ -196,11 +196,14 @@ parte das edições, recorrências, exclusões, transferências e compras parcel
 - CORS configurável por `CORS_ALLOWED_ORIGINS`.
 - `allowCredentials=false`.
 - Token, senha e refresh token não devem aparecer em logs.
-- As rotas `/health`, `/actuator/health` e `/controle_ja_api/v1/health` estão liberadas na
-  configuração de segurança e no filtro JWT. Porém, em 16 de junho de 2026, não foi
-  encontrado um `HealthController` nem dependência explícita de Actuator no código fonte; se
-  o app precisar de health check real para modo offline/online, implementar endpoint leve
-  que retorne 200 sem consultar `users`, `category` ou qualquer tabela de domínio.
+- `GET /actuator/health` e o health check publico oficial da API.
+- Spring Boot Actuator expoe somente `health`; discovery e demais endpoints
+  Actuator ficam desabilitados.
+- O indicador `db` valida a conexao do `DataSource` PostgreSQL sem consultar
+  `users`, `category` ou qualquer tabela de dominio.
+- A resposta publica oculta detalhes: `{"status":"UP"}` com HTTP 200 ou
+  `{"status":"DOWN"}` com HTTP 503.
+- Configuracao e operacao no Railway estao em `docs/HEALTH_CHECK_RAILWAY.md`.
 
 # Funcionalidades Implementadas
 
@@ -455,10 +458,9 @@ Itens planejados ou recomendados nos documentos e na conversa:
 1. Implementar backend offline-first:
    `GET /sync/bootstrap`, `POST /sync/operations`, `GET /sync/changes`, log de idempotência,
    versionamento e conflitos explícitos.
-2. Criar health check público real e leve, sem consulta de domínio.
-3. Versionar o schema com Flyway ou Liquibase.
-4. Criar migrations para tabelas, colunas, enums e índices atuais.
-5. Configurar execução automática e observável do worker de recorrência.
+2. Versionar o schema com Flyway ou Liquibase.
+3. Criar migrations para tabelas, colunas, enums e índices atuais.
+4. Configurar execução automática e observável do worker de recorrência.
 6. Dividir `TransactionServiceImpl` em serviços menores por caso de uso.
 7. Avaliar cache curto por usuário/período para dashboards.
 8. Invalidar cache em mudanças de transação, fatura, conta, cartão e veículo.
@@ -1000,10 +1002,8 @@ Ao alterar um endpoint:
 1. **Ausência de migrations:** maior risco operacional atual.
 2. **Sem offline sync no backend:** ainda faltam bootstrap, changes, operations,
    idempotência, versionamento de conflito e clientId por entidade.
-3. **Health check incompleto:** rotas liberadas pela segurança, mas sem controller/actuator
-   funcional encontrado.
-4. **Service de transações grande:** mais de 1.600 linhas no arquivo, alta carga cognitiva.
-5. **Worker sem agendamento explícito:** pode nunca executar automaticamente.
+3. **Service de transações grande:** mais de 1.600 linhas no arquivo, alta carga cognitiva.
+4. **Worker sem agendamento explícito:** pode nunca executar automaticamente.
 6. **Nomenclatura legada:** `Transactions`, `Invoices`, `invoicess`, `subCategory` como pai,
    `bestDay` usado como vencimento e `Imp`/`Impl`.
 7. **Mistura de `Double` e `BigDecimal`:** combustível e eficiência podem acumular pequenas
@@ -1029,8 +1029,8 @@ Ao alterar um endpoint:
 
 - Não há migration que explique como reproduzir o banco do zero.
 - O worker de recorrência não possui trigger agendado visível.
-- As rotas de health estão liberadas pela segurança, mas não há controller/actuator
-  funcional encontrado no código.
+- `GET /actuator/health` esta implementado com Actuator e indicador PostgreSQL;
+  responde HTTP 503 quando o banco fica indisponivel depois da inicializacao.
 - O backend ainda não possui contratos de sincronização offline-first (`/sync/bootstrap`,
   `/sync/operations`, `/sync/changes`).
 - O fluxo de diário de bordo foi removido; instalações existentes podem manter a tabela

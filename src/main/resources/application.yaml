@@ -48,3 +48,26 @@ app:
 server:
   address: 0.0.0.0
   port: 8080
+
+management:
+  endpoints:
+    enabled-by-default: false
+    web:
+      base-path: /actuator
+      discovery:
+        enabled: false
+      exposure:
+        include: health
+  endpoint:
+    health:
+      enabled: true
+      show-details: never
+      status:
+        http-mapping:
+          down: 503
+          out-of-service: 503
+  health:
+    defaults:
+      enabled: false
+    db:
+      enabled: true

@@ -4,6 +4,9 @@ spring:
     username: ${PROD_DB_USERNAME}
     password: ${PROD_DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      connection-timeout: ${PROD_DB_CONNECTION_TIMEOUT_MS:5000}
+      validation-timeout: ${PROD_DB_VALIDATION_TIMEOUT_MS:2000}
   jpa:
     show-sql: false
     properties:
@@ -27,4 +30,4 @@ app:
 
 server:
   address: 0.0.0.0
-  port: ${PROD_SERVER_PORT:8080}
+  port: ${PORT:${PROD_SERVER_PORT:8080}}
