@@ -1,33 +1,30 @@
 spring:
   datasource:
-    url: ${PROD_DB_URL}
-    username: ${PROD_DB_USERNAME}
-    password: ${PROD_DB_PASSWORD}
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
-    hikari:
-      connection-timeout: ${PROD_DB_CONNECTION_TIMEOUT_MS:5000}
-      validation-timeout: ${PROD_DB_VALIDATION_TIMEOUT_MS:2000}
+
   jpa:
     show-sql: false
     properties:
       hibernate:
         format_sql: false
+
   security:
     oauth2:
       client:
         registration:
           google:
-            client-id: ${PROD_GOOGLE_CLIENT_ID}
-            client-secret: ${PROD_GOOGLE_CLIENT_SECRET}
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
 
 app:
   config:
     google:
       id-token:
-        audience: ${PROD_GOOGLE_CLIENT_ID}
+        audience: ${GOOGLE_CLIENT_ID}
     jwt:
-      secret: ${PROD_JWT_SECRET}
-
-server:
-  address: 0.0.0.0
-  port: ${PORT:${PROD_SERVER_PORT:8080}}
+      secret: ${JWT_SECRET}
+    entitlements:
+      tester-emails: ${TESTER_EMAILS}
