@@ -43,7 +43,7 @@ app:
     token:
       issue: controle_ja_api
     entitlements:
-      tester-emails: "cainanbeltrame1994@gmail.com,ya.rosan@hotmail.com,arrhur2010.lima@gmail.com"
+      tester-emails: "cainanbeltrame1994@gmail.com,ya.rosan@hotmail.com,arrhur2010.lima@gmail.com,lucgsimoes@gmail.com"
     closed-test:
       enabled: ${CLOSED_TEST_ENABLED:false}
 
