@@ -1,6 +1,6 @@
 # Migrations e banco PostgreSQL
 
-Atualizado em: 2026-06-24.
+Atualizado em: 2026-06-25.
 
 ## Estrategia
 
@@ -13,9 +13,18 @@ A migration inicial fica em:
 src/main/resources/db/migration/V1__initial_schema.sql
 ```
 
-Ela cria o schema completo atual, sem inserir usuarios, senhas, categorias,
+A allowlist persistida do teste fechado foi adicionada por:
+
+```text
+src/main/resources/db/migration/V2__closed_test_testers.sql
+```
+
+A V1 cria o schema completo inicial, sem inserir usuarios, senhas, categorias,
 dados financeiros, Tester ou secrets. Conta e categorias padrao continuam
 sendo criadas pelo fluxo de cadastro.
+
+A V2 cria `closed_test_testers`, com e-mail normalizado unico e indice para
+consulta por e-mail/status. Ela tambem nao insere dados.
 
 ## Configuracao por ambiente
 
@@ -59,10 +68,11 @@ procedimento de banco legado abaixo.
 Ao iniciar a API em um PostgreSQL vazio:
 
 1. Flyway cria `flyway_schema_history`.
-2. Flyway aplica a V1.
+2. Flyway aplica V1 e V2 na ordem.
 3. Hibernate valida o schema com `ddl-auto=validate`.
 4. A API inicia.
-5. Nas proximas inicializacoes, Flyway valida o checksum e nao reaplica V1.
+5. Nas proximas inicializacoes, Flyway valida os checksums e nao reaplica
+   migrations executadas.
 
 ## Banco legado existente
 
@@ -107,8 +117,8 @@ equivalente a ela. Se houver qualquer divergencia, pare antes do baseline.
 ## Validacao
 
 `FlywayBaselineIntegrationTest` usa PostgreSQL Testcontainers vazio, inicia a
-aplicacao duas vezes no mesmo banco e valida schema, cadastro, login, CRUD,
-persistencia e historico Flyway.
+aplicacao duas vezes no mesmo banco e valida V1, V2, schema, cadastro, login,
+CRUD, persistencia e historico Flyway.
 
 O container Docker tambem foi validado com perfil `homolog`, PostgreSQL vazio,
 health check `UP` e reinicializacao sem nova execucao da V1.

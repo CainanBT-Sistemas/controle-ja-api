@@ -1,31 +1,26 @@
 package com.cainanbt.softwares.controleja.services.impl;
 
 import com.cainanbt.softwares.controleja.exceptions.models.ForbiddenException;
+import com.cainanbt.softwares.controleja.repositories.ClosedTestTesterRepository;
 import com.cainanbt.softwares.controleja.services.ClosedTestAccessPolicy;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.util.Arrays;
 import java.util.Locale;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 @Service
 public class ClosedTestAccessPolicyImp implements ClosedTestAccessPolicy {
 
     private final boolean enabled;
-    private final Set<String> allowedEmails;
+    private final ClosedTestTesterRepository testerRepository;
 
     public ClosedTestAccessPolicyImp(
             @Value("${app.config.closed-test.enabled:false}") boolean enabled,
-            @Value("${app.config.entitlements.tester-emails:}") String testerEmails
+            ClosedTestTesterRepository testerRepository
     ) {
         this.enabled = enabled;
-        this.allowedEmails = Arrays.stream(testerEmails.split(","))
-                .map(ClosedTestAccessPolicyImp::normalize)
-                .filter(email -> !email.isBlank())
-                .collect(Collectors.toUnmodifiableSet());
+        this.testerRepository = testerRepository;
     }
 
     @Override
@@ -35,7 +30,9 @@ public class ClosedTestAccessPolicyImp implements ClosedTestAccessPolicy {
 
     @Override
     public boolean isAllowlisted(String email) {
-        return allowedEmails.contains(normalize(email));
+        String normalizedEmail = normalize(email);
+        return !normalizedEmail.isBlank()
+                && testerRepository.existsByNormalizedEmailAndEnabledTrue(normalizedEmail);
     }
 
     @Override

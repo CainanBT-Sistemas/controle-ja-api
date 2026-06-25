@@ -38,6 +38,5 @@ public abstract class BaseIntegrationTest {
                 "app.config.jwt.secret",
                 () -> "integration-test-jwt-secret-that-is-long-enough"
         );
-        registry.add("app.config.entitlements.tester-emails", () -> TestUserFixtures.TESTER_EMAILS_PROPERTY);
     }
 }
