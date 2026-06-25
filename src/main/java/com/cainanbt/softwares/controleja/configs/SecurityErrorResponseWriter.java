@@ -1,6 +1,7 @@
 package com.cainanbt.softwares.controleja.configs;
 
 import com.cainanbt.softwares.controleja.exceptions.models.ApiErrorResponse;
+import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
@@ -23,6 +24,15 @@ public final class SecurityErrorResponseWriter {
 
     public static void writeForbidden(HttpServletResponse response) throws IOException {
         write(response, HttpStatus.FORBIDDEN, "Forbidden", "Acesso negado.");
+    }
+
+    public static void writeClosedTestForbidden(HttpServletResponse response) throws IOException {
+        write(
+                response,
+                HttpStatus.FORBIDDEN,
+                ConstsMessages.CLOSED_TEST_TITLE,
+                ConstsMessages.CLOSED_TEST_ACCESS_DENIED
+        );
     }
 
     private static void write(HttpServletResponse response, HttpStatus status, String title, String message) throws IOException {

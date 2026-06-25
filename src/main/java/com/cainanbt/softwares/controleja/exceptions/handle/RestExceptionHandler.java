@@ -4,6 +4,7 @@ package com.cainanbt.softwares.controleja.exceptions.handle;
 import com.cainanbt.softwares.controleja.exceptions.models.ApiErrorResponse;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.exceptions.models.EntityNotFoundException;
+import com.cainanbt.softwares.controleja.exceptions.models.ForbiddenException;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -28,6 +29,11 @@ public class RestExceptionHandler {
     @ExceptionHandler(BadRequestException.class)
     public ResponseEntity<ApiErrorResponse> handlerBadRequestException(BadRequestException ex) {
         return build(HttpStatus.BAD_REQUEST, ex.getTitle(), ex.getDetail());
+    }
+
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<ApiErrorResponse> handlerForbiddenException(ForbiddenException ex) {
+        return build(HttpStatus.FORBIDDEN, ex.getTitle(), ex.getDetail());
     }
 
     /**

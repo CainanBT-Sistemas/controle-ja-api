@@ -12,6 +12,7 @@ import com.cainanbt.softwares.controleja.dtos.responses.UserResponseDTO;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.services.AuthService;
+import com.cainanbt.softwares.controleja.services.ClosedTestAccessPolicy;
 import com.cainanbt.softwares.controleja.services.EntitlementService;
 import com.cainanbt.softwares.controleja.services.GoogleIdTokenValidator;
 import com.cainanbt.softwares.controleja.services.UsersService;
@@ -37,6 +38,7 @@ public class AuthServiceImp implements AuthService {
     private final JwtServiceImp jwtService;
     private final GoogleIdTokenValidator googleIdTokenValidator;
     private final EntitlementService entitlementService;
+    private final ClosedTestAccessPolicy closedTestAccessPolicy;
 
     /**
      * Autentica por email e senha, valida situacao cadastral e rotaciona o refresh token.
@@ -50,6 +52,7 @@ public class AuthServiceImp implements AuthService {
             throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.WRONG_LOGIN_CREDENTIALS);
         }
         Users user = userOptional.get();
+        closedTestAccessPolicy.requireAccess(user.getEmail());
         validateActiveUser(user);
 
         var authenticate = new UsernamePasswordAuthenticationToken(email, loginAdapter.getPassword());
@@ -68,6 +71,7 @@ public class AuthServiceImp implements AuthService {
         Users user;
         GoogleIdentityDTO googleIdentity = googleIdTokenValidator.validate(dto.getIdToken());
         String email = googleIdentity.email();
+        closedTestAccessPolicy.requireAccess(email);
         Optional<Users> userByEmail = usersService.getUserByEmail(email);
         if (userByEmail.isPresent()) {
             user = userByEmail.get();
@@ -138,6 +142,10 @@ public class AuthServiceImp implements AuthService {
 
         Users user = userOptional.get();
         validateActiveUser(user);
+        if (!closedTestAccessPolicy.isAccessAllowed(user.getEmail())) {
+            usersService.invalidateRefreshToken(user.getId());
+            closedTestAccessPolicy.requireAccess(user.getEmail());
+        }
 
         if (user.getRefreshToken() == null || !user.getRefreshToken().equals(refreshToken)) {
             throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.INVALID_TOKEN);

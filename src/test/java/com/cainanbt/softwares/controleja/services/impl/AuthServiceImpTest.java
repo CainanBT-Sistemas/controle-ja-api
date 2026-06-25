@@ -8,6 +8,7 @@ import com.cainanbt.softwares.controleja.dtos.responses.UserResponseDTO;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.services.EntitlementService;
+import com.cainanbt.softwares.controleja.services.ClosedTestAccessPolicy;
 import com.cainanbt.softwares.controleja.services.GoogleIdTokenValidator;
 import com.cainanbt.softwares.controleja.services.UsersService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
@@ -35,6 +36,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 
 @ExtendWith(MockitoExtension.class)
 class AuthServiceImpTest {
@@ -59,13 +61,24 @@ class AuthServiceImpTest {
     @Mock
     private EntitlementService entitlementService;
     @Mock
+    private ClosedTestAccessPolicy closedTestAccessPolicy;
+    @Mock
     private HttpServletRequest request;
 
     private AuthServiceImp authService;
 
     @BeforeEach
     void setUp() {
-        authService = new AuthServiceImp(usersService, passwordEncoder, authenticationManager, jwtService, googleIdTokenValidator, entitlementService);
+        authService = new AuthServiceImp(
+                usersService,
+                passwordEncoder,
+                authenticationManager,
+                jwtService,
+                googleIdTokenValidator,
+                entitlementService,
+                closedTestAccessPolicy
+        );
+        lenient().when(closedTestAccessPolicy.isAccessAllowed(anyString())).thenReturn(true);
         lenient().when(jwtService.generateAccessToken(any())).thenReturn("access-token");
         lenient().when(jwtService.generateRefreshToken(any())).thenReturn("refresh-token");
         lenient().when(jwtService.getRefreshExpiration()).thenReturn(123456L);
@@ -88,6 +101,27 @@ class AuthServiceImpTest {
         assertEquals("google@test.com", response.getEmail());
         assertEquals("access-token", response.getTokens().getAccessToken());
         assertEquals("refresh-token", response.getTokens().getRefreshToken());
+    }
+
+    @Test
+    void shouldRejectGoogleIdentityOutsideClosedTestBeforeCreatingOrAssociatingUser() {
+        when(googleIdTokenValidator.validate("valid-id-token")).thenReturn(GOOGLE_IDENTITY);
+        doThrow(new com.cainanbt.softwares.controleja.exceptions.models.ForbiddenException(
+                ConstsMessages.CLOSED_TEST_TITLE,
+                ConstsMessages.CLOSED_TEST_ACCESS_DENIED
+        )).when(closedTestAccessPolicy).requireAccess("google@test.com");
+
+        assertThrows(
+                com.cainanbt.softwares.controleja.exceptions.models.ForbiddenException.class,
+                () -> authService.loginGoogle(
+                        request("client@fake.com", "fake-google-id", "valid-id-token"),
+                        request
+                )
+        );
+
+        verify(usersService, never()).getUserByEmail(anyString());
+        verify(usersService, never()).createNewUser(any(), any());
+        verify(jwtService, never()).generateAccessToken(any());
     }
 
     @Test
