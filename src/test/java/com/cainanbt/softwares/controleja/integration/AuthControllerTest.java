@@ -4,11 +4,13 @@ import com.cainanbt.softwares.controleja.config.BaseTest;
 import com.cainanbt.softwares.controleja.config.TestUserFixtures;
 import com.cainanbt.softwares.controleja.dtos.InsertUpdateUserDTO;
 import com.cainanbt.softwares.controleja.dtos.UserLoginDTO;
+import com.cainanbt.softwares.controleja.repositories.ClosedTestTesterRepository;
 import io.restassured.http.ContentType;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.Collections;
 
@@ -20,9 +22,17 @@ import static org.hamcrest.Matchers.nullValue;
 @Slf4j
 public class AuthControllerTest extends BaseTest {
 
+    @Autowired
+    private ClosedTestTesterRepository testerRepository;
+
     @BeforeEach
     void setup() {
         log.info("Starting AuthControllerTest");
+        if (testerRepository.findByNormalizedEmail(TestUserFixtures.TESTER_EMAIL).isEmpty()) {
+            testerRepository.saveAndFlush(
+                    TestUserFixtures.activeTester(TestUserFixtures.TESTER_EMAIL)
+            );
+        }
     }
 
     @Test

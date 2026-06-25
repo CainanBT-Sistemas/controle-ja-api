@@ -55,7 +55,8 @@ class FlywayBaselineIntegrationTest {
             "recurrence_rules",
             "transactions",
             "invoicess",
-            "installment_plan"
+            "installment_plan",
+            "closed_test_testers"
     );
 
     private static final Map<String, Set<String>> EXPECTED_COLUMNS = expectedColumns();
@@ -122,7 +123,8 @@ class FlywayBaselineIntegrationTest {
             "idx_installments_invoice_user_deleted_date",
             "idx_installments_purchase_user_deleted",
             "idx_installments_user_date_deleted",
-            "idx_installments_invoice_paid_amount"
+            "idx_installments_invoice_paid_amount",
+            "idx_closed_test_testers_normalized_enabled"
     );
 
     @BeforeAll
@@ -136,7 +138,7 @@ class FlywayBaselineIntegrationTest {
     }
 
     @Test
-    void shouldCreateValidateUseAndReuseTheSchemaWithoutReapplyingV1() {
+    void shouldCreateValidateUseAndReuseTheSchemaWithoutReapplyingMigrations() {
         UUID userId;
         long historyInstalledRank;
         long historyInstalledOn;
@@ -155,12 +157,12 @@ class FlywayBaselineIntegrationTest {
             performAuthenticatedAccountCrud(token);
 
             historyInstalledRank = jdbc.queryForObject(
-                    "SELECT installed_rank FROM flyway_schema_history WHERE version = '1'",
+                    "SELECT installed_rank FROM flyway_schema_history WHERE version = '2'",
                     Long.class
             );
             historyInstalledOn = jdbc.queryForObject(
                     "SELECT EXTRACT(EPOCH FROM installed_on)::bigint "
-                            + "FROM flyway_schema_history WHERE version = '1'",
+                            + "FROM flyway_schema_history WHERE version = '2'",
                     Long.class
             );
         }
@@ -173,7 +175,7 @@ class FlywayBaselineIntegrationTest {
             assertEquals(
                     historyInstalledRank,
                     jdbc.queryForObject(
-                            "SELECT installed_rank FROM flyway_schema_history WHERE version = '1'",
+                            "SELECT installed_rank FROM flyway_schema_history WHERE version = '2'",
                             Long.class
                     )
             );
@@ -181,7 +183,7 @@ class FlywayBaselineIntegrationTest {
                     historyInstalledOn,
                     jdbc.queryForObject(
                             "SELECT EXTRACT(EPOCH FROM installed_on)::bigint "
-                                    + "FROM flyway_schema_history WHERE version = '1'",
+                                    + "FROM flyway_schema_history WHERE version = '2'",
                             Long.class
                     )
             );
@@ -222,8 +224,7 @@ class FlywayBaselineIntegrationTest {
                         "--DB_PASSWORD=" + POSTGRES.getPassword(),
                         "--GOOGLE_CLIENT_ID=test-client.apps.googleusercontent.com",
                         "--GOOGLE_CLIENT_SECRET=test-secret",
-                        "--JWT_SECRET=flyway-test-secret-that-is-long-enough-for-hmac",
-                        "--TESTER_EMAILS="
+                        "--JWT_SECRET=flyway-test-secret-that-is-long-enough-for-hmac"
                 );
     }
 
@@ -237,13 +238,13 @@ class FlywayBaselineIntegrationTest {
     private void assertMigrationAppliedSuccessfully(Flyway flyway, JdbcTemplate jdbc) {
         MigrationInfo current = flyway.info().current();
         assertNotNull(current);
-        assertEquals("1", current.getVersion().getVersion());
+        assertEquals("2", current.getVersion().getVersion());
         assertEquals(MigrationState.SUCCESS, current.getState());
         assertEquals(
-                1,
+                2,
                 jdbc.queryForObject(
                         "SELECT COUNT(*) FROM flyway_schema_history "
-                                + "WHERE version = '1' AND success = true",
+                                + "WHERE version IN ('1', '2') AND success = true",
                         Integer.class
                 )
         );
@@ -268,7 +269,8 @@ class FlywayBaselineIntegrationTest {
                         "RecurrenceRule",
                         "Transactions",
                         "Invoices",
-                        "InstallmentPlan"
+                        "InstallmentPlan",
+                        "ClosedTestTester"
                 ),
                 entityNames
         );
@@ -644,6 +646,16 @@ class FlywayBaselineIntegrationTest {
                 "description",
                 "name",
                 "type"
+        ));
+        columns.put("closed_test_testers", Set.of(
+                "enabled",
+                "created_at",
+                "disabled_at",
+                "updated_at",
+                "id",
+                "email",
+                "normalized_email",
+                "reason"
         ));
         return Map.copyOf(columns);
     }

@@ -30,5 +30,3 @@ app:
         audience: ${GOOGLE_CLIENT_ID}
     jwt:
       secret: ${JWT_SECRET}
-    entitlements:
-      tester-emails: ${TESTER_EMAILS}

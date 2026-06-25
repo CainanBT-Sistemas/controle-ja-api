@@ -162,6 +162,8 @@ Outras pastas:
 - `src/main/resources/db/migration` contém migrations SQL Flyway.
 - `V1__initial_schema.sql` cria as 11 tabelas atuais, preservando
   `invoicess`, com 26 FKs e 33 índices.
+- `V2__closed_test_testers.sql` cria a allowlist persistida do teste fechado,
+  sem inserir e-mails.
 - `homolog` e `prod` usam `ddl-auto=validate`.
 - `dev` mantém Flyway desabilitado por padrão para proteger bancos locais
   preexistentes.
@@ -469,6 +471,16 @@ DDL Hibernate em PostgreSQL real e validada por teste de integração:
 
 Flyway executa antes do JPA. Os perfis `homolog` e `prod` usam
 `ddl-auto=validate`; alterações futuras de schema exigem nova migration.
+
+## Allowlist do teste fechado
+
+`closed_test_testers` e a fonte da allowlist. A politica consulta a existencia
+de `normalized_email` com `enabled=true` por indice, sem carregar a tabela
+inteira e sem cache. `TESTER_EMAILS` nao faz mais parte da configuracao.
+
+Com `CLOSED_TEST_ENABLED=true`, tabela vazia ou e-mail inativo resulta em
+HTTP 403. Alteracoes no banco passam a valer na proxima requisicao e nao
+apagam usuario ou dados de dominio.
 
 # Roadmap
 
