@@ -11,7 +11,9 @@ class EntitlementServiceImpTest {
 
     @Test
     void shouldReturnTesterEntitlementForAllowedEmail() {
-        EntitlementServiceImp service = new EntitlementServiceImp(" tester@controleja.local ");
+        EntitlementServiceImp service = new EntitlementServiceImp(
+                new ClosedTestAccessPolicyImp(false, " tester@controleja.local ")
+        );
         Users user = Users.builder().email("TESTER@controleja.local").build();
 
         UserEntitlementsDTO entitlements = service.buildForUser(user);
@@ -26,7 +28,9 @@ class EntitlementServiceImpTest {
 
     @Test
     void shouldReturnFreeEntitlementForOrdinaryUser() {
-        EntitlementServiceImp service = new EntitlementServiceImp("tester@controleja.local");
+        EntitlementServiceImp service = new EntitlementServiceImp(
+                new ClosedTestAccessPolicyImp(false, "tester@controleja.local")
+        );
         Users user = Users.builder().email("common@controleja.local").build();
 
         UserEntitlementsDTO entitlements = service.buildForUser(user);

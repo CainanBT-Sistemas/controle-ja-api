@@ -1,6 +1,7 @@
 package com.cainanbt.softwares.controleja.integration;
 
 import com.cainanbt.softwares.controleja.config.BaseTest;
+import com.cainanbt.softwares.controleja.config.TestUserFixtures;
 import com.cainanbt.softwares.controleja.dtos.InsertUpdateUserDTO;
 import com.cainanbt.softwares.controleja.dtos.UserLoginDTO;
 import io.restassured.http.ContentType;
@@ -128,12 +129,12 @@ public class AuthControllerTest extends BaseTest {
     void shouldReturnTesterEntitlementsWhenEmailIsAllowed() {
         InsertUpdateUserDTO user = new InsertUpdateUserDTO();
         user.setUsername("tester_user");
-        user.setEmail("tester@controleja.local");
+        user.setEmail(TestUserFixtures.TESTER_EMAIL);
         user.setPassword("123456");
         given().contentType(ContentType.JSON).body(user).post("/users/register").then().statusCode(200);
 
         UserLoginDTO login = UserLoginDTO.builder()
-                .email("tester@controleja.local")
+                .email(TestUserFixtures.TESTER_EMAIL)
                 .password("123456")
                 .build();
 

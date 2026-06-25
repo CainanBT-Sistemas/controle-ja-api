@@ -29,6 +29,11 @@ public interface UsersService extends UserDetailsService {
     Users updateTokens(UserUpdateTokenDTO adapter);
 
     /**
+     * Invalida o refresh token em transacao independente.
+     */
+    void invalidateRefreshToken(UUID userId);
+
+    /**
      * Cria a conta do usuario e os dados iniciais obrigatorios.
      */
     Users createNewUser(InsertUpdateUserDTO user, HttpServletRequest request);

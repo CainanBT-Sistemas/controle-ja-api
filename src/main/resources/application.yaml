@@ -43,7 +43,9 @@ app:
     token:
       issue: controle_ja_api
     entitlements:
-      tester-emails: ${TESTER_EMAILS}
+      tester-emails: ${TESTER_EMAILS:}
+    closed-test:
+      enabled: ${CLOSED_TEST_ENABLED:false}
 
 springdoc:
   api-docs:

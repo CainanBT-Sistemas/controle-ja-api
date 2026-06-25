@@ -2,6 +2,8 @@ package com.cainanbt.softwares.controleja.configs;
 
 import com.cainanbt.softwares.controleja.dtos.UserAuthenticateDTO;
 import com.cainanbt.softwares.controleja.repositories.UsersRepository;
+import com.cainanbt.softwares.controleja.exceptions.models.ForbiddenException;
+import com.cainanbt.softwares.controleja.services.ClosedTestAccessPolicy;
 import com.cainanbt.softwares.controleja.services.impl.JwtServiceImp;
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
@@ -44,10 +46,16 @@ public class SecurityFilter extends OncePerRequestFilter {
     private final JwtServiceImp tokenService;
 
     private final UsersRepository userRepository;
+    private final ClosedTestAccessPolicy closedTestAccessPolicy;
 
-    public SecurityFilter(JwtServiceImp tokenService, UsersRepository userRepository) {
+    public SecurityFilter(
+            JwtServiceImp tokenService,
+            UsersRepository userRepository,
+            ClosedTestAccessPolicy closedTestAccessPolicy
+    ) {
         this.tokenService = tokenService;
         this.userRepository = userRepository;
+        this.closedTestAccessPolicy = closedTestAccessPolicy;
     }
 
 
@@ -64,6 +72,7 @@ public class SecurityFilter extends OncePerRequestFilter {
                 if (!isValidUser(userAuthenticateDTO)) {
                     throw new JwtException("User not found or inactive");
                 }
+                closedTestAccessPolicy.requireAccess(user.getEmail());
 
                 SecurityContextHolder.getContext().setAuthentication(
                         new UsernamePasswordAuthenticationToken(
@@ -72,6 +81,10 @@ public class SecurityFilter extends OncePerRequestFilter {
                                 userAuthenticateDTO.getAuthorities())
                 );
             }
+        } catch (ForbiddenException ex) {
+            SecurityContextHolder.clearContext();
+            SecurityErrorResponseWriter.writeClosedTestForbidden(response);
+            return;
         } catch (Exception ex) {
             SecurityContextHolder.clearContext();
             SecurityErrorResponseWriter.writeUnauthorized(response);

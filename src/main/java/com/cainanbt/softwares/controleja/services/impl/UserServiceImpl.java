@@ -10,6 +10,7 @@ import com.cainanbt.softwares.controleja.enums.RoleEnum;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.repositories.UsersRepository;
 import com.cainanbt.softwares.controleja.services.UsersService;
+import com.cainanbt.softwares.controleja.services.ClosedTestAccessPolicy;
 import com.cainanbt.softwares.controleja.services.users.UserDefaultDataInitializer;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
@@ -24,6 +25,7 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -37,6 +39,7 @@ public class UserServiceImpl implements UsersService {
     private final PasswordEncoder passwordEncoder;
     private final UserDefaultDataInitializer defaultDataInitializer;
     private final EntityManager entityManager;
+    private final ClosedTestAccessPolicy closedTestAccessPolicy;
 
     /**
      * Busca usuario pelo email e id, usada para validacoes que exigem os dois identificadores.
@@ -69,6 +72,16 @@ public class UserServiceImpl implements UsersService {
         }).orElseThrow(() -> new BadRequestException(ConstsMessages.OOPS_TITLE, ConstsMessages.SYSTEM_CRITICAL_ERROR));
     }
 
+    @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void invalidateRefreshToken(UUID userId) {
+        userRepository.findById(userId).ifPresent(user -> {
+            user.setRefreshToken(null);
+            user.setRefreshTokenExpiry(0L);
+            userRepository.save(user);
+        });
+    }
+
     /**
      * Cria o usuario e inicializa os dados padrao em uma unica transacao.
      */
@@ -76,6 +89,7 @@ public class UserServiceImpl implements UsersService {
     @Transactional
     public Users createNewUser(InsertUpdateUserDTO userDTO, HttpServletRequest request) {
         String normalizedEmail = userDTO.getEmail().trim().toLowerCase();
+        closedTestAccessPolicy.requireAccess(normalizedEmail);
         if (userRepository.findByEmailIgnoreCase(normalizedEmail).isPresent()) {
             throw new BadRequestException(ConstsMessages.REGISTRATION_ERROR_TITLE, ConstsMessages.EMAIL_IN_USE);
         }
@@ -100,7 +114,7 @@ public class UserServiceImpl implements UsersService {
         } catch (BadRequestException e) {
             throw e;
         } catch (Exception e) {
-            log.error("Erro ao criar usuario e dados iniciais para email={}", normalizedEmail, e);
+            log.error("Erro ao criar usuario e dados iniciais", e);
             throw new BadRequestException(ConstsMessages.CRITICAL_ERROR_TITLE, ConstsMessages.DATABASE_SAVE_ERROR);
         }
     }
