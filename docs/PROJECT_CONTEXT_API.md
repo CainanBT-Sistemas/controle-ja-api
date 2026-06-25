@@ -168,6 +168,8 @@ Outras pastas:
 - `dev` mantém Flyway desabilitado por padrão para proteger bancos locais
   preexistentes.
 - Procedimento operacional: `docs/DATABASE_MIGRATIONS.md`.
+- Limites de memoria e concorrencia Railway:
+  `docs/RUNTIME_MEMORY_RAILWAY.md`.
 
 ## Fluxo geral de uma requisição
 
