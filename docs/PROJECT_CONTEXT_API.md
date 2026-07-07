@@ -291,7 +291,10 @@ parte das edições, recorrências, exclusões, transferências e compras parcel
 
 ## Recorrências
 
-- Frequências `DAILY`, `WEEKLY`, `BIWEEKLY`, `MONTHLY` e `YEARLY`.
+- Frequências disponíveis para novas recorrências no MVP: `WEEKLY`,
+  `MONTHLY` e `YEARLY`.
+- `BIWEEKLY` e `DAILY` permanecem no enum/schema para compatibilidade de
+  leitura, mas novas regras com essas frequências devem ser rejeitadas.
 - Status `ACTIVE`, `INACTIVE` e `CANCELED`.
 - Regra ligada a usuário, categoria, conta e conta de destino opcional.
 - Geração de projeções até um ano à frente.

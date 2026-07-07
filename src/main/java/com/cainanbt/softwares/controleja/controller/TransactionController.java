@@ -35,7 +35,7 @@ public class TransactionController {
     @PostMapping
     public ResponseEntity<TransactionResponseDTO> create(@RequestBody @Valid TransactionDTO dto) {
         var entity = transactionService.createTransaction(dto);
-        return ResponseEntity.ok(TransactionResponseDTO.toDTO(entity));
+        return ResponseEntity.ok(TransactionResponseDTO.toDetailedDTO(entity));
     }
 
     @GetMapping
@@ -46,7 +46,7 @@ public class TransactionController {
 
     @GetMapping("/{id}")
     public ResponseEntity<TransactionResponseDTO> getById(@PathVariable UUID id) {
-        return ResponseEntity.ok(TransactionResponseDTO.toDTO(transactionService.findByIdOrThrow(id)));
+        return ResponseEntity.ok(TransactionResponseDTO.toDetailedDTO(transactionService.findByIdOrThrow(id)));
     }
 
     @PutMapping("/{id}")

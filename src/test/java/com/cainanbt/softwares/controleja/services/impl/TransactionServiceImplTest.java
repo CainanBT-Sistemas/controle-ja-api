@@ -2,6 +2,7 @@ package com.cainanbt.softwares.controleja.services.impl;
 
 import com.cainanbt.softwares.controleja.dtos.TransactionDTO;
 import com.cainanbt.softwares.controleja.entities.Accounts;
+import com.cainanbt.softwares.controleja.entities.Category;
 import com.cainanbt.softwares.controleja.entities.CreditCard;
 import com.cainanbt.softwares.controleja.entities.InstallmentPlan;
 import com.cainanbt.softwares.controleja.entities.Invoices;
@@ -46,6 +47,9 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -515,6 +519,105 @@ class TransactionServiceImplTest {
     }
 
     @Test
+    void updateTransaction_fromThisForwardSimpleRecurringChange_updatesFutureUnpaidWithoutCreatingNewRule() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            Accounts account = account();
+            Category category = category();
+            long juneDate = DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 6, 10, 0, 0));
+            long julyDate = DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 7, 10, 0, 0));
+            long augustDate = DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 8, 10, 0, 0));
+            long septemberDate = DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 9, 10, 0, 0));
+            RecurrenceRule rule = recurrenceRule(juneDate, account, category);
+
+            Transactions past = recurringTransaction(rule, account, category, juneDate, "Aluguel", "1000.00", false);
+            Transactions selected = recurringTransaction(rule, account, category, julyDate, "Aluguel", "1000.00", false);
+            Transactions future = recurringTransaction(rule, account, category, augustDate, "Aluguel", "1000.00", false);
+            Transactions paidFuture = recurringTransaction(rule, account, category, septemberDate, "Aluguel", "1000.00", true);
+
+            TransactionDTO dto = new TransactionDTO();
+            dto.setName("Aluguel reajustado");
+            dto.setAmount(new BigDecimal("1200.00"));
+
+            when(repository.findByIdAndNotDeleted(selected.getId())).thenReturn(Optional.of(selected));
+            when(repository.findFutureUnpaidByRuleId(rule.getId(), julyDate))
+                    .thenReturn(List.of(selected, future, paidFuture));
+            when(recurrenceRuleService.save(rule)).thenReturn(rule);
+            when(repository.save(selected)).thenReturn(selected);
+
+            service.updateTransaction(selected.getId(), dto, OperationScope.FROM_THIS_FORWARD);
+
+            assertEquals("Aluguel", past.getName());
+            assertEquals(new BigDecimal("1000.00"), past.getAmount());
+            assertEquals("Aluguel reajustado", selected.getName());
+            assertEquals(new BigDecimal("1200.00"), selected.getAmount());
+            assertEquals(rule.getId(), selected.getRecurrenceRule().getId());
+            assertEquals("Aluguel reajustado", future.getName());
+            assertEquals(new BigDecimal("1200.00"), future.getAmount());
+            assertEquals(rule.getId(), future.getRecurrenceRule().getId());
+            assertEquals("Aluguel", paidFuture.getName());
+            assertEquals(new BigDecimal("1000.00"), paidFuture.getAmount());
+            assertEquals(new BigDecimal("1200.00"), rule.getBaseAmount());
+
+            verify(repository).saveAll(List.of(selected, future));
+            verify(repository, never()).findMaxDateByRuleId(any());
+        }
+    }
+
+    @Test
+    void updateTransaction_fromThisForwardScheduleChange_closesOldRuleSoftDeletesFutureAndCreatesNewRule() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            Accounts account = account();
+            Category category = category();
+            long juneDate = DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 6, 10, 0, 0));
+            long julyDate = DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 7, 10, 0, 0));
+            long augustDate = DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 8, 10, 0, 0));
+            long septemberDate = DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 9, 10, 0, 0));
+            RecurrenceRule oldRule = recurrenceRule(juneDate, account, category);
+
+            Transactions selected = recurringTransaction(oldRule, account, category, julyDate, "Academia", "90.00", false);
+            Transactions future = recurringTransaction(oldRule, account, category, augustDate, "Academia", "90.00", false);
+            Transactions paidFuture = recurringTransaction(oldRule, account, category, septemberDate, "Academia", "90.00", true);
+
+            TransactionDTO dto = new TransactionDTO();
+            dto.setName("Academia semanal");
+            dto.setAmount(new BigDecimal("50.00"));
+            dto.setRecurrenceFrequency(RecurrenceFrequency.WEEKLY);
+
+            when(repository.findByIdAndNotDeleted(selected.getId())).thenReturn(Optional.of(selected));
+            when(repository.findFutureUnpaidByRuleId(oldRule.getId(), julyDate))
+                    .thenReturn(List.of(selected, future, paidFuture));
+            when(recurrenceRuleService.save(any(RecurrenceRule.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+            when(repository.save(selected)).thenReturn(selected);
+            when(repository.findMaxDateByRuleId(any())).thenReturn(
+                    DateUtils.localDateTimeToEpoch(LocalDateTime.of(2027, 12, 1, 0, 0))
+            );
+
+            service.updateTransaction(selected.getId(), dto, OperationScope.FROM_THIS_FORWARD);
+
+            assertEquals(
+                    DateUtils.localDateToEpoch(DateUtils.epochToLocalDate(julyDate).minusDays(1)),
+                    oldRule.getEndDate()
+            );
+            assertNotNull(future.getDeletedAt());
+            assertNull(paidFuture.getDeletedAt());
+            assertNotNull(selected.getRecurrenceRule());
+            assertNotEquals(oldRule.getId(), selected.getRecurrenceRule().getId());
+            assertEquals(RecurrenceFrequency.WEEKLY, selected.getRecurrenceRule().getFrequency());
+            assertEquals(julyDate, selected.getRecurrenceRule().getStartDate());
+            assertFalse(Boolean.TRUE.equals(selected.getPaid()));
+
+            verify(repository).saveAll(List.of(future));
+            verify(repository).save(selected);
+            verify(repository).findMaxDateByRuleId(selected.getRecurrenceRule().getId());
+        }
+    }
+
+    @Test
     void softDelete_whenDeletingCreditCardInstallment_shouldRestoreCardLimitAndInvoiceAmount() {
         try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
             mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
@@ -572,6 +675,68 @@ class TransactionServiceImplTest {
                 .paid(paid)
                 .user(currentUser)
                 .invoices(invoice)
+                .build();
+    }
+
+    private Accounts account() {
+        return Accounts.builder()
+                .id(UUID.randomUUID())
+                .type(AccountType.BANK)
+                .user(currentUser)
+                .build();
+    }
+
+    private Category category() {
+        return Category.builder()
+                .id(UUID.randomUUID())
+                .name("Moradia")
+                .categoryType(TransactionType.DESPESA.name())
+                .enabled(true)
+                .isSubCategory(true)
+                .createdAt(DateUtils.getEpochNow())
+                .user(currentUser)
+                .build();
+    }
+
+    private RecurrenceRule recurrenceRule(long startDate, Accounts account, Category category) {
+        return RecurrenceRule.builder()
+                .id(UUID.randomUUID())
+                .name("Aluguel")
+                .baseAmount(new BigDecimal("1000.00"))
+                .type(TransactionType.DESPESA)
+                .frequency(RecurrenceFrequency.MONTHLY)
+                .startDate(startDate)
+                .status(RuleStatus.ACTIVE)
+                .createdAt(DateUtils.getEpochNow())
+                .user(currentUser)
+                .account(account)
+                .category(category)
+                .build();
+    }
+
+    private Transactions recurringTransaction(
+            RecurrenceRule rule,
+            Accounts account,
+            Category category,
+            long date,
+            String name,
+            String amount,
+            boolean paid
+    ) {
+        return Transactions.builder()
+                .id(UUID.randomUUID())
+                .date(date)
+                .name(name)
+                .type(TransactionType.DESPESA)
+                .amount(new BigDecimal(amount))
+                .fixed(true)
+                .paid(paid)
+                .enabled(true)
+                .createdAt(DateUtils.getEpochNow())
+                .recurrenceRule(rule)
+                .account(account)
+                .category(category)
+                .user(currentUser)
                 .build();
     }
 }

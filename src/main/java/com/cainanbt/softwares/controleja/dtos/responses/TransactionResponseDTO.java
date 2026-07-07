@@ -18,6 +18,7 @@ public class TransactionResponseDTO {
     private BigDecimal amount;
     private Long date;
     private Boolean paid;
+    private String description;
     private UUID categoryId;
     private String categoryName;
     private UUID accountId;
@@ -37,11 +38,12 @@ public class TransactionResponseDTO {
     private UUID recurrenceRuleId;
     private Boolean virtual;
 
+
     // CORREÇÃO: Campos que faltavam para o app ler o status do Toggle
     private Boolean isFixed;
     private RecurrenceFrequency recurrenceFrequency;
 
-    public static TransactionResponseDTO toDTO(Transactions entity) {
+    public static TransactionResponseDTO toBasicDTO(Transactions entity) {
         TransactionResponseDTO dto = new TransactionResponseDTO();
         dto.setId(entity.getId());
         dto.setName(entity.getName());
@@ -49,24 +51,43 @@ public class TransactionResponseDTO {
         dto.setAmount(entity.getAmount());
         dto.setDate(entity.getDate());
         dto.setPaid(entity.getPaid());
-        dto.setVirtual(false);
-        if (entity.getParentTransaction() != null) {
-            dto.setParentTransactionId(entity.getParentTransaction().getId());
-        }
-
-        dto.setIsFixed(entity.getFixed());
 
         if (entity.getCategory() != null) {
             dto.setCategoryName(entity.getCategory().getName());
             dto.setCategoryId(entity.getCategory().getId());
         }
+
         if (entity.getAccount() != null) {
             dto.setAccountName(entity.getAccount().getName());
             dto.setAccountId(entity.getAccount().getId());
         }
+
+        if (entity.getParentTransaction() != null) {
+            dto.setParentTransactionId(entity.getParentTransaction().getId());
+        }
+
         if (entity.getCreditCard() != null) {
             dto.setCreditCardId(entity.getCreditCard().getId());
         }
+
+        if (entity.getTargetInvoice() != null) {
+            dto.setTargetInvoiceId(entity.getTargetInvoice().getId());
+        }
+
+        return dto;
+    }
+
+    public static TransactionResponseDTO toDetailedDTO(Transactions entity) {
+        TransactionResponseDTO dto = toBasicDTO(entity);
+
+        dto.setDescription(entity.getDescription());
+        dto.setIsFixed(entity.getFixed());
+
+        if (entity.getRecurrenceRule() != null) {
+            dto.setRecurrenceRuleId(entity.getRecurrenceRule().getId());
+            dto.setRecurrenceFrequency(entity.getRecurrenceRule().getFrequency());
+        }
+
         if (entity.getVehicle() != null) {
             dto.setVehicleName(entity.getVehicle().getName());
             dto.setEfficiency(entity.getEfficiency());
@@ -76,16 +97,10 @@ public class TransactionResponseDTO {
             dto.setDrivingPredominance(entity.getDrivingPredominance());
             dto.setVehicleId(entity.getVehicle().getId());
         }
+
         if (entity.getGasStation() != null) {
             dto.setGasStationId(entity.getGasStation().getId());
             dto.setGasStationName(entity.getGasStation().getName());
-        }
-        if (entity.getTargetInvoice() != null) {
-            dto.setTargetInvoiceId(entity.getTargetInvoice().getId());
-        }
-        if (entity.getRecurrenceRule() != null) {
-            dto.setRecurrenceRuleId(entity.getRecurrenceRule().getId());
-            dto.setRecurrenceFrequency(entity.getRecurrenceRule().getFrequency());
         }
 
         return dto;

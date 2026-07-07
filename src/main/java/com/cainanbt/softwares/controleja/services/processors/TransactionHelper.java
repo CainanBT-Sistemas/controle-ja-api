@@ -6,10 +6,13 @@ import com.cainanbt.softwares.controleja.entities.Category;
 import com.cainanbt.softwares.controleja.entities.RecurrenceRule;
 import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.entities.Users;
+import com.cainanbt.softwares.controleja.enums.RecurrenceFrequency;
 import com.cainanbt.softwares.controleja.enums.RuleStatus;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
+import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.services.AccountsService;
 import com.cainanbt.softwares.controleja.services.RecurrenceRuleService;
+import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import lombok.RequiredArgsConstructor;
@@ -57,6 +60,7 @@ public class TransactionHelper {
      * Cria a regra que gera os proximos lancamentos fixos/recorrentes.
      */
     public RecurrenceRule createRecurrenceRule(TransactionDTO dto, TransactionType transactionType, long dateNow, Users user, Accounts accountOrigin, Accounts accountDest, Category category) {
+        validateMvpRecurrenceFrequency(dto.getRecurrenceFrequency());
 
         // BLINDAGEM: Se a descrição vier nula do app, salva como texto vazio para não quebrar o banco de dados
         String safeDescription = dto.getDescription() != null ? dto.getDescription() : "";
@@ -78,6 +82,21 @@ public class TransactionHelper {
                 .targetAccount(accountDest)
                 .build();
         return recurrenceRuleService.save(rule);
+    }
+
+    private void validateMvpRecurrenceFrequency(RecurrenceFrequency frequency) {
+        if (frequency == null) {
+            return;
+        }
+        if (frequency == RecurrenceFrequency.WEEKLY
+                || frequency == RecurrenceFrequency.MONTHLY
+                || frequency == RecurrenceFrequency.YEARLY) {
+            return;
+        }
+        if (frequency == RecurrenceFrequency.BIWEEKLY) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Frequência quinzenal não está disponível neste momento.");
+        }
+        throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Frequência de recorrência não está disponível neste momento.");
     }
 
     /**

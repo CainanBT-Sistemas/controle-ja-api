@@ -54,6 +54,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -127,7 +128,7 @@ public class TransactionServiceImpl implements TransactionService {
         if (start == null || end == null) return Collections.emptyList();
 
         List<Transactions> normalTx = repository.findCashFlowTransactionsByMonth(user.getId(), start, end);
-        List<TransactionResponseDTO> responseList = new ArrayList<>(normalTx.stream().map(TransactionResponseDTO::toDTO).toList());
+        List<TransactionResponseDTO> responseList = new ArrayList<>(normalTx.stream().map(TransactionResponseDTO::toBasicDTO).toList());
 
         applyCreditCardInvoices(responseList, user.getId(), start, end);
 
@@ -201,12 +202,12 @@ public class TransactionServiceImpl implements TransactionService {
         }
 
         if (isTransferSide(current)) {
-            return TransactionResponseDTO.toDTO(updateTransferPair(current, dto, scope));
+            return TransactionResponseDTO.toDetailedDTO(updateTransferPair(current, dto, scope));
         }
 
         Transactions transaction = updateTransaction(id, dto, scope);
 
-        return TransactionResponseDTO.toDTO(transaction);
+        return TransactionResponseDTO.toDetailedDTO(transaction);
     }
 
     private TransactionResponseDTO updateCreditCardInstallments(InstallmentPlan reference, TransactionDTO dto) {
@@ -362,7 +363,7 @@ public class TransactionServiceImpl implements TransactionService {
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
                 adjustCreditCardLimitForPurchaseAmountChange(purchase.getCreditCard(), totalBeforeAmountChange, activeTotal);
             }
-            return TransactionResponseDTO.toDTO(purchase);
+            return TransactionResponseDTO.toDetailedDTO(purchase);
         }
 
         return buildInstallmentResponse(installmentsToUpdate.stream().findFirst().orElse(installments.get(0)));
@@ -528,7 +529,7 @@ public class TransactionServiceImpl implements TransactionService {
                 newRule.getId(),
                 affectedPurchases.size()
         );
-        return TransactionResponseDTO.toDTO(selectedPurchase);
+        return TransactionResponseDTO.toDetailedDTO(selectedPurchase);
     }
 
     /**
@@ -623,7 +624,7 @@ public class TransactionServiceImpl implements TransactionService {
         purchase.setUpdatedAt(dateNow);
         purchase = repository.save(purchase);
 
-        return TransactionResponseDTO.toDTO(purchase);
+        return TransactionResponseDTO.toDetailedDTO(purchase);
     }
 
     private void validateCreditCardPurchaseDateChange(Transactions purchase, List<InstallmentPlan> installments, Long newDate) {
@@ -824,7 +825,7 @@ public class TransactionServiceImpl implements TransactionService {
                 .filter(tx -> tx.getVehicle() != null)
                 .filter(tx -> tx.getType() == TransactionType.DESPESA)
                 .filter(tx -> tx.getAccount() == null || tx.getAccount().getType() != AccountType.CREDIT_CARD)
-                .map(TransactionResponseDTO::toDTO)
+                .map(TransactionResponseDTO::toDetailedDTO)
                 .toList();
 
         List<InstallmentPlan> vehicleInstallments = installmentPlanService.findVehicleInstallmentsByUserAndDateBetween(user.getId(), start, end);
@@ -1021,6 +1022,7 @@ public class TransactionServiceImpl implements TransactionService {
     @Override
     @Transactional
     public Transactions updateTransaction(UUID id, TransactionDTO dto, OperationScope operationScope) {
+        OperationScope scope = normalizeScope(operationScope);
         Transactions transaction = findByIdOrThrow(id);
         Users currentUser = SecurityContextUtils.getCurrentUser();
         long dateNow = DateUtils.getEpochNow();
@@ -1028,6 +1030,15 @@ public class TransactionServiceImpl implements TransactionService {
         if (!transaction.getUser().getId().equals(currentUser.getId())) {
             throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_TRANSACTION);
         }
+
+        boolean recurringTransaction = transaction.getRecurrenceRule() != null;
+        if (recurringTransaction && scope == OperationScope.ALL) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Alteração de todos os lançamentos recorrentes não está disponível neste momento.");
+        }
+        boolean recurrenceScheduleChanged = recurringTransaction
+                && scope == OperationScope.FROM_THIS_FORWARD
+                && changesRecurrenceSchedule(transaction, dto);
+        Long recurrenceReferenceDate = transaction.getDate();
 
         Accounts oldAccount = transaction.getAccount();
         BigDecimal oldAmount = transaction.getAmount();
@@ -1070,17 +1081,21 @@ public class TransactionServiceImpl implements TransactionService {
 
             // Cenário B: Era fixa e o usuário desmarcou (Cancela as futuras)
             if (wasFixed && !isFixedNow && transaction.getRecurrenceRule() != null) {
-                RecurrenceRule rule = transaction.getRecurrenceRule();
-                rule.setStatus(RuleStatus.CANCELED);
-                rule.setUpdatedAt(dateNow);
-                recurrenceRuleService.save(rule);
+                if (scope == OperationScope.ONLY_THIS) {
+                    transaction.setRecurrenceRule(null);
+                } else if (scope != OperationScope.FROM_THIS_FORWARD) {
+                    RecurrenceRule rule = transaction.getRecurrenceRule();
+                    rule.setStatus(RuleStatus.CANCELED);
+                    rule.setUpdatedAt(dateNow);
+                    recurrenceRuleService.save(rule);
 
-                List<Transactions> futureUnpaidTx = repository.findFutureUnpaidByRuleId(rule.getId(), dateNow);
-                for (Transactions tx : futureUnpaidTx) {
-                    tx.setDeletedAt(dateNow);
+                    List<Transactions> futureUnpaidTx = repository.findFutureUnpaidByRuleId(rule.getId(), dateNow);
+                    for (Transactions tx : futureUnpaidTx) {
+                        tx.setDeletedAt(dateNow);
+                    }
+                    repository.saveAll(futureUnpaidTx);
+                    transaction.setRecurrenceRule(null);
                 }
-                repository.saveAll(futureUnpaidTx);
-                transaction.setRecurrenceRule(null);
             }
         }
 
@@ -1100,8 +1115,27 @@ public class TransactionServiceImpl implements TransactionService {
         validateCategoryForTransaction(currentCategory);
         transaction.setCategory(currentCategory);
 
-        if (operationScope == OperationScope.FROM_THIS_FORWARD && transaction.getRecurrenceRule() != null) {
-            splitRecurringRuleFromTransactionForward(transaction, dto, dateNow, currentUser, currentAccount);
+        boolean shouldGenerateProjectionsForUpdatedRule = false;
+        if (scope == OperationScope.FROM_THIS_FORWARD && recurringTransaction) {
+            if (recurrenceScheduleChanged) {
+                shouldGenerateProjectionsForUpdatedRule = splitRecurringScheduleFromTransactionForward(
+                        transaction,
+                        dto,
+                        recurrenceReferenceDate,
+                        dateNow,
+                        currentUser,
+                        currentAccount
+                );
+            } else {
+                applyRecurringSimpleChangesFromTransactionForward(
+                        transaction,
+                        dto,
+                        recurrenceReferenceDate,
+                        dateNow,
+                        currentAccount,
+                        currentCategory
+                );
+            }
         }
 
         boolean shouldRecalculateVehicleOdometer = applyVehicleFieldsOnUpdate(transaction, dto, currentUser);
@@ -1135,8 +1169,74 @@ public class TransactionServiceImpl implements TransactionService {
             LocalDate limiteProjecao = LocalDate.now(DateUtils.zoneId).plusYears(1);
             generateProjectionsForRule(transaction.getRecurrenceRule(), limiteProjecao);
         }
+        if (shouldGenerateProjectionsForUpdatedRule && transaction.getRecurrenceRule() != null) {
+            LocalDate limiteProjecao = LocalDate.now(DateUtils.zoneId).plusYears(1);
+            generateProjectionsForRule(transaction.getRecurrenceRule(), limiteProjecao);
+        }
 
         return transaction;
+    }
+
+    private boolean changesRecurrenceSchedule(Transactions transaction, TransactionDTO dto) {
+        RecurrenceRule rule = transaction.getRecurrenceRule();
+        if (rule == null) {
+            return false;
+        }
+        if (dto.getDate() != null && !Objects.equals(dto.getDate(), transaction.getDate())) {
+            return true;
+        }
+        if (dto.getRecurrenceFrequency() != null && dto.getRecurrenceFrequency() != rule.getFrequency()) {
+            return true;
+        }
+        if (dto.getRecurrenceEndDate() != null && !Objects.equals(dto.getRecurrenceEndDate(), rule.getEndDate())) {
+            return true;
+        }
+        if (dto.getIsFixed() != null && !Objects.equals(dto.getIsFixed(), transaction.getFixed())) {
+            return true;
+        }
+        return false;
+    }
+
+    private void applyRecurringSimpleChangesFromTransactionForward(
+            Transactions transaction,
+            TransactionDTO dto,
+            Long referenceDate,
+            long dateNow,
+            Accounts account,
+            Category category
+    ) {
+        RecurrenceRule rule = transaction.getRecurrenceRule();
+        if (rule == null) {
+            return;
+        }
+
+        if (dto.getName() != null) rule.setName(dto.getName());
+        if (dto.getDescription() != null) rule.setDescription(dto.getDescription());
+        if (dto.getAmount() != null) rule.setBaseAmount(dto.getAmount());
+        if (dto.getType() != null) rule.setType(dto.getType());
+        rule.setAccount(account);
+        rule.setCategory(category);
+        rule.setUpdatedAt(dateNow);
+        recurrenceRuleService.save(rule);
+
+        List<Transactions> futureUnpaidTx = repository.findFutureUnpaidByRuleId(rule.getId(), referenceDate).stream()
+                .filter(tx -> tx.getDate() != null && tx.getDate() >= referenceDate)
+                .filter(tx -> tx.getDeletedAt() == null)
+                .filter(tx -> !Boolean.TRUE.equals(tx.getPaid()))
+                .toList();
+
+        for (Transactions tx : futureUnpaidTx) {
+            if (dto.getName() != null) tx.setName(dto.getName());
+            if (dto.getDescription() != null) tx.setDescription(dto.getDescription());
+            if (dto.getType() != null) tx.setType(dto.getType());
+            if (dto.getAmount() != null) tx.setAmount(dto.getAmount());
+            tx.setAccount(account);
+            tx.setCategory(category);
+            tx.setUpdatedAt(dateNow);
+        }
+        if (!futureUnpaidTx.isEmpty()) {
+            repository.saveAll(futureUnpaidTx);
+        }
     }
 
     private boolean applyVehicleFieldsOnUpdate(Transactions transaction, TransactionDTO dto, Users currentUser) {
@@ -1192,17 +1292,37 @@ public class TransactionServiceImpl implements TransactionService {
         return shouldRecalculateVehicleOdometer;
     }
 
-    private void splitRecurringRuleFromTransactionForward(Transactions transaction, TransactionDTO dto, long dateNow, Users currentUser, Accounts account) {
+    private boolean splitRecurringScheduleFromTransactionForward(Transactions transaction, TransactionDTO dto, Long referenceDate, long dateNow, Users currentUser, Accounts account) {
         RecurrenceRule oldRule = transaction.getRecurrenceRule();
         if (oldRule == null) {
-            return;
+            return false;
         }
 
         Long originalEndDate = oldRule.getEndDate();
-        Long previousEnd = DateUtils.localDateToEpoch(DateUtils.epochToLocalDate(transaction.getDate()).minusDays(1));
+        Long previousEnd = DateUtils.localDateToEpoch(DateUtils.epochToLocalDate(referenceDate).minusDays(1));
         oldRule.setEndDate(previousEnd);
         oldRule.setUpdatedAt(dateNow);
         recurrenceRuleService.save(oldRule);
+
+        List<Transactions> futureUnpaidTx = repository.findFutureUnpaidByRuleId(oldRule.getId(), referenceDate).stream()
+                .filter(tx -> !tx.getId().equals(transaction.getId()))
+                .filter(tx -> tx.getDate() != null && tx.getDate() >= referenceDate)
+                .filter(tx -> tx.getDeletedAt() == null)
+                .filter(tx -> !Boolean.TRUE.equals(tx.getPaid()))
+                .toList();
+
+        for (Transactions tx : futureUnpaidTx) {
+            tx.setDeletedAt(dateNow);
+            tx.setUpdatedAt(dateNow);
+        }
+        if (!futureUnpaidTx.isEmpty()) {
+            repository.saveAll(futureUnpaidTx);
+        }
+
+        if (Boolean.FALSE.equals(dto.getIsFixed())) {
+            transaction.setRecurrenceRule(null);
+            return false;
+        }
 
         RecurrenceRule newRule = RecurrenceRule.builder()
                 .id(ID.generate())
@@ -1223,27 +1343,7 @@ public class TransactionServiceImpl implements TransactionService {
         newRule = recurrenceRuleService.save(newRule);
         transaction.setRecurrenceRule(newRule);
 
-        List<Transactions> futureUnpaidTx = repository.findFutureUnpaidByRuleId(oldRule.getId(), transaction.getDate());
-        Map<UUID, Invoices> invoicesToUpdate = new HashMap<>();
-
-        for (Transactions tx : futureUnpaidTx) {
-            tx.setRecurrenceRule(newRule);
-            if (dto.getName() != null) tx.setName(dto.getName());
-            if (dto.getDescription() != null) tx.setDescription(dto.getDescription());
-            if (dto.getType() != null) tx.setType(dto.getType());
-            if (dto.getAmount() != null) tx.setAmount(dto.getAmount());
-            tx.setUpdatedAt(dateNow);
-
-            if (tx.getAccount().getType() == AccountType.CREDIT_CARD) {
-                updateFutureCreditCardOccurrenceInstallments(tx, dto, invoicesToUpdate, dateNow);
-            }
-        }
-        if (!futureUnpaidTx.isEmpty()) {
-            repository.saveAll(futureUnpaidTx);
-        }
-        if (!invoicesToUpdate.isEmpty()) {
-            invoicesService.saveAll(invoicesToUpdate.values().stream().toList());
-        }
+        return true;
     }
 
     private void updateFutureCreditCardOccurrenceInstallments(Transactions tx, TransactionDTO dto, Map<UUID, Invoices> invoicesToUpdate, long dateNow) {
