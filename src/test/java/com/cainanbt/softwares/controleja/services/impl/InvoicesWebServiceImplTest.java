@@ -553,6 +553,55 @@ public class InvoicesWebServiceImplTest {
     }
 
     @Test
+    public void advanceInstallments_whenTwoInstallmentsHaveDiscount_shouldApplyDiscountOnce() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            CreditCard card = CreditCard.builder()
+                    .id(UUID.randomUUID())
+                    .currentLimit(new BigDecimal("50.00"))
+                    .totalLimit(new BigDecimal("500.00"))
+                    .build();
+            Invoices currentInvoice = Invoices.builder()
+                    .id(UUID.randomUUID())
+                    .expirationDate(DateUtils.getEpochNow())
+                    .amount(new BigDecimal("100.00"))
+                    .creditCard(card)
+                    .user(currentUser)
+                    .build();
+            Invoices futureInvoice = Invoices.builder()
+                    .id(UUID.randomUUID())
+                    .expirationDate(DateUtils.getEpochNow() + 500000L)
+                    .amount(new BigDecimal("200.00"))
+                    .creditCard(card)
+                    .user(currentUser)
+                    .build();
+            UUID purchaseId = UUID.randomUUID();
+            InstallmentPlan i1 = InstallmentPlan.builder().id(UUID.randomUUID()).date(DateUtils.getEpochNow() + 100000L).amount(new BigDecimal("50.00")).invoices(futureInvoice).purchaseId(purchaseId).user(currentUser).paid(false).build();
+            InstallmentPlan i2 = InstallmentPlan.builder().id(UUID.randomUUID()).date(DateUtils.getEpochNow() + 200000L).amount(new BigDecimal("50.00")).invoices(futureInvoice).purchaseId(purchaseId).user(currentUser).paid(false).build();
+
+            when(invoicesService.findByIdOrThrow(currentInvoice.getId())).thenReturn(currentInvoice);
+            when(installmentPlanService.findByPurchaseIdAndUserId(purchaseId, currentUser.getId())).thenReturn(List.of(i1, i2));
+
+            service.advanceInstallments(currentInvoice.getId(), AdvanceRequestDTO.builder()
+                    .purchaseId(purchaseId)
+                    .quantityToAdvance(2)
+                    .discountAmount(new BigDecimal("20.00"))
+                    .build());
+
+            assertEquals(new BigDecimal("180.00"), currentInvoice.getAmount());
+            assertEquals(new BigDecimal("100.00"), futureInvoice.getAmount());
+            assertEquals(new BigDecimal("70.00"), card.getCurrentLimit());
+
+            ArgumentCaptor<InstallmentPlan> captor = ArgumentCaptor.forClass(InstallmentPlan.class);
+            verify(installmentPlanService).save(captor.capture());
+            assertEquals("Desconto Adiantamento", captor.getValue().getName());
+            assertEquals(new BigDecimal("-20.00"), captor.getValue().getAmount());
+            assertEquals(purchaseId, captor.getValue().getPurchaseId());
+        }
+    }
+
+    @Test
     public void advanceInstallments_whenQuantityExceedsAvailable_shouldThrow() {
         try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
             mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
@@ -655,6 +704,50 @@ public class InvoicesWebServiceImplTest {
             verify(transactionRepository, never()).save(any(Transactions.class));
             verify(transactionRepository, never()).saveAll(anyList());
             verify(creditCardService, never()).updateLimit(any(CreditCard.class));
+        }
+    }
+
+    @Test
+    public void advanceInstallments_whenSelectedInstallmentsAreLessThanInvoiceOpen_shouldSucceed() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            CreditCard card = CreditCard.builder().id(UUID.randomUUID()).currentLimit(new BigDecimal("100.00")).totalLimit(new BigDecimal("5000.00")).build();
+            Invoices currentInvoice = Invoices.builder()
+                    .id(UUID.randomUUID())
+                    .expirationDate(DateUtils.getEpochNow())
+                    .amount(new BigDecimal("2460.00"))
+                    .creditCard(card)
+                    .user(currentUser)
+                    .build();
+            Invoices futureInvoice = Invoices.builder()
+                    .id(UUID.randomUUID())
+                    .expirationDate(DateUtils.getEpochNow() + 500000L)
+                    .amount(new BigDecimal("500.00"))
+                    .creditCard(card)
+                    .user(currentUser)
+                    .build();
+            UUID purchaseId = UUID.randomUUID();
+            InstallmentPlan installment = InstallmentPlan.builder()
+                    .id(UUID.randomUUID())
+                    .date(DateUtils.getEpochNow() + 100000L)
+                    .amount(new BigDecimal("500.00"))
+                    .invoices(futureInvoice)
+                    .purchaseId(purchaseId)
+                    .user(currentUser)
+                    .paid(false)
+                    .build();
+
+            when(invoicesService.findByIdOrThrow(currentInvoice.getId())).thenReturn(currentInvoice);
+            when(installmentPlanService.findByPurchaseIdAndUserId(purchaseId, currentUser.getId())).thenReturn(List.of(installment));
+
+            service.advanceInstallments(currentInvoice.getId(), AdvanceRequestDTO.builder().purchaseId(purchaseId).quantityToAdvance(1).discountAmount(BigDecimal.ZERO).build());
+
+            assertEquals(new BigDecimal("2960.00"), currentInvoice.getAmount());
+            assertEquals(new BigDecimal("0.00"), futureInvoice.getAmount());
+            assertEquals(currentInvoice, installment.getInvoices());
+            verify(transactionRepository, never()).save(any(Transactions.class));
+            verify(transactionRepository, never()).saveAll(anyList());
         }
     }
 
@@ -810,6 +903,173 @@ public class InvoicesWebServiceImplTest {
             assertEquals("Pagamento Recebido", captor.getValue().getName());
             assertEquals(new BigDecimal("-100.00"), captor.getValue().getAmount());
             verify(transactionRepository).saveAll(anyList());
+        }
+    }
+
+    @Test
+    public void processPayment_whenPartialPayment_shouldDebitPaidAmountAndKeepInvoiceOpen() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            InvoicePaymentFixture fixture = paymentFixture("40.00", "100.00");
+            fixture.invoice.setPaid(false);
+            InstallmentPlan purchase = installment(fixture.invoice, "Compra", "100.00", false);
+            Category category = Category.builder().id(UUID.randomUUID()).name("Transfêrencia").user(currentUser).build();
+            InvoicePaymentRequestDTO request = new InvoicePaymentRequestDTO();
+            request.setAccountId(fixture.sourceAccount.getId());
+            request.setAmount(new BigDecimal("40.00"));
+            request.setNotes("Pagamento parcial");
+            List<InstallmentPlan> invoiceItems = new ArrayList<>();
+            invoiceItems.add(purchase);
+
+            when(invoicesService.findByIdOrThrow(fixture.invoice.getId())).thenReturn(fixture.invoice);
+            when(installmentPlanService.findByInvoiceIdAndUserId(fixture.invoice.getId(), currentUser.getId())).thenAnswer(invocation -> new ArrayList<>(invoiceItems));
+            Mockito.doAnswer(invocation -> {
+                invoiceItems.add(invocation.getArgument(0));
+                return invocation.getArgument(0);
+            }).when(installmentPlanService).save(any(InstallmentPlan.class));
+            when(accountsService.findByIdOrThrow(fixture.sourceAccount.getId())).thenReturn(fixture.sourceAccount);
+            when(categoryService.findCategoryByUserAndName(currentUser, "Transfêrencia")).thenReturn(category);
+            when(invoicesService.findByCreditCardIdAndMonthAndYear(fixture.card.getId(), fixture.invoice.getMonth(), fixture.invoice.getYear()))
+                    .thenReturn(Optional.of(fixture.invoice));
+
+            service.processPayment(fixture.invoice.getId(), request);
+
+            assertEquals(new BigDecimal("960.00"), fixture.sourceAccount.getCurrentBalance());
+            assertEquals(new BigDecimal("40.00"), fixture.cardAccount.getCurrentBalance());
+            assertEquals(new BigDecimal("540.00"), fixture.card.getCurrentLimit());
+            assertEquals(new BigDecimal("60.00"), fixture.invoice.getAmount());
+            assertEquals(false, fixture.invoice.getPaid());
+
+            ArgumentCaptor<InstallmentPlan> captor = ArgumentCaptor.forClass(InstallmentPlan.class);
+            verify(installmentPlanService).save(captor.capture());
+            assertEquals("Pagamento Recebido", captor.getValue().getName());
+            assertEquals(new BigDecimal("-40.00"), captor.getValue().getAmount());
+            verify(transactionRepository).saveAll(anyList());
+            verify(installmentPlanService, never()).saveAll(anyList());
+        }
+    }
+
+    @Test
+    public void processPayment_whenMultiplePartialPayments_shouldSumPaymentsAndKeepRemainingOpen() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            InvoicePaymentFixture fixture = paymentFixture("40.00", "70.00");
+            fixture.invoice.setPaid(false);
+            InstallmentPlan purchase = installment(fixture.invoice, "Compra", "100.00", false);
+            InstallmentPlan previousPayment = paymentCredit(UUID.randomUUID(), fixture.invoice, "30.00");
+            Category category = Category.builder().id(UUID.randomUUID()).name("Transfêrencia").user(currentUser).build();
+            InvoicePaymentRequestDTO request = new InvoicePaymentRequestDTO();
+            request.setAccountId(fixture.sourceAccount.getId());
+            request.setAmount(new BigDecimal("40.00"));
+            List<InstallmentPlan> invoiceItems = new ArrayList<>();
+            invoiceItems.add(purchase);
+            invoiceItems.add(previousPayment);
+
+            when(invoicesService.findByIdOrThrow(fixture.invoice.getId())).thenReturn(fixture.invoice);
+            when(installmentPlanService.findByInvoiceIdAndUserId(fixture.invoice.getId(), currentUser.getId())).thenAnswer(invocation -> new ArrayList<>(invoiceItems));
+            Mockito.doAnswer(invocation -> {
+                invoiceItems.add(invocation.getArgument(0));
+                return invocation.getArgument(0);
+            }).when(installmentPlanService).save(any(InstallmentPlan.class));
+            when(accountsService.findByIdOrThrow(fixture.sourceAccount.getId())).thenReturn(fixture.sourceAccount);
+            when(categoryService.findCategoryByUserAndName(currentUser, "Transfêrencia")).thenReturn(category);
+            when(invoicesService.findByCreditCardIdAndMonthAndYear(fixture.card.getId(), fixture.invoice.getMonth(), fixture.invoice.getYear()))
+                    .thenReturn(Optional.of(fixture.invoice));
+
+            service.processPayment(fixture.invoice.getId(), request);
+
+            assertEquals(new BigDecimal("30.00"), fixture.invoice.getAmount());
+            assertEquals(false, fixture.invoice.getPaid());
+        }
+    }
+
+    @Test
+    public void processPayment_whenPartialThenFinalPayment_shouldCloseInvoice() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            InvoicePaymentFixture fixture = paymentFixture("60.00", "60.00");
+            fixture.invoice.setPaid(false);
+            InstallmentPlan purchase = installment(fixture.invoice, "Compra", "100.00", false);
+            InstallmentPlan previousPayment = paymentCredit(UUID.randomUUID(), fixture.invoice, "40.00");
+            Category category = Category.builder().id(UUID.randomUUID()).name("Transfêrencia").user(currentUser).build();
+            InvoicePaymentRequestDTO request = new InvoicePaymentRequestDTO();
+            request.setAccountId(fixture.sourceAccount.getId());
+            request.setAmount(new BigDecimal("60.00"));
+            List<InstallmentPlan> invoiceItems = new ArrayList<>();
+            invoiceItems.add(purchase);
+            invoiceItems.add(previousPayment);
+
+            when(invoicesService.findByIdOrThrow(fixture.invoice.getId())).thenReturn(fixture.invoice);
+            when(installmentPlanService.findByInvoiceIdAndUserId(fixture.invoice.getId(), currentUser.getId())).thenAnswer(invocation -> new ArrayList<>(invoiceItems));
+            Mockito.doAnswer(invocation -> {
+                invoiceItems.add(invocation.getArgument(0));
+                return invocation.getArgument(0);
+            }).when(installmentPlanService).save(any(InstallmentPlan.class));
+            when(accountsService.findByIdOrThrow(fixture.sourceAccount.getId())).thenReturn(fixture.sourceAccount);
+            when(categoryService.findCategoryByUserAndName(currentUser, "Transfêrencia")).thenReturn(category);
+            when(invoicesService.findByCreditCardIdAndMonthAndYear(fixture.card.getId(), fixture.invoice.getMonth(), fixture.invoice.getYear()))
+                    .thenReturn(Optional.of(fixture.invoice));
+
+            service.processPayment(fixture.invoice.getId(), request);
+
+            assertEquals(new BigDecimal("0.00"), fixture.invoice.getAmount());
+            assertEquals(true, fixture.invoice.getPaid());
+            assertEquals(true, purchase.getPaid());
+            assertEquals(true, previousPayment.getPaid());
+            verify(installmentPlanService).saveAll(anyList());
+        }
+    }
+
+    @Test
+    public void processPayment_whenAmountAboveOpenAmount_shouldThrowBeforeMutating() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            InvoicePaymentFixture fixture = paymentFixture("101.00", "100.00");
+            InstallmentPlan purchase = installment(fixture.invoice, "Compra", "100.00", false);
+            InvoicePaymentRequestDTO request = new InvoicePaymentRequestDTO();
+            request.setAccountId(fixture.sourceAccount.getId());
+            request.setAmount(new BigDecimal("101.00"));
+
+            when(invoicesService.findByIdOrThrow(fixture.invoice.getId())).thenReturn(fixture.invoice);
+            when(installmentPlanService.findByInvoiceIdAndUserId(fixture.invoice.getId(), currentUser.getId())).thenReturn(List.of(purchase));
+
+            BadRequestException ex = assertThrows(BadRequestException.class, () -> service.processPayment(fixture.invoice.getId(), request));
+
+            assertTrue(ex.getMessage().contains("O pagamento não pode ser maior que o saldo em aberto."));
+            assertEquals(new BigDecimal("1000.00"), fixture.sourceAccount.getCurrentBalance());
+            assertEquals(BigDecimal.ZERO, fixture.cardAccount.getCurrentBalance());
+            assertEquals(new BigDecimal("500.00"), fixture.card.getCurrentLimit());
+            verify(accountsService, never()).findByIdOrThrow(any(UUID.class));
+            verify(transactionRepository, never()).saveAll(anyList());
+            verify(installmentPlanService, never()).save(any(InstallmentPlan.class));
+            verify(invoicesService, never()).save(any(Invoices.class));
+        }
+    }
+
+    @Test
+    public void processPayment_whenZeroOrNegativeAmount_shouldThrowBeforeMutating() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            InvoicePaymentFixture fixture = paymentFixture("0.00", "100.00");
+            InvoicePaymentRequestDTO zeroRequest = new InvoicePaymentRequestDTO();
+            zeroRequest.setAccountId(fixture.sourceAccount.getId());
+            zeroRequest.setAmount(BigDecimal.ZERO);
+            InvoicePaymentRequestDTO negativeRequest = new InvoicePaymentRequestDTO();
+            negativeRequest.setAccountId(fixture.sourceAccount.getId());
+            negativeRequest.setAmount(new BigDecimal("-1.00"));
+
+            BadRequestException zero = assertThrows(BadRequestException.class, () -> service.processPayment(fixture.invoice.getId(), zeroRequest));
+            BadRequestException negative = assertThrows(BadRequestException.class, () -> service.processPayment(fixture.invoice.getId(), negativeRequest));
+
+            assertTrue(zero.getMessage().contains("O valor do pagamento deve ser maior que zero."));
+            assertTrue(negative.getMessage().contains("O valor do pagamento deve ser maior que zero."));
+            verify(invoicesService, never()).findByIdOrThrow(any(UUID.class));
+            verify(transactionRepository, never()).saveAll(anyList());
         }
     }
 

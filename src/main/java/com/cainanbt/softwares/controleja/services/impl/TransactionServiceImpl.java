@@ -982,6 +982,10 @@ public class TransactionServiceImpl implements TransactionService {
                 CreditCard card = inst.getInvoices().getCreditCard();
                 card.restoreLimit(inst.getAmount());
                 cardsToUpdate.put(card.getId(), card);
+            } else if (inst.getInvoices().getCreditCard() != null && inst.getAmount() != null && inst.getAmount().compareTo(BigDecimal.ZERO) < 0) {
+                CreditCard card = inst.getInvoices().getCreditCard();
+                card.consumeLimit(inst.getAmount().abs());
+                cardsToUpdate.put(card.getId(), card);
             }
         }
 

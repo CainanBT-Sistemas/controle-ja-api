@@ -347,7 +347,9 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
                 .entrySet().stream()
                 .map(e -> {
                     UUID purchaseId = e.getKey();
-                    List<InstallmentPlan> plans = e.getValue();
+                    List<InstallmentPlan> plans = e.getValue().stream()
+                            .sorted(Comparator.comparing(i -> i.getInvoices().getExpirationDate()))
+                            .toList();
                     String name = plans.stream().findFirst().map(InstallmentPlan::getName).orElse("");
                     // remove suffixes like " (1/10)"
                     name = name.replaceAll(" \\([0-9]+/[0-9]+\\)$", "");
@@ -359,6 +361,10 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
                                     .map(InstallmentPlan::getAmount)
                                     .filter(amount -> amount != null && amount.compareTo(BigDecimal.ZERO) > 0)
                                     .reduce(BigDecimal.ZERO, BigDecimal::add))
+                            .installmentAmounts(plans.stream()
+                                    .map(InstallmentPlan::getAmount)
+                                    .filter(amount -> amount != null && amount.compareTo(BigDecimal.ZERO) > 0)
+                                    .toList())
                             .build();
                 })
                 .sorted((a, b) -> a.getName().compareToIgnoreCase(b.getName()))
@@ -578,7 +584,7 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
     }
 
     /**
-     * Registra pagamento integral da fatura, movimentando conta origem, conta do cartão, limite e item de crédito.
+     * Registra pagamento total ou parcial da fatura, movimentando conta origem, conta do cartão, limite e item de crédito.
      */
     @Override
     @Transactional
@@ -596,8 +602,8 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         if (currentTotals.openAmount().compareTo(BigDecimal.ZERO) <= 0) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Fatura não possui saldo em aberto.");
         }
-        if (request.getAmount().compareTo(currentTotals.openAmount()) < 0) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "O pagamento não pode ser menor que o saldo em aberto.");
+        if (request.getAmount().compareTo(currentTotals.openAmount()) > 0) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "O pagamento não pode ser maior que o saldo em aberto.");
         }
 
         Accounts sourceAccount = accountsService.findByIdOrThrow(request.getAccountId());
@@ -608,12 +614,7 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         Category category = findPaymentCategory(currentUser);
         long now = DateUtils.getEpochNow();
         long paymentDate = request.getPaymentDate() != null ? request.getPaymentDate() : now;
-        BigDecimal surchargeAmount = request.getAmount().subtract(currentTotals.openAmount());
         String notes = request.getNotes() != null ? request.getNotes() : "";
-        if (surchargeAmount.compareTo(BigDecimal.ZERO) > 0) {
-            notes = (notes.isBlank() ? "" : notes + " | ")
-                    + "Acréscimo por juros/multa: R$ " + surchargeAmount;
-        }
 
         Transactions paymentOut = Transactions.builder()
                 .id(ID.generate())
@@ -692,10 +693,12 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
 
         invoice.setAmount(updatedTotals.openAmount());
         invoice.setTransaction(paymentOut);
-        if (updatedTotals.openAmount().compareTo(BigDecimal.ZERO) <= 0 && !invoiceDateService.isInvoiceOpenWindow(invoice)) {
+        if (updatedTotals.openAmount().compareTo(BigDecimal.ZERO) <= 0) {
             invoice.setPaid(true);
             updatedItems.forEach(inst -> inst.setPaid(true));
             installmentPlanService.saveAll(updatedItems);
+        } else {
+            invoice.setPaid(false);
         }
         invoicesService.save(invoice);
         log.info("Invoice payment processed: invoiceId={}, accountId={}, amount={}, openAmount={}", invoiceId, sourceAccount.getId(), request.getAmount(), updatedTotals.openAmount());
@@ -772,7 +775,7 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
             if (invoice.getTransaction() != null && invoice.getTransaction().getId().equals(payment.getId())) {
                 invoice.setTransaction(null);
             }
-            invoice.setPaid(totals.openAmount().compareTo(BigDecimal.ZERO) <= 0 && !invoiceDateService.isInvoiceOpenWindow(invoice));
+            invoice.setPaid(totals.openAmount().compareTo(BigDecimal.ZERO) <= 0);
             invoicesService.save(invoice);
             log.info("Invoice payment cancelled: invoiceId={}, paymentTransactionId={}, openAmount={}", invoice.getId(), payment.getId(), totals.openAmount());
 

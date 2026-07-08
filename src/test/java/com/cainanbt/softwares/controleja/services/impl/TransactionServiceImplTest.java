@@ -644,6 +644,47 @@ class TransactionServiceImplTest {
     }
 
     @Test
+    void softDelete_whenDeletingAdvancedInstallmentsWithDiscount_shouldReverseDiscountLimit() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            UUID purchaseId = UUID.randomUUID();
+            CreditCard card = CreditCard.builder()
+                    .id(UUID.randomUUID())
+                    .currentLimit(new BigDecimal("320.00"))
+                    .totalLimit(new BigDecimal("500.00"))
+                    .build();
+            Invoices invoice = invoice(false, "80.00", card, 5, 2026);
+            InstallmentPlan installment = installment(purchaseId, invoice, 1, "100.00", false);
+            InstallmentPlan discount = InstallmentPlan.builder()
+                    .id(UUID.randomUUID())
+                    .name("Desconto Adiantamento")
+                    .amount(new BigDecimal("-20.00"))
+                    .currentInstallment(1)
+                    .totalInstallmentsPlan(1)
+                    .paid(false)
+                    .purchaseId(purchaseId)
+                    .user(currentUser)
+                    .invoices(invoice)
+                    .build();
+
+            when(installmentPlanService.findById(installment.getId())).thenReturn(Optional.of(installment));
+            when(installmentPlanService.findByPurchaseId(purchaseId)).thenReturn(List.of(installment, discount));
+            when(repository.findById(purchaseId)).thenReturn(Optional.empty());
+
+            service.softDelete(installment.getId(), OperationScope.ALL);
+
+            assertEquals(BigDecimal.ZERO.setScale(2), invoice.getAmount());
+            assertEquals(new BigDecimal("400.00"), card.getCurrentLimit());
+            assertNotNull(installment.getDeletedAt());
+            assertNotNull(discount.getDeletedAt());
+            verify(installmentPlanService).saveAll(List.of(installment, discount));
+            verify(invoicesService).saveAll(List.of(invoice));
+            verify(creditCardService).updateLimit(card);
+        }
+    }
+
+    @Test
     void updateTransaction_whenPaidExpenseChangesAccountAndAmount_shouldReverseOldEffectAndApplyNewEffect() {
         try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
             mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
