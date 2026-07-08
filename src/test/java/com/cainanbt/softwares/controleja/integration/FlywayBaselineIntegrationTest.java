@@ -409,7 +409,7 @@ class FlywayBaselineIntegrationTest {
         AccountDTO account = new AccountDTO();
         account.setName("Conta Flyway");
         account.setType(AccountType.BANK);
-        account.setInitialBalance(new BigDecimal("125.50"));
+        account.setInitialBalance(BigDecimal.ZERO);
         account.setInstitution("Banco Teste");
         account.setCalculateBalance(true);
 

@@ -39,4 +39,10 @@ public interface InvoicesRepository extends JpaRepository<Invoices, UUID> {
      */
     @Query("SELECT i FROM Invoices i WHERE i.user.id = :userId AND i.creditCard.id = :cardId AND i.expirationDate > :expirationDate AND i.amount > 0 AND i.deletedAt IS NULL")
     List<Invoices> findFutureUnpaidByCardAndDate(@Param("userId") UUID userId, @Param("cardId") UUID cardId, @Param("expirationDate") Long expirationDate);
+
+    /**
+     * Impede remover cartao enquanto houver fatura ativa ou historica vinculada.
+     */
+    @Query("SELECT COUNT(i) > 0 FROM Invoices i WHERE i.creditCard.id = :cardId AND i.user.id = :userId AND i.deletedAt IS NULL")
+    boolean existsActiveByCreditCardIdAndUserId(@Param("cardId") UUID cardId, @Param("userId") UUID userId);
 }

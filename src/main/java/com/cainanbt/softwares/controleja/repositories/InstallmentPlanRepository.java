@@ -87,4 +87,10 @@ public interface InstallmentPlanRepository extends JpaRepository<InstallmentPlan
      */
     @Query("SELECT p FROM InstallmentPlan p WHERE p.invoices.id IN :invoiceIds AND p.user.id = :userId AND p.deletedAt IS NULL AND p.paid = false AND p.amount > 0")
     List<InstallmentPlan> findAdvanceableByInvoiceIdsAndUserId(@Param("invoiceIds") List<UUID> invoiceIds, @Param("userId") UUID userId);
+
+    /**
+     * Verifica se existe parcela ativa vinculada ao cartao informado.
+     */
+    @Query("SELECT COUNT(p) > 0 FROM InstallmentPlan p WHERE p.invoices.creditCard.id = :cardId AND p.user.id = :userId AND p.deletedAt IS NULL")
+    boolean existsActiveByCreditCardIdAndUserId(@Param("cardId") UUID cardId, @Param("userId") UUID userId);
 }

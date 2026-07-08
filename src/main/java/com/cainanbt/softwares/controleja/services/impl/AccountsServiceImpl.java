@@ -6,6 +6,9 @@ import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.exceptions.models.EntityNotFoundException;
 import com.cainanbt.softwares.controleja.repositories.AccountsRepository;
+import com.cainanbt.softwares.controleja.repositories.CreditCardRepository;
+import com.cainanbt.softwares.controleja.repositories.RecurrenceRuleRepository;
+import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.services.AccountsService;
 import com.cainanbt.softwares.controleja.services.accounts.AccountDomainValidator;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
@@ -15,7 +18,9 @@ import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -32,6 +37,9 @@ public class AccountsServiceImpl implements AccountsService {
     private final AccountDomainValidator accountDomainValidator = new AccountDomainValidator();
 
     private final AccountsRepository repository;
+    private final TransactionRepository transactionRepository;
+    private final RecurrenceRuleRepository recurrenceRuleRepository;
+    private final CreditCardRepository creditCardRepository;
 
     /**
      * Cria uma conta financeira do usuário autenticado, aplicando padrões visuais e bloqueando duplicidade.
@@ -130,11 +138,13 @@ public class AccountsServiceImpl implements AccountsService {
      * Remove logicamente uma conta do usuário autenticado quando ela não é a conta padrão.
      */
     @Override
+    @Transactional
     public void softDelete(UUID id) {
         Accounts account = findByIdOrThrow(id);
         Users currentUser = SecurityContextUtils.getCurrentUser();
         accountDomainValidator.validateOwner(account, currentUser);
         accountDomainValidator.validateCanDelete(account);
+        validateNoActiveFinancialLinks(account, currentUser);
 
         account.setDeletedAt(DateUtils.getEpochNow());
         repository.save(account);
@@ -174,5 +184,20 @@ public class AccountsServiceImpl implements AccountsService {
 
     private Boolean resolveCalculateBalance(Boolean calculateBalance) {
         return calculateBalance != null ? calculateBalance : true;
+    }
+
+    /**
+     * Bloqueia exclusao de conta enquanto saldo ou vinculos financeiros ativos dependerem dela.
+     */
+    private void validateNoActiveFinancialLinks(Accounts account, Users currentUser) {
+        boolean hasBalance = account.getCurrentBalance() != null
+                && account.getCurrentBalance().compareTo(BigDecimal.ZERO) != 0;
+        boolean hasTransactions = transactionRepository.existsActiveByAccountIdAndUserId(account.getId(), currentUser.getId());
+        boolean hasRecurrences = recurrenceRuleRepository.existsActiveByAccountIdOrTargetAccountIdAndUserId(account.getId(), currentUser.getId());
+        boolean hasLinkedCard = creditCardRepository.existsActiveByAccountIdAndUserId(account.getId(), currentUser.getId());
+
+        if (hasBalance || hasTransactions || hasRecurrences || hasLinkedCard) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.CANT_DELETE_ACCOUNT_WITH_LINKS);
+        }
     }
 }

@@ -907,6 +907,10 @@ public class TransactionServiceImpl implements TransactionService {
             return;
         }
 
+        if (transaction.getType() == TransactionType.PAGAMENTO_FATURA) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.INVOICE_PAYMENT_EDIT_BLOCKED);
+        }
+
         if (transaction.getDeletedAt() != null) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.ENTITY_ALREADY_DELETED);
         }
@@ -1029,6 +1033,9 @@ public class TransactionServiceImpl implements TransactionService {
 
         if (!transaction.getUser().getId().equals(currentUser.getId())) {
             throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_TRANSACTION);
+        }
+        if (transaction.getType() == TransactionType.PAGAMENTO_FATURA || dto.getType() == TransactionType.PAGAMENTO_FATURA) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.INVOICE_PAYMENT_EDIT_BLOCKED);
         }
 
         boolean recurringTransaction = transaction.getRecurrenceRule() != null;

@@ -1,9 +1,12 @@
 package com.cainanbt.softwares.controleja.integration;
 
 import com.cainanbt.softwares.controleja.config.BaseTest;
+import com.cainanbt.softwares.controleja.dtos.CategoryDTO;
 import com.cainanbt.softwares.controleja.dtos.CreditCardDTO;
 import com.cainanbt.softwares.controleja.dtos.InsertUpdateUserDTO;
+import com.cainanbt.softwares.controleja.dtos.TransactionDTO;
 import com.cainanbt.softwares.controleja.dtos.UserLoginDTO;
+import com.cainanbt.softwares.controleja.enums.TransactionType;
 import io.restassured.http.ContentType;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.BeforeEach;
@@ -11,6 +14,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.UUID;
 
 import static io.restassured.RestAssured.given;
@@ -135,7 +140,70 @@ public class CreditCardControllerTest extends BaseTest {
                 .body("title", is("Acesso negado"));
     }
 
+    @Test
+    @DisplayName("Nao deve excluir cartao com lancamento e fatura vinculados")
+    void shouldBlockDeletingCardWithFinancialLinks() {
+        String cardAccountId = createCardAccountAux("Card com Vinculo");
+        String categoryId = createCategory("Despesa Cartao");
+
+        TransactionDTO transaction = new TransactionDTO();
+        transaction.setName("Compra no cartao");
+        transaction.setType(TransactionType.DESPESA);
+        transaction.setAmount(new BigDecimal("100.00"));
+        transaction.setDate(LocalDateTime.now().toInstant(ZoneOffset.UTC).toEpochMilli());
+        transaction.setAccountId(UUID.fromString(cardAccountId));
+        transaction.setCategoryId(UUID.fromString(categoryId));
+        transaction.setPaid(false);
+        transaction.setIsFixed(false);
+        transaction.setInstallments(1);
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON)
+                .body(transaction)
+                .when().post("/transactions")
+                .then().statusCode(200);
+
+        String cardId = given().header("Authorization", "Bearer " + token)
+                .when().get("/cards")
+                .then().statusCode(200)
+                .extract().path("[0].id");
+
+        given().header("Authorization", "Bearer " + token)
+                .when().delete("/cards/" + cardId)
+                .then().statusCode(400)
+                .body("message", is("Nao e possivel excluir este cartao porque existem faturas, parcelas ou lancamentos vinculados. Quite, cancele ou ajuste os lancamentos antes de excluir."));
+
+        given().header("Authorization", "Bearer " + token)
+                .when().get("/cards/" + cardId)
+                .then().statusCode(200)
+                .body("id", is(cardId));
+    }
+
+    @Test
+    @DisplayName("Nao deve excluir diretamente a conta espelho de cartao ativo")
+    void shouldBlockDeletingCreditCardMirrorAccount() {
+        String cardAccountId = createCardAccountAux("Card com Conta Espelho");
+
+        given().header("Authorization", "Bearer " + token)
+                .when().delete("/accounts/" + cardAccountId)
+                .then().statusCode(400)
+                .body("message", is("Nao e possivel excluir esta conta porque existem lancamentos, saldo ou vinculos financeiros ativos. Resolva os vinculos antes de excluir."));
+
+        given().header("Authorization", "Bearer " + token)
+                .when().get("/accounts/" + cardAccountId)
+                .then().statusCode(200)
+                .body("id", is(cardAccountId));
+    }
+
     private String createCardAux(String name) {
+        return createCard(name, "id");
+    }
+
+    private String createCardAccountAux(String name) {
+        return createCard(name, "accountId");
+    }
+
+    private String createCard(String name, String responseField) {
         CreditCardDTO dto = new CreditCardDTO();
         dto.setName(name);
         dto.setTotalLimit(new BigDecimal("1000"));
@@ -146,6 +214,19 @@ public class CreditCardControllerTest extends BaseTest {
                 .contentType(ContentType.JSON)
                 .body(dto)
                 .when().post("/cards")
+                .then().statusCode(200)
+                .extract().path(responseField);
+    }
+
+    private String createCategory(String name) {
+        CategoryDTO category = new CategoryDTO();
+        category.setName(name);
+        category.setCategoryType("DESPESA");
+
+        return given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON)
+                .body(category)
+                .when().post("/categories")
                 .then().statusCode(200)
                 .extract().path("id");
     }

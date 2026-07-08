@@ -643,6 +643,163 @@ class TransactionServiceImplTest {
         }
     }
 
+    @Test
+    void updateTransaction_whenPaidExpenseChangesAccountAndAmount_shouldReverseOldEffectAndApplyNewEffect() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            Accounts oldAccount = Accounts.builder()
+                    .id(UUID.randomUUID())
+                    .type(AccountType.BANK)
+                    .currentBalance(new BigDecimal("900.00"))
+                    .user(currentUser)
+                    .build();
+            Accounts newAccount = Accounts.builder()
+                    .id(UUID.randomUUID())
+                    .type(AccountType.WALLET)
+                    .currentBalance(new BigDecimal("500.00"))
+                    .user(currentUser)
+                    .build();
+            Category category = category();
+            Transactions transaction = Transactions.builder()
+                    .id(UUID.randomUUID())
+                    .date(DateUtils.getEpochNow())
+                    .name("Despesa paga")
+                    .type(TransactionType.DESPESA)
+                    .amount(new BigDecimal("100.00"))
+                    .fixed(false)
+                    .paid(true)
+                    .enabled(true)
+                    .createdAt(DateUtils.getEpochNow())
+                    .account(oldAccount)
+                    .category(category)
+                    .user(currentUser)
+                    .build();
+
+            TransactionDTO dto = new TransactionDTO();
+            dto.setAccountId(newAccount.getId());
+            dto.setAmount(new BigDecimal("50.00"));
+
+            when(repository.findByIdAndNotDeleted(transaction.getId())).thenReturn(Optional.of(transaction));
+            when(accountsService.findByIdOrThrow(newAccount.getId())).thenReturn(newAccount);
+            when(repository.save(transaction)).thenReturn(transaction);
+
+            service.updateTransaction(transaction.getId(), dto, OperationScope.ONLY_THIS);
+
+            assertEquals(new BigDecimal("1000.00"), oldAccount.getCurrentBalance());
+            assertEquals(new BigDecimal("450.00"), newAccount.getCurrentBalance());
+            assertEquals(newAccount, transaction.getAccount());
+            assertEquals(new BigDecimal("50.00"), transaction.getAmount());
+            verify(accountsService).update(oldAccount);
+            verify(accountsService).update(newAccount);
+        }
+    }
+
+    @Test
+    void softDelete_whenPaidIncome_shouldReverseAccountBalanceBeforeDeleting() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            Accounts account = Accounts.builder()
+                    .id(UUID.randomUUID())
+                    .type(AccountType.BANK)
+                    .currentBalance(new BigDecimal("1200.00"))
+                    .user(currentUser)
+                    .build();
+            Transactions transaction = Transactions.builder()
+                    .id(UUID.randomUUID())
+                    .date(DateUtils.getEpochNow())
+                    .name("Receita paga")
+                    .type(TransactionType.RECEITA)
+                    .amount(new BigDecimal("200.00"))
+                    .fixed(false)
+                    .paid(true)
+                    .enabled(true)
+                    .createdAt(DateUtils.getEpochNow())
+                    .account(account)
+                    .category(category())
+                    .user(currentUser)
+                    .build();
+
+            when(installmentPlanService.findById(transaction.getId())).thenReturn(Optional.empty());
+            when(repository.findByIdAndNotDeleted(transaction.getId())).thenReturn(Optional.of(transaction));
+
+            service.softDelete(transaction.getId(), OperationScope.ONLY_THIS);
+
+            assertEquals(new BigDecimal("1000.00"), account.getCurrentBalance());
+            assertNotNull(transaction.getDeletedAt());
+            verify(accountsService).update(account);
+            verify(repository).save(transaction);
+        }
+    }
+
+    @Test
+    void updateTransaction_whenInvoicePayment_shouldBlockGenericEdit() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            Transactions payment = Transactions.builder()
+                    .id(UUID.randomUUID())
+                    .date(DateUtils.getEpochNow())
+                    .name("Pagamento Fatura")
+                    .type(TransactionType.PAGAMENTO_FATURA)
+                    .amount(new BigDecimal("100.00"))
+                    .fixed(false)
+                    .paid(true)
+                    .enabled(true)
+                    .createdAt(DateUtils.getEpochNow())
+                    .account(account())
+                    .category(category())
+                    .user(currentUser)
+                    .build();
+
+            TransactionDTO dto = new TransactionDTO();
+            dto.setAmount(new BigDecimal("90.00"));
+
+            when(repository.findByIdAndNotDeleted(payment.getId())).thenReturn(Optional.of(payment));
+
+            BadRequestException ex = assertThrows(BadRequestException.class,
+                    () -> service.updateTransaction(payment.getId(), dto, OperationScope.ONLY_THIS));
+
+            assertEquals("Para corrigir pagamento de fatura, cancele o pagamento pela fatura e pague novamente.", ex.getDetail());
+            verify(accountsService, never()).update(any(Accounts.class));
+            verify(repository, never()).save(any(Transactions.class));
+        }
+    }
+
+    @Test
+    void softDelete_whenInvoicePayment_shouldBlockGenericDelete() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            Transactions payment = Transactions.builder()
+                    .id(UUID.randomUUID())
+                    .date(DateUtils.getEpochNow())
+                    .name("Pagamento Fatura")
+                    .type(TransactionType.PAGAMENTO_FATURA)
+                    .amount(new BigDecimal("100.00"))
+                    .fixed(false)
+                    .paid(true)
+                    .enabled(true)
+                    .createdAt(DateUtils.getEpochNow())
+                    .account(account())
+                    .category(category())
+                    .user(currentUser)
+                    .build();
+
+            when(installmentPlanService.findById(payment.getId())).thenReturn(Optional.empty());
+            when(repository.findByIdAndNotDeleted(payment.getId())).thenReturn(Optional.of(payment));
+
+            BadRequestException ex = assertThrows(BadRequestException.class,
+                    () -> service.softDelete(payment.getId(), OperationScope.ONLY_THIS));
+
+            assertEquals("Para corrigir pagamento de fatura, cancele o pagamento pela fatura e pague novamente.", ex.getDetail());
+            assertNull(payment.getDeletedAt());
+            verify(accountsService, never()).update(any(Accounts.class));
+            verify(repository, never()).save(any(Transactions.class));
+        }
+    }
+
     private Invoices invoice(boolean paid, String amount) {
         return invoice(paid, amount, null, null, null);
     }
