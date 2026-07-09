@@ -137,6 +137,12 @@ public class InstallmentPlanServiceImpl implements InstallmentPlanService {
         return repository.findActiveByPurchaseIdAndUserId(purchaseId, userId);
     }
 
+    @Override
+    @Transactional
+    public List<InstallmentPlan> findByAdvanceOperationIdAndUserIdForUpdate(UUID operationId, UUID userId) {
+        return repository.findByAdvanceOperationIdAndUserIdForUpdate(operationId, userId);
+    }
+
     /**
      * Busca parcelas de um usuario dentro de um periodo.
      */

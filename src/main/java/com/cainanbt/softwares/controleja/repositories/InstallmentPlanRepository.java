@@ -67,6 +67,13 @@ public interface InstallmentPlanRepository extends JpaRepository<InstallmentPlan
     List<InstallmentPlan> findActiveByPurchaseIdAndUserId(@Param("purchaseId") UUID purchaseId, @Param("userId") UUID userId);
 
     /**
+     * Busca todos os itens de uma operacao de adiantamento com lock para permitir correcao atomica.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT p FROM InstallmentPlan p WHERE p.advanceOperationId = :operationId AND p.user.id = :userId")
+    List<InstallmentPlan> findByAdvanceOperationIdAndUserIdForUpdate(@Param("operationId") UUID operationId, @Param("userId") UUID userId);
+
+    /**
      * Busca parcelas do usuário por período para relatórios.
      */
     @Query("SELECT i FROM InstallmentPlan i WHERE i.user.id = :userId AND i.date BETWEEN :start AND :end AND i.deletedAt IS NULL")

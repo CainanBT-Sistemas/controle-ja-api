@@ -34,6 +34,11 @@ public interface InvoicesWebService {
     void advanceInstallments(UUID invoiceId, AdvanceRequestDTO request);
 
     /**
+     * Corrige uma operacao de adiantamento registrada por engano, quando ainda reversivel.
+     */
+    InvoiceDetailsDTO correctAdvance(UUID invoiceId, UUID operationId);
+
+    /**
      * Atualiza item/parcela da fatura respeitando o escopo informado.
      */
     InvoiceDetailsDTO updateInvoiceItem(UUID invoiceId, UUID installmentId, TransactionDTO request, OperationScope operationScope);

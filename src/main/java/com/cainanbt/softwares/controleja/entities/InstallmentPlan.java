@@ -2,6 +2,7 @@ package com.cainanbt.softwares.controleja.entities;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
@@ -23,7 +24,8 @@ import java.util.UUID;
         @Index(name = "idx_installments_invoice_user_deleted_date", columnList = "invoices_id, user_id, deletedAt, date"),
         @Index(name = "idx_installments_purchase_user_deleted", columnList = "purchaseId, user_id, deletedAt"),
         @Index(name = "idx_installments_user_date_deleted", columnList = "user_id, date, deletedAt"),
-        @Index(name = "idx_installments_invoice_paid_amount", columnList = "invoices_id, paid, amount")
+        @Index(name = "idx_installments_invoice_paid_amount", columnList = "invoices_id, paid, amount"),
+        @Index(name = "idx_installments_advance_operation", columnList = "advanceOperationId, user_id, deletedAt")
 })
 @Getter
 @Builder
@@ -63,6 +65,13 @@ public class InstallmentPlan {
     private Long updatedAt;
     @Column(nullable = true)
     private Long deletedAt;
+    @Column(nullable = true)
+    private UUID advanceOperationId;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "advanced_from_invoice_id", nullable = true)
+    private Invoices advancedFromInvoice;
+    @Column(nullable = true)
+    private Long advanceCorrectedAt;
     @ManyToOne
     @JoinColumn(name = "invoices_id", nullable = false)
     private Invoices invoices;

@@ -68,6 +68,16 @@ public class InvoicesController {
     }
 
     /**
+     * Corrige um adiantamento registrado por engano enquanto a fatura ainda permite reversao interna.
+     */
+    @PostMapping("/{invoiceId}/advances/{operationId}/correction")
+    public ResponseEntity<InvoiceDetailsDTO> correctAdvance(
+            @PathVariable UUID invoiceId,
+            @PathVariable UUID operationId) {
+        return ResponseEntity.ok(service.correctAdvance(invoiceId, operationId));
+    }
+
+    /**
      * Edita um item/parcela da fatura respeitando o escopo solicitado.
      */
     @PutMapping("/{invoiceId}/items/{installmentId}")

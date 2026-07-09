@@ -542,7 +542,7 @@ public class InvoicesWebServiceImplTest {
 
             service.advanceInstallments(currentInvoice.getId(), req);
 
-            verify(installmentPlanService).saveAll(anyList());
+            verify(installmentPlanService, atLeastOnce()).saveAll(anyList());
             verify(invoicesService, atLeastOnce()).save(any(Invoices.class));
             verify(creditCardService).updateLimit(any(CreditCard.class));
 
@@ -747,6 +747,184 @@ public class InvoicesWebServiceImplTest {
             assertEquals(currentInvoice, installment.getInvoices());
             verify(transactionRepository, never()).save(any(Transactions.class));
             verify(transactionRepository, never()).saveAll(anyList());
+        }
+    }
+
+    @Test
+    public void correctAdvance_whenOpenAndUnpaid_shouldReturnInstallmentsAndReverseDiscountLimit() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            UUID operationId = UUID.randomUUID();
+            CreditCard card = CreditCard.builder()
+                    .id(UUID.randomUUID())
+                    .name("Card")
+                    .currentLimit(new BigDecimal("120.00"))
+                    .totalLimit(new BigDecimal("500.00"))
+                    .user(currentUser)
+                    .build();
+            Invoices targetInvoice = Invoices.builder()
+                    .id(UUID.randomUUID())
+                    .month(7)
+                    .year(2026)
+                    .expirationDate(DateUtils.getEpochNow())
+                    .amount(new BigDecimal("180.00"))
+                    .paid(false)
+                    .enabled(true)
+                    .creditCard(card)
+                    .user(currentUser)
+                    .build();
+            Invoices originalInvoice = Invoices.builder()
+                    .id(UUID.randomUUID())
+                    .month(8)
+                    .year(2026)
+                    .expirationDate(DateUtils.getEpochNow() + 500000L)
+                    .amount(new BigDecimal("0.00"))
+                    .paid(false)
+                    .enabled(true)
+                    .creditCard(card)
+                    .user(currentUser)
+                    .build();
+            UUID purchaseId = UUID.randomUUID();
+            InstallmentPlan moved = InstallmentPlan.builder()
+                    .id(UUID.randomUUID())
+                    .date(targetInvoice.getExpirationDate())
+                    .name("Compra (Adiantada)")
+                    .type(TransactionType.DESPESA.name())
+                    .amount(new BigDecimal("100.00"))
+                    .totalInstallmentsPlan(3)
+                    .currentInstallment(2)
+                    .fixed(false)
+                    .paid(false)
+                    .purchaseId(purchaseId)
+                    .advanceOperationId(operationId)
+                    .advancedFromInvoice(originalInvoice)
+                    .enabled(true)
+                    .createdAt(DateUtils.getEpochNow())
+                    .invoices(targetInvoice)
+                    .user(currentUser)
+                    .build();
+            InstallmentPlan discount = InstallmentPlan.builder()
+                    .id(UUID.randomUUID())
+                    .date(targetInvoice.getExpirationDate())
+                    .name("Desconto Adiantamento")
+                    .type(TransactionType.RECEITA.name())
+                    .amount(new BigDecimal("-20.00"))
+                    .totalInstallmentsPlan(1)
+                    .currentInstallment(1)
+                    .fixed(false)
+                    .paid(false)
+                    .purchaseId(purchaseId)
+                    .advanceOperationId(operationId)
+                    .enabled(true)
+                    .createdAt(DateUtils.getEpochNow())
+                    .invoices(targetInvoice)
+                    .user(currentUser)
+                    .build();
+
+            when(invoicesService.findByIdOrThrow(targetInvoice.getId())).thenReturn(targetInvoice);
+            when(installmentPlanService.findByAdvanceOperationIdAndUserIdForUpdate(operationId, currentUser.getId()))
+                    .thenReturn(List.of(moved, discount));
+            when(installmentPlanService.findByInvoiceIdAndUserId(targetInvoice.getId(), currentUser.getId()))
+                    .thenReturn(List.of(moved, discount));
+            when(invoicesService.findByIdOrThrow(targetInvoice.getId())).thenReturn(targetInvoice);
+            when(invoicesService.findByCreditCardIdAndMonthAndYear(card.getId(), targetInvoice.getMonth(), targetInvoice.getYear()))
+                    .thenReturn(Optional.of(targetInvoice));
+            when(installmentPlanService.findByInvoiceIdAndUserId(targetInvoice.getId(), currentUser.getId()))
+                    .thenReturn(List.of(moved, discount));
+
+            service.correctAdvance(targetInvoice.getId(), operationId);
+
+            assertEquals(originalInvoice, moved.getInvoices());
+            assertNotNull(moved.getAdvanceCorrectedAt());
+            assertNotNull(discount.getDeletedAt());
+            assertEquals(new BigDecimal("100.00"), originalInvoice.getAmount());
+            assertEquals(new BigDecimal("100.00"), targetInvoice.getAmount());
+            assertEquals(new BigDecimal("100.00"), card.getCurrentLimit());
+            verify(installmentPlanService).saveAll(List.of(moved, discount));
+            verify(invoicesService).saveAll(anyList());
+            verify(creditCardService).updateLimit(card);
+        }
+    }
+
+    @Test
+    public void correctAdvance_whenInvoiceHasPayment_shouldReject() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            UUID operationId = UUID.randomUUID();
+            CreditCard card = CreditCard.builder().id(UUID.randomUUID()).user(currentUser).build();
+            Invoices targetInvoice = Invoices.builder()
+                    .id(UUID.randomUUID())
+                    .paid(false)
+                    .enabled(true)
+                    .creditCard(card)
+                    .user(currentUser)
+                    .build();
+            Invoices originalInvoice = Invoices.builder()
+                    .id(UUID.randomUUID())
+                    .paid(false)
+                    .enabled(true)
+                    .creditCard(card)
+                    .user(currentUser)
+                    .build();
+            InstallmentPlan moved = InstallmentPlan.builder()
+                    .id(UUID.randomUUID())
+                    .amount(new BigDecimal("100.00"))
+                    .paid(false)
+                    .purchaseId(UUID.randomUUID())
+                    .advanceOperationId(operationId)
+                    .advancedFromInvoice(originalInvoice)
+                    .invoices(targetInvoice)
+                    .user(currentUser)
+                    .build();
+            InstallmentPlan payment = InstallmentPlan.builder()
+                    .id(UUID.randomUUID())
+                    .name("Pagamento Recebido")
+                    .amount(new BigDecimal("-50.00"))
+                    .paid(true)
+                    .purchaseId(UUID.randomUUID())
+                    .invoices(targetInvoice)
+                    .user(currentUser)
+                    .build();
+
+            when(invoicesService.findByIdOrThrow(targetInvoice.getId())).thenReturn(targetInvoice);
+            when(installmentPlanService.findByAdvanceOperationIdAndUserIdForUpdate(operationId, currentUser.getId()))
+                    .thenReturn(List.of(moved));
+            when(installmentPlanService.findByInvoiceIdAndUserId(targetInvoice.getId(), currentUser.getId()))
+                    .thenReturn(List.of(moved, payment));
+
+            assertThrows(BadRequestException.class, () -> service.correctAdvance(targetInvoice.getId(), operationId));
+            verify(installmentPlanService, never()).saveAll(anyList());
+        }
+    }
+
+    @Test
+    public void updateInvoiceItem_whenPendingAdvance_shouldRejectGenericEdit() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            Invoices invoice = Invoices.builder()
+                    .id(UUID.randomUUID())
+                    .paid(false)
+                    .enabled(true)
+                    .user(currentUser)
+                    .build();
+            InstallmentPlan installment = InstallmentPlan.builder()
+                    .id(UUID.randomUUID())
+                    .purchaseId(UUID.randomUUID())
+                    .advanceOperationId(UUID.randomUUID())
+                    .paid(false)
+                    .invoices(invoice)
+                    .user(currentUser)
+                    .build();
+
+            when(invoicesService.findByIdOrThrow(invoice.getId())).thenReturn(invoice);
+            when(installmentPlanService.findByIdAndUserIdOrThrow(installment.getId(), currentUser.getId())).thenReturn(installment);
+
+            assertThrows(BadRequestException.class, () ->
+                    service.updateInvoiceItem(invoice.getId(), installment.getId(), new TransactionDTO(), OperationScope.ONLY_THIS));
+            verify(transactionService, never()).updateTransactionDTO(any(), any(), any());
         }
     }
 

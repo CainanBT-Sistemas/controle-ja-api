@@ -32,5 +32,7 @@ public class InvoiceItemDTO {
     private UUID recurrenceRuleId;
     private RecurrenceFrequency recurrenceFrequency;
     private Boolean canEdit;
+    private Boolean canCorrectAdvance;
+    private UUID advanceOperationId;
     private String itemKind;
 }

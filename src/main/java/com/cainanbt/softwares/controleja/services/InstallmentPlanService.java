@@ -73,6 +73,11 @@ public interface InstallmentPlanService {
     List<InstallmentPlan> findActiveByPurchaseIdAndUserId(UUID purchaseId, UUID userId);
 
     /**
+     * Busca e bloqueia todos os itens de uma operacao de adiantamento.
+     */
+    List<InstallmentPlan> findByAdvanceOperationIdAndUserIdForUpdate(UUID operationId, UUID userId);
+
+    /**
      * Busca parcelas do usuário em um período.
      */
     List<InstallmentPlan> findByUserAndDateBetween(UUID userId, Long start, Long end);
