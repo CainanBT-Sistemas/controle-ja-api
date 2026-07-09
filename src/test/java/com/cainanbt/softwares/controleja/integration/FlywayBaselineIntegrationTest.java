@@ -385,6 +385,16 @@ class FlywayBaselineIntegrationTest {
                         id
                 )
         );
+        assertEquals(
+                1,
+                jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM category "
+                                + "WHERE user_id = ? AND category_type = 'TRANSFERENCIA' "
+                                + "AND is_default = true AND enabled = true AND deleted_at IS NULL",
+                        Integer.class,
+                        id
+                )
+        );
         return id;
     }
 

@@ -53,6 +53,11 @@ public interface InstallmentPlanService {
     List<InstallmentPlan> findByPurchaseId(UUID purchaseId);
 
     /**
+     * Busca e bloqueia as parcelas da compra durante recalculo estrutural.
+     */
+    List<InstallmentPlan> findByPurchaseIdForUpdate(UUID purchaseId);
+
+    /**
      * Busca todas as parcelas de uma compra garantindo propriedade pelo usuario.
      */
     List<InstallmentPlan> findByPurchaseIdAndUserId(UUID purchaseId, UUID userId);

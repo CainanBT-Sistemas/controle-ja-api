@@ -35,6 +35,14 @@ public interface CategoryRepository extends JpaRepository<Category, UUID> {
     Optional<Category> findByUserIdAndNameAndDeletedAtIsNull(UUID userId, String name);
 
     /**
+     * Localiza uma categoria tecnica ativa sem depender do nome exibido.
+     */
+    List<Category> findAllByUserIdAndCategoryTypeAndIsDefaultTrueAndEnabledTrueAndDeletedAtIsNull(
+            UUID userId,
+            String categoryType
+    );
+
+    /**
      * Lista subcategorias ativas de uma categoria pai.
      */
     List<Category> findBySubCategoryIdAndDeletedAtIsNull(UUID parentId);

@@ -34,10 +34,22 @@ public class TransferProcessor implements TransactionProcessor {
 
     @Override
     public Transactions process(TransactionDTO dto, Accounts accountOrigin, Category category, Users user) {
+        if (category == null) {
+            throw new BadRequestException(
+                    ConstsMessages.ERROR_TITLE,
+                    "A categoria tecnica de transferencia nao esta configurada para este usuario."
+            );
+        }
         if (dto.getTargetAccountId() == null) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.TRANSFER_MISSING_TARGET);
         }
         Accounts accountDest = accountsService.findByIdOrThrow(dto.getTargetAccountId());
+        if (!accountDest.getUser().getId().equals(user.getId())) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_ACCOUNT);
+        }
+        if (accountOrigin.getId().equals(accountDest.getId())) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "A conta de origem e destino devem ser diferentes.");
+        }
 
         validateTransferableAccount(accountOrigin);
         validateTransferableAccount(accountDest);

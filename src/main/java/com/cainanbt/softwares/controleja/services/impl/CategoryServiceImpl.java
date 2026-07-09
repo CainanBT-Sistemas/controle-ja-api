@@ -3,6 +3,7 @@ package com.cainanbt.softwares.controleja.services.impl;
 import com.cainanbt.softwares.controleja.dtos.CategoryDTO;
 import com.cainanbt.softwares.controleja.entities.Category;
 import com.cainanbt.softwares.controleja.entities.Users;
+import com.cainanbt.softwares.controleja.enums.TransactionType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.exceptions.models.EntityNotFoundException;
 import com.cainanbt.softwares.controleja.repositories.CategoryRepository;
@@ -139,6 +140,22 @@ public class CategoryServiceImpl implements CategoryService {
                         ConstsMessages.CRITICAL_ERROR_TITLE,
                         ConstsMessages.CATEGORY_NOT_FOUND + " (" + categoryName + "). " + ConstsMessages.SYSTEM_CRITICAL_ERROR
                 ));
+    }
+
+    @Override
+    public Category findTransferCategory(Users user) {
+        List<Category> categories =
+                repository.findAllByUserIdAndCategoryTypeAndIsDefaultTrueAndEnabledTrueAndDeletedAtIsNull(
+                        user.getId(),
+                        TransactionType.TRANSFERENCIA.name()
+                );
+        if (categories.size() != 1) {
+            throw new BadRequestException(
+                    ConstsMessages.ERROR_TITLE,
+                    "A categoria tecnica de transferencia nao esta configurada corretamente para este usuario."
+            );
+        }
+        return categories.get(0);
     }
 
     /**

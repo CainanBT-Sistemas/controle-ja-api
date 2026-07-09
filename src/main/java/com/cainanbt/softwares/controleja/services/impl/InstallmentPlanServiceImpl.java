@@ -104,6 +104,12 @@ public class InstallmentPlanServiceImpl implements InstallmentPlanService {
         return repository.findByPurchaseId(purchaseId);
     }
 
+    @Override
+    @Transactional
+    public List<InstallmentPlan> findByPurchaseIdForUpdate(UUID purchaseId) {
+        return repository.findByPurchaseIdForUpdate(purchaseId);
+    }
+
     /**
      * Busca todas as parcelas de uma compra filtrando pelo dono.
      */

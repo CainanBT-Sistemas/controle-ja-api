@@ -28,6 +28,7 @@ import com.cainanbt.softwares.controleja.services.InvoicesService;
 import com.cainanbt.softwares.controleja.services.RecurrenceRuleService;
 import com.cainanbt.softwares.controleja.services.TransactionService;
 import com.cainanbt.softwares.controleja.services.VehicleService;
+import com.cainanbt.softwares.controleja.services.invoices.InvoiceDateService;
 import com.cainanbt.softwares.controleja.services.processors.TransactionHelper;
 import com.cainanbt.softwares.controleja.services.processors.TransactionProcessor;
 import com.cainanbt.softwares.controleja.services.processors.TransactionProcessorFactory;
@@ -75,6 +76,7 @@ public class TransactionServiceImpl implements TransactionService {
     private final VehicleService vehicleService;
     private final VehicleOdometerTimelineService odometerTimelineService;
     private final VehicleRefuelMetricsService refuelMetricsService;
+    private final InvoiceDateService invoiceDateService;
 
     @Override
     @Transactional
@@ -87,9 +89,14 @@ public class TransactionServiceImpl implements TransactionService {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_ACCOUNT);
         }
 
-        Category category = categoryService.findById(dto.getCategoryId())
-                .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.CATEGORY_NOT_FOUND));
-        validateCategoryForTransaction(category);
+        Category category;
+        if (dto.getType() == TransactionType.TRANSFERENCIA) {
+            category = categoryService.findTransferCategory(user);
+        } else {
+            category = categoryService.findById(dto.getCategoryId())
+                    .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.CATEGORY_NOT_FOUND));
+            validateCategoryForTransaction(category);
+        }
         validateVehicleOdometerOnCreate(dto, user);
 
         TransactionProcessor processor = processorFactory.getProcessor(dto, account);
@@ -267,7 +274,17 @@ public class TransactionServiceImpl implements TransactionService {
             if (scope != OperationScope.ALL) {
                 throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Alteração da quantidade de parcelas só pode ser aplicada ao lançamento inteiro.");
             }
-            return updateCreditCardInstallmentCount(purchase, installments, dto, dateNow);
+            List<InstallmentPlan> lockedInstallments = installmentPlanService.findByPurchaseIdForUpdate(purchase.getId());
+            int lockedInstallmentCount = lockedInstallments.stream()
+                    .filter(inst -> inst.getDeletedAt() == null)
+                    .map(InstallmentPlan::getTotalInstallmentsPlan)
+                    .filter(Objects::nonNull)
+                    .max(Integer::compareTo)
+                    .orElse(0);
+            if (lockedInstallmentCount == dto.getInstallments()) {
+                return TransactionResponseDTO.toDetailedDTO(purchase);
+            }
+            return updateCreditCardInstallmentCount(purchase, lockedInstallments, dto, dateNow);
         }
 
         if (purchase != null
@@ -571,8 +588,13 @@ public class TransactionServiceImpl implements TransactionService {
         if (activeInstallments.stream().anyMatch(this::isPaidInvoiceInstallment)) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Não é possível alterar o parcelamento porque a compra possui parcela em fatura paga.");
         }
-        if (dto.getInstallments() > activeInstallments.size()) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Não é possível aumentar a quantidade de parcelas após a compra criada.");
+        int currentInstallmentCount = activeInstallments.stream()
+                .map(InstallmentPlan::getTotalInstallmentsPlan)
+                .filter(Objects::nonNull)
+                .max(Integer::compareTo)
+                .orElse(activeInstallments.size());
+        if (dto.getInstallments() > currentInstallmentCount) {
+            return increaseCreditCardInstallmentCount(purchase, installments, activeInstallments, dto, dateNow);
         }
 
         BigDecimal installmentAmount = purchase.getAmount().divide(BigDecimal.valueOf(dto.getInstallments()), 2, RoundingMode.DOWN);
@@ -625,6 +647,226 @@ public class TransactionServiceImpl implements TransactionService {
         purchase = repository.save(purchase);
 
         return TransactionResponseDTO.toDetailedDTO(purchase);
+    }
+
+    private TransactionResponseDTO increaseCreditCardInstallmentCount(
+            Transactions purchase,
+            List<InstallmentPlan> allInstallments,
+            List<InstallmentPlan> activeInstallments,
+            TransactionDTO dto,
+            long dateNow) {
+        if (purchase.getRecurrenceRule() != null) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Não é possível alterar o parcelamento de uma compra recorrente.");
+        }
+        if (purchase.getDate() == null || purchase.getAmount() == null || purchase.getCreditCard() == null) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Compra sem dados completos para recalcular o parcelamento.");
+        }
+        if (dto.getAmount() != null && dto.getAmount().compareTo(purchase.getAmount()) != 0) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Altere o valor da compra separadamente antes de mudar o parcelamento.");
+        }
+        if (dto.getDate() != null && !dto.getDate().equals(purchase.getDate())) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Altere a data da compra separadamente antes de mudar o parcelamento.");
+        }
+        if (dto.getCreditCardId() != null && !dto.getCreditCardId().equals(purchase.getCreditCard().getId())) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Altere o cartão da compra separadamente antes de mudar o parcelamento.");
+        }
+        if (dto.getAccountId() != null
+                && purchase.getCreditCard().getAccounts() != null
+                && !dto.getAccountId().equals(purchase.getCreditCard().getAccounts().getId())) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Altere o cartão da compra separadamente antes de mudar o parcelamento.");
+        }
+        if (allInstallments.stream().anyMatch(inst -> inst.getDeletedAt() != null || Boolean.FALSE.equals(inst.getEnabled()))) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Não é possível alterar o parcelamento porque a compra possui parcela removida ou desabilitada.");
+        }
+        if (allInstallments.size() != activeInstallments.size()) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Não é possível alterar o parcelamento porque a compra possui histórico protegido.");
+        }
+
+        BigDecimal currentTotal = activeInstallments.stream()
+                .map(InstallmentPlan::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (currentTotal.compareTo(purchase.getAmount()) != 0) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Não é possível alterar o parcelamento porque o valor da compra já foi ajustado.");
+        }
+
+        CreditCard card = purchase.getCreditCard();
+        LocalDateTime purchaseDate = DateUtils.epochToLocalDateTime(purchase.getDate());
+        Map<Integer, Invoices> targetInvoices = new HashMap<>();
+        Map<String, Invoices> existingInvoicesByPeriod = new HashMap<>();
+
+        for (InstallmentPlan installment : activeInstallments) {
+            Invoices invoice = installment.getInvoices();
+            validateInvoiceForInstallmentIncrease(invoice);
+            validateInvoiceHasNoFinancialAdjustments(invoice);
+
+            LocalDateTime expectedInvoiceDate = helper.calculateInvoiceDate(
+                    purchaseDate.plusMonths(installment.getCurrentInstallment() - 1L),
+                    card.getCloseDay(),
+                    card.getBestDay()
+            );
+            if (!sameInvoicePeriod(invoice, expectedInvoiceDate)) {
+                throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Não é possível alterar o parcelamento porque a compra possui parcela adiantada.");
+            }
+            existingInvoicesByPeriod.put(invoicePeriodKey(invoice.getMonth(), invoice.getYear()), invoice);
+        }
+
+        for (int index = 0; index < dto.getInstallments(); index++) {
+            LocalDateTime installmentDate = purchaseDate.plusMonths(index);
+            LocalDateTime invoiceDate = helper.calculateInvoiceDate(
+                    installmentDate,
+                    card.getCloseDay(),
+                    card.getBestDay()
+            );
+            String periodKey = invoicePeriodKey(invoiceDate.getMonthValue(), invoiceDate.getYear());
+            Invoices invoice = existingInvoicesByPeriod.get(periodKey);
+            if (invoice == null) {
+                invoice = invoicesService.findByCreditCardIdAndMonthAndYear(
+                        card.getId(),
+                        invoiceDate.getMonthValue(),
+                        invoiceDate.getYear()
+                ).orElse(null);
+                if (invoice != null) {
+                    validateInvoiceForInstallmentIncrease(invoice);
+                    validateInvoiceHasNoFinancialAdjustments(invoice);
+                    existingInvoicesByPeriod.put(periodKey, invoice);
+                }
+            }
+            if (invoice != null) {
+                targetInvoices.put(index + 1, invoice);
+            }
+        }
+
+        List<BigDecimal> newAmounts = splitInstallmentAmount(purchase.getAmount(), dto.getInstallments());
+        Map<UUID, Invoices> invoicesToUpdate = new HashMap<>();
+        for (InstallmentPlan installment : activeInstallments) {
+            applyInvoiceDelta(invoicesToUpdate, installment.getInvoices(), installment.getAmount().negate(), dateNow);
+        }
+
+        List<InstallmentPlan> installmentsToSave = new ArrayList<>();
+        String baseName = dto.getName() != null
+                ? dto.getName()
+                : removeInstallmentSuffix(activeInstallments.get(0).getName());
+        for (int index = 0; index < dto.getInstallments(); index++) {
+            int installmentNumber = index + 1;
+            Invoices invoice = targetInvoices.get(installmentNumber);
+            if (invoice == null) {
+                LocalDateTime invoiceDate = helper.calculateInvoiceDate(
+                        purchaseDate.plusMonths(index),
+                        card.getCloseDay(),
+                        card.getBestDay()
+                );
+                invoice = invoicesService.save(Invoices.builder()
+                        .id(ID.generate())
+                        .month(invoiceDate.getMonthValue())
+                        .year(invoiceDate.getYear())
+                        .amount(BigDecimal.ZERO)
+                        .expirationDate(DateUtils.localDateTimeToEpoch(invoiceDate))
+                        .paid(false)
+                        .enabled(true)
+                        .createdAt(dateNow)
+                        .creditCard(card)
+                        .user(purchase.getUser())
+                        .build());
+                targetInvoices.put(installmentNumber, invoice);
+            }
+
+            BigDecimal newAmount = newAmounts.get(index);
+            InstallmentPlan installment;
+            if (index < activeInstallments.size()) {
+                installment = activeInstallments.get(index);
+            } else {
+                installment = InstallmentPlan.builder()
+                        .id(ID.generate())
+                        .purchaseId(purchase.getId())
+                        .paid(false)
+                        .enabled(true)
+                        .fixed(Boolean.TRUE.equals(purchase.getFixed()))
+                        .createdAt(dateNow)
+                        .user(purchase.getUser())
+                        .build();
+            }
+            installment.setName(buildInstallmentName(baseName, installmentNumber, dto.getInstallments()));
+            installment.setDescription(dto.getDescription() != null ? dto.getDescription() : purchase.getDescription());
+            installment.setType(dto.getType() != null ? dto.getType().name() : purchase.getType().name());
+            installment.setAmount(newAmount);
+            installment.setTotalInstallmentsPlan(dto.getInstallments());
+            installment.setCurrentInstallment(installmentNumber);
+            installment.setInvoices(invoice);
+            installment.setDate(invoice.getExpirationDate());
+            installment.setUpdatedAt(dateNow);
+            installmentsToSave.add(installment);
+            applyInvoiceDelta(invoicesToUpdate, invoice, newAmount, dateNow);
+        }
+
+        installmentPlanService.saveAll(installmentsToSave);
+        invoicesService.saveAll(invoicesToUpdate.values().stream().toList());
+
+        if (dto.getName() != null) purchase.setName(dto.getName());
+        if (dto.getDescription() != null) purchase.setDescription(dto.getDescription());
+        if (dto.getType() != null) purchase.setType(dto.getType());
+        purchase.setUpdatedAt(dateNow);
+        purchase = repository.save(purchase);
+
+        return TransactionResponseDTO.toDetailedDTO(purchase);
+    }
+
+    private List<BigDecimal> splitInstallmentAmount(BigDecimal total, int installments) {
+        BigDecimal baseAmount = total.divide(BigDecimal.valueOf(installments), 2, RoundingMode.DOWN);
+        BigDecimal difference = total.subtract(baseAmount.multiply(BigDecimal.valueOf(installments)));
+        List<BigDecimal> amounts = new ArrayList<>(installments);
+        for (int index = 0; index < installments; index++) {
+            amounts.add(index == 0 ? baseAmount.add(difference) : baseAmount);
+        }
+        return amounts;
+    }
+
+    private void validateInvoiceForInstallmentIncrease(Invoices invoice) {
+        validateEditableInvoice(invoice);
+        if (invoice.getCreditCard() == null || invoice.getMonth() == null || invoice.getYear() == null) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Fatura sem dados completos para recalcular o parcelamento.");
+        }
+        LocalDate closeDate = invoiceDateService.calculateCloseDate(
+                invoice.getCreditCard(),
+                invoice.getMonth(),
+                invoice.getYear()
+        );
+        LocalDate expirationDate = invoiceDateService.calculateExpirationDate(
+                invoice.getCreditCard(),
+                invoice.getMonth(),
+                invoice.getYear()
+        );
+        String status = invoiceDateService.calculateInvoiceStatus(
+                invoice.getCreditCard(),
+                invoice.getPaid(),
+                invoice.getAmount(),
+                closeDate,
+                expirationDate,
+                invoice.getMonth(),
+                invoice.getYear()
+        );
+        if (invoiceDateService.isClosedOrPaid(status)) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Não é possível alterar o parcelamento porque uma fatura envolvida está fechada ou paga.");
+        }
+    }
+
+    private void validateInvoiceHasNoFinancialAdjustments(Invoices invoice) {
+        boolean hasAdjustment = installmentPlanService.findByInvoiceId(invoice.getId()).stream()
+                .anyMatch(item -> item.getAmount() == null || item.getAmount().compareTo(BigDecimal.ZERO) <= 0);
+        if (hasAdjustment) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Não é possível alterar o parcelamento porque uma fatura envolvida possui pagamento, estorno ou adiantamento.");
+        }
+    }
+
+    private boolean sameInvoicePeriod(Invoices invoice, LocalDateTime expectedInvoiceDate) {
+        return invoice != null
+                && invoice.getMonth() != null
+                && invoice.getYear() != null
+                && invoice.getMonth() == expectedInvoiceDate.getMonthValue()
+                && invoice.getYear() == expectedInvoiceDate.getYear();
+    }
+
+    private String invoicePeriodKey(Integer month, Integer year) {
+        return year + "-" + month;
     }
 
     private void validateCreditCardPurchaseDateChange(Transactions purchase, List<InstallmentPlan> installments, Long newDate) {
@@ -1485,6 +1727,9 @@ public class TransactionServiceImpl implements TransactionService {
     @Override
     @Transactional
     public void generateProjectionsForRule(RecurrenceRule rule, LocalDate limitDate) {
+        if (rule.getType() == TransactionType.TRANSFERENCIA) {
+            rule.setCategory(categoryService.findTransferCategory(rule.getUser()));
+        }
         Long maxDateEpoch = repository.findMaxDateByRuleId(rule.getId());
         LocalDate nextDate = (maxDateEpoch != null) ? calculateNextDate(DateUtils.epochToLocalDate(maxDateEpoch), rule.getFrequency()) : DateUtils.epochToLocalDate(rule.getStartDate());
         long endDateEpoch = rule.getEndDate() != null ? rule.getEndDate() : Long.MAX_VALUE;
@@ -1591,17 +1836,16 @@ public class TransactionServiceImpl implements TransactionService {
         }
         validateTransferableAccount(newOrigin);
         validateTransferableAccount(newDest);
+        if (newOrigin.getId().equals(newDest.getId())) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "A conta de origem e destino devem ser diferentes.");
+        }
 
         BigDecimal amount = dto.getAmount() != null ? dto.getAmount() : transferOut.getAmount();
         Long date = dto.getDate() != null ? dto.getDate() : transferOut.getDate();
         Boolean paid = dto.getPaid() != null ? dto.getPaid() : transferOut.getPaid();
         String name = dto.getName() != null ? dto.getName() : transferOut.getName();
         String description = dto.getDescription() != null ? dto.getDescription() : transferOut.getDescription();
-
-        Category category = transferOut.getCategory();
-        if (dto.getCategoryId() != null) {
-            category = categoryService.findByIdOrThrow(dto.getCategoryId());
-        }
+        Category transferCategory = categoryService.findTransferCategory(currentUser);
 
         transferOut.setName(name);
         transferOut.setDescription(description);
@@ -1609,7 +1853,7 @@ public class TransactionServiceImpl implements TransactionService {
         transferOut.setDate(date);
         transferOut.setPaid(paid);
         transferOut.setAccount(newOrigin);
-        transferOut.setCategory(category);
+        transferOut.setCategory(transferCategory);
         transferOut.setType(TransactionType.TRANSFERENCIA_SAIDA);
         transferOut.setUpdatedAt(dateNow);
 
@@ -1619,10 +1863,14 @@ public class TransactionServiceImpl implements TransactionService {
         transferIn.setDate(date);
         transferIn.setPaid(paid);
         transferIn.setAccount(newDest);
-        transferIn.setCategory(category);
+        transferIn.setCategory(transferCategory);
         transferIn.setType(TransactionType.TRANSFERENCIA_ENTRADA);
         transferIn.setParentTransaction(transferOut);
         transferIn.setUpdatedAt(dateNow);
+
+        if (transferOut.getRecurrenceRule() != null) {
+            transferOut.getRecurrenceRule().setCategory(transferCategory);
+        }
 
         if (Boolean.TRUE.equals(paid)) {
             newOrigin.debit(amount);
@@ -1637,7 +1885,19 @@ public class TransactionServiceImpl implements TransactionService {
         accountsToUpdate.forEach(accountsService::update);
 
         if (operationScope == OperationScope.FROM_THIS_FORWARD && transferOut.getRecurrenceRule() != null) {
-            cascadeRuleUpdate(transferOut.getRecurrenceRule().getId(), amount);
+            RecurrenceRule rule = transferOut.getRecurrenceRule();
+            rule.setCategory(transferCategory);
+            rule.setUpdatedAt(dateNow);
+            recurrenceRuleService.save(rule);
+
+            List<Transactions> futureUnpaidTransfers =
+                    repository.findFutureUnpaidByRuleId(rule.getId(), transferOut.getDate());
+            futureUnpaidTransfers.forEach(transaction -> {
+                transaction.setCategory(transferCategory);
+                transaction.setUpdatedAt(dateNow);
+            });
+            repository.saveAll(futureUnpaidTransfers);
+            cascadeRuleUpdate(rule.getId(), amount);
         }
 
         repository.saveAll(List.of(transferOut, transferIn));

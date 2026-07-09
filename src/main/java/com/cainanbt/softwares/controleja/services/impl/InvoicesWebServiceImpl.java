@@ -327,20 +327,37 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
             throw new BadRequestException("Acesso Negado", "Cartão não pertence ao usuário autenticado.");
         }
 
-        LocalDate closeLocal = invoiceDateService.calculateCloseDate(card, month, year);
-        long closeEpoch = DateUtils.localDateToEpoch(closeLocal);
+        Optional<Invoices> currentInvoiceOptional = invoicesService.findByCreditCardIdAndMonthAndYear(cardId, month, year);
+        if (currentInvoiceOptional.isEmpty()) {
+            return List.of();
+        }
+        Invoices currentInvoice = currentInvoiceOptional.get();
+        invoiceDomainValidator.validateInvoiceOwner(currentInvoice, currentUser);
+        if (currentInvoice.getExpirationDate() == null) {
+            return List.of();
+        }
 
-        // Use optimized repository method to fetch future unpaid invoices directly
-        List<Invoices> futureInvoices = invoicesService.findFutureUnpaidByCardAndDate(currentUser.getId(), cardId, closeEpoch);
+        List<Invoices> futureInvoices = invoicesService.findFutureUnpaidByCardAndDate(
+                currentUser.getId(),
+                cardId,
+                currentInvoice.getExpirationDate()
+        );
 
         if (futureInvoices == null || futureInvoices.isEmpty()) return List.of();
 
         List<UUID> invoiceIds = futureInvoices.stream().map(Invoices::getId).toList();
 
         // Fetch all advanceable installments in one query
-        List<InstallmentPlan> advanceable = installmentPlanService.findAdvanceableByInvoiceIdsAndUserId(invoiceIds, currentUser.getId());
+        List<InstallmentPlan> candidates = installmentPlanService
+                .findAdvanceableByInvoiceIdsAndUserId(invoiceIds, currentUser.getId());
+        if (candidates == null || candidates.isEmpty()) return List.of();
 
-        if (advanceable == null || advanceable.isEmpty()) return List.of();
+        List<InstallmentPlan> advanceable = candidates
+                .stream()
+                .filter(item -> invoiceDomainValidator.isAdvanceableFutureInstallment(item, currentInvoice, currentUser))
+                .toList();
+
+        if (advanceable.isEmpty()) return List.of();
 
         List<AdvanceablePurchaseDTO> result = advanceable.stream()
                 .collect(Collectors.groupingBy(InstallmentPlan::getPurchaseId))

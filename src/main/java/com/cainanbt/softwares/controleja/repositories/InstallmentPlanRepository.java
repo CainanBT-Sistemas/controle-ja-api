@@ -1,7 +1,9 @@
 package com.cainanbt.softwares.controleja.repositories;
 
 import com.cainanbt.softwares.controleja.entities.InstallmentPlan;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -39,6 +41,13 @@ public interface InstallmentPlanRepository extends JpaRepository<InstallmentPlan
      * Busca todas as parcelas de uma compra pela transação pai.
      */
     List<InstallmentPlan> findByPurchaseId(UUID purchaseId);
+
+    /**
+     * Serializa recalculos estruturais da mesma compra para impedir parcelas duplicadas.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT p FROM InstallmentPlan p WHERE p.purchaseId = :purchaseId ORDER BY p.currentInstallment")
+    List<InstallmentPlan> findByPurchaseIdForUpdate(@Param("purchaseId") UUID purchaseId);
 
     /**
      * Busca todas as parcelas de uma compra de um usuario especifico.
@@ -85,7 +94,7 @@ public interface InstallmentPlanRepository extends JpaRepository<InstallmentPlan
     /**
      * Busca parcelas futuras pendentes e positivas do usuario autenticado para adiantamento.
      */
-    @Query("SELECT p FROM InstallmentPlan p WHERE p.invoices.id IN :invoiceIds AND p.user.id = :userId AND p.deletedAt IS NULL AND p.paid = false AND p.amount > 0")
+    @Query("SELECT p FROM InstallmentPlan p WHERE p.invoices.id IN :invoiceIds AND p.user.id = :userId AND p.deletedAt IS NULL AND p.paid = false AND p.enabled = true AND p.amount > 0")
     List<InstallmentPlan> findAdvanceableByInvoiceIdsAndUserId(@Param("invoiceIds") List<UUID> invoiceIds, @Param("userId") UUID userId);
 
     /**

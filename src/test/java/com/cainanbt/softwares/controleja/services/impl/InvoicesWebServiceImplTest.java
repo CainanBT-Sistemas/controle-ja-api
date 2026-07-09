@@ -52,7 +52,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.anyList;
-import static org.mockito.Mockito.anyLong;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -1082,16 +1081,27 @@ public class InvoicesWebServiceImplTest {
             CreditCard card = CreditCard.builder().id(cardId).name("Card").closeDay(5).bestDay(10).user(currentUser).build();
             when(creditCardService.findById(cardId)).thenReturn(Optional.of(card));
 
-            // future invoices
-            Invoices inv1 = Invoices.builder().id(UUID.randomUUID()).expirationDate(DateUtils.getEpochNow() + 1000000L).paid(false).user(currentUser).build();
-            Invoices inv2 = Invoices.builder().id(UUID.randomUUID()).expirationDate(DateUtils.getEpochNow() + 2000000L).paid(false).user(currentUser).build();
+            Invoices currentInvoice = Invoices.builder()
+                    .id(UUID.randomUUID())
+                    .month(4)
+                    .year(2026)
+                    .expirationDate(DateUtils.localDateToEpoch(LocalDate.of(2026, 4, 10)))
+                    .creditCard(card)
+                    .user(currentUser)
+                    .build();
+            when(invoicesService.findByCreditCardIdAndMonthAndYear(cardId, 4, 2026))
+                    .thenReturn(Optional.of(currentInvoice));
 
-            when(invoicesService.findFutureUnpaidByCardAndDate(eq(currentUser.getId()), eq(cardId), anyLong())).thenReturn(List.of(inv1, inv2));
+            // future invoices
+            Invoices inv1 = Invoices.builder().id(UUID.randomUUID()).expirationDate(currentInvoice.getExpirationDate() + 1000000L).paid(false).enabled(true).creditCard(card).user(currentUser).build();
+            Invoices inv2 = Invoices.builder().id(UUID.randomUUID()).expirationDate(currentInvoice.getExpirationDate() + 2000000L).paid(false).enabled(true).creditCard(card).user(currentUser).build();
+
+            when(invoicesService.findFutureUnpaidByCardAndDate(currentUser.getId(), cardId, currentInvoice.getExpirationDate())).thenReturn(List.of(inv1, inv2));
 
             // installments across invoices with suffixes and same purchaseId
             UUID purchaseId = UUID.randomUUID();
-            InstallmentPlan p1 = InstallmentPlan.builder().id(UUID.randomUUID()).purchaseId(purchaseId).name("Compra X (1/3)").amount(new BigDecimal("100.00")).paid(false).invoices(inv1).build();
-            InstallmentPlan p2 = InstallmentPlan.builder().id(UUID.randomUUID()).purchaseId(purchaseId).name("Compra X (2/3)").amount(new BigDecimal("100.00")).paid(false).invoices(inv2).build();
+            InstallmentPlan p1 = InstallmentPlan.builder().id(UUID.randomUUID()).purchaseId(purchaseId).name("Compra X (1/3)").amount(new BigDecimal("100.00")).paid(false).enabled(true).user(currentUser).invoices(inv1).build();
+            InstallmentPlan p2 = InstallmentPlan.builder().id(UUID.randomUUID()).purchaseId(purchaseId).name("Compra X (2/3)").amount(new BigDecimal("100.00")).paid(false).enabled(true).user(currentUser).invoices(inv2).build();
 
             when(installmentPlanService.findAdvanceableByInvoiceIdsAndUserId(anyList(), eq(currentUser.getId()))).thenReturn(List.of(p1, p2));
 
@@ -1102,6 +1112,130 @@ public class InvoicesWebServiceImplTest {
             assertEquals(purchaseId, dto.getPurchaseId());
             assertEquals("Compra X", dto.getName());
             assertEquals(2, dto.getMaxInstallmentsAvailable());
+        }
+    }
+
+    @Test
+    public void getAdvanceablePurchases_afterAdvancingFourOfTen_shouldReturnOnlyRemainingFutureInstallments() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            UUID cardId = UUID.randomUUID();
+            UUID purchaseId = UUID.randomUUID();
+            long currentExpiration = DateUtils.localDateToEpoch(LocalDate.of(2026, 4, 10));
+            CreditCard card = CreditCard.builder()
+                    .id(cardId)
+                    .name("Card")
+                    .currentLimit(new BigDecimal("1000.00"))
+                    .totalLimit(new BigDecimal("5000.00"))
+                    .user(currentUser)
+                    .build();
+            Invoices currentInvoice = Invoices.builder()
+                    .id(UUID.randomUUID())
+                    .month(4)
+                    .year(2026)
+                    .expirationDate(currentExpiration)
+                    .amount(new BigDecimal("100.00"))
+                    .paid(false)
+                    .enabled(true)
+                    .creditCard(card)
+                    .user(currentUser)
+                    .build();
+
+            List<Invoices> futureInvoices = new ArrayList<>();
+            List<InstallmentPlan> purchaseInstallments = new ArrayList<>();
+            for (int installmentNumber = 2; installmentNumber <= 10; installmentNumber++) {
+                Invoices futureInvoice = Invoices.builder()
+                        .id(UUID.randomUUID())
+                        .month(installmentNumber + 2)
+                        .year(2026)
+                        .expirationDate(currentExpiration + installmentNumber * 1000000L)
+                        .amount(new BigDecimal("100.00"))
+                        .paid(false)
+                        .enabled(true)
+                        .creditCard(card)
+                        .user(currentUser)
+                        .build();
+                futureInvoices.add(futureInvoice);
+                purchaseInstallments.add(InstallmentPlan.builder()
+                        .id(UUID.randomUUID())
+                        .purchaseId(purchaseId)
+                        .name("Compra 10x (" + installmentNumber + "/10)")
+                        .amount(new BigDecimal("100.00"))
+                        .paid(false)
+                        .enabled(true)
+                        .user(currentUser)
+                        .invoices(futureInvoice)
+                        .build());
+            }
+
+            when(creditCardService.findById(cardId)).thenReturn(Optional.of(card));
+            when(invoicesService.findByIdOrThrow(currentInvoice.getId())).thenReturn(currentInvoice);
+            when(invoicesService.findByCreditCardIdAndMonthAndYear(cardId, 4, 2026))
+                    .thenReturn(Optional.of(currentInvoice));
+            when(installmentPlanService.findByPurchaseIdAndUserId(purchaseId, currentUser.getId()))
+                    .thenReturn(purchaseInstallments);
+
+            service.advanceInstallments(currentInvoice.getId(), AdvanceRequestDTO.builder()
+                    .purchaseId(purchaseId)
+                    .quantityToAdvance(4)
+                    .discountAmount(BigDecimal.ZERO)
+                    .build());
+
+            Invoices lastFutureInvoice = futureInvoices.get(futureInvoices.size() - 1);
+            purchaseInstallments.add(InstallmentPlan.builder()
+                    .id(UUID.randomUUID())
+                    .purchaseId(purchaseId)
+                    .name("Parcela paga")
+                    .amount(new BigDecimal("100.00"))
+                    .paid(true)
+                    .enabled(true)
+                    .user(currentUser)
+                    .invoices(lastFutureInvoice)
+                    .build());
+            purchaseInstallments.add(InstallmentPlan.builder()
+                    .id(UUID.randomUUID())
+                    .purchaseId(purchaseId)
+                    .name("Parcela removida")
+                    .amount(new BigDecimal("100.00"))
+                    .paid(false)
+                    .enabled(true)
+                    .deletedAt(DateUtils.getEpochNow())
+                    .user(currentUser)
+                    .invoices(lastFutureInvoice)
+                    .build());
+            purchaseInstallments.add(InstallmentPlan.builder()
+                    .id(UUID.randomUUID())
+                    .purchaseId(purchaseId)
+                    .name("Parcela desabilitada")
+                    .amount(new BigDecimal("100.00"))
+                    .paid(false)
+                    .enabled(false)
+                    .user(currentUser)
+                    .invoices(lastFutureInvoice)
+                    .build());
+
+            List<Invoices> remainingFutureInvoices = futureInvoices.stream()
+                    .filter(invoice -> invoice.getExpirationDate() > currentInvoice.getExpirationDate())
+                    .filter(invoice -> invoice.getAmount().compareTo(BigDecimal.ZERO) > 0)
+                    .toList();
+            when(invoicesService.findFutureUnpaidByCardAndDate(
+                    currentUser.getId(),
+                    cardId,
+                    currentInvoice.getExpirationDate()
+            )).thenReturn(remainingFutureInvoices);
+            when(installmentPlanService.findAdvanceableByInvoiceIdsAndUserId(anyList(), eq(currentUser.getId())))
+                    .thenReturn(purchaseInstallments);
+
+            List<com.cainanbt.softwares.controleja.dtos.invoices.AdvanceablePurchaseDTO> result =
+                    service.getAdvanceablePurchases(cardId, 4, 2026);
+
+            assertEquals(1, result.size());
+            assertEquals(5, result.get(0).getMaxInstallmentsAvailable());
+            assertEquals(new BigDecimal("500.00"), result.get(0).getEstimatedAmount());
+            assertEquals(5, result.get(0).getInstallmentAmounts().size());
+            assertTrue(purchaseInstallments.subList(0, 4).stream()
+                    .allMatch(item -> item.getInvoices().getId().equals(currentInvoice.getId())));
         }
     }
 

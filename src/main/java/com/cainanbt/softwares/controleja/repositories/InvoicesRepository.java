@@ -37,7 +37,7 @@ public interface InvoicesRepository extends JpaRepository<Invoices, UUID> {
     /**
      * Busca faturas futuras pendentes do cartão para localizar parcelas adiantáveis.
      */
-    @Query("SELECT i FROM Invoices i WHERE i.user.id = :userId AND i.creditCard.id = :cardId AND i.expirationDate > :expirationDate AND i.amount > 0 AND i.deletedAt IS NULL")
+    @Query("SELECT i FROM Invoices i WHERE i.user.id = :userId AND i.creditCard.id = :cardId AND i.expirationDate > :expirationDate AND i.paid = false AND i.enabled = true AND i.amount > 0 AND i.deletedAt IS NULL")
     List<Invoices> findFutureUnpaidByCardAndDate(@Param("userId") UUID userId, @Param("cardId") UUID cardId, @Param("expirationDate") Long expirationDate);
 
     /**
