@@ -57,7 +57,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @RequiredArgsConstructor
 @Service
@@ -275,8 +277,10 @@ public class TransactionServiceImpl implements TransactionService {
                 throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Alteração da quantidade de parcelas só pode ser aplicada ao lançamento inteiro.");
             }
             List<InstallmentPlan> lockedInstallments = installmentPlanService.findByPurchaseIdForUpdate(purchase.getId());
+            Transactions lockedPurchase = purchase;
             int lockedInstallmentCount = lockedInstallments.stream()
                     .filter(inst -> inst.getDeletedAt() == null)
+                    .filter(inst -> isCanonicalPurchaseInstallment(inst, lockedPurchase))
                     .map(InstallmentPlan::getTotalInstallmentsPlan)
                     .filter(Objects::nonNull)
                     .max(Integer::compareTo)
@@ -577,7 +581,19 @@ public class TransactionServiceImpl implements TransactionService {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, "O número mínimo de parcelas é 1.");
         }
 
+        Transactions purchaseToValidate = purchase;
+        List<InstallmentPlan> purchaseAdjustments = installments.stream()
+                .filter(inst -> !isCanonicalPurchaseInstallment(inst, purchaseToValidate))
+                .toList();
+        if (!purchaseAdjustments.isEmpty()) {
+            throw new BadRequestException(
+                    ConstsMessages.ERROR_TITLE,
+                    "Não é possível alterar o parcelamento porque a compra possui desconto, estorno ou ajuste vinculado."
+            );
+        }
+
         List<InstallmentPlan> activeInstallments = installments.stream()
+                .filter(inst -> isCanonicalPurchaseInstallment(inst, purchaseToValidate))
                 .filter(inst -> inst.getDeletedAt() == null)
                 .sorted((a, b) -> a.getCurrentInstallment().compareTo(b.getCurrentInstallment()))
                 .toList();
@@ -697,7 +713,7 @@ public class TransactionServiceImpl implements TransactionService {
         for (InstallmentPlan installment : activeInstallments) {
             Invoices invoice = installment.getInvoices();
             validateInvoiceForInstallmentIncrease(invoice);
-            validateInvoiceHasNoFinancialAdjustments(invoice);
+            validateInvoiceFinancialLinks(invoice, purchase, activeInstallments);
 
             LocalDateTime expectedInvoiceDate = helper.calculateInvoiceDate(
                     purchaseDate.plusMonths(installment.getCurrentInstallment() - 1L),
@@ -727,7 +743,7 @@ public class TransactionServiceImpl implements TransactionService {
                 ).orElse(null);
                 if (invoice != null) {
                     validateInvoiceForInstallmentIncrease(invoice);
-                    validateInvoiceHasNoFinancialAdjustments(invoice);
+                    validateInvoiceFinancialLinks(invoice, purchase, activeInstallments);
                     existingInvoicesByPeriod.put(periodKey, invoice);
                 }
             }
@@ -849,12 +865,78 @@ public class TransactionServiceImpl implements TransactionService {
         }
     }
 
-    private void validateInvoiceHasNoFinancialAdjustments(Invoices invoice) {
-        boolean hasAdjustment = installmentPlanService.findByInvoiceId(invoice.getId()).stream()
-                .anyMatch(item -> item.getAmount() == null || item.getAmount().compareTo(BigDecimal.ZERO) <= 0);
-        if (hasAdjustment) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Não é possível alterar o parcelamento porque uma fatura envolvida possui pagamento, estorno ou adiantamento.");
+    private void validateInvoiceFinancialLinks(
+            Invoices invoice,
+            Transactions purchase,
+            List<InstallmentPlan> purchaseInstallments
+    ) {
+        Set<UUID> canonicalInstallmentIds = purchaseInstallments.stream()
+                .map(InstallmentPlan::getId)
+                .collect(Collectors.toSet());
+
+        for (InstallmentPlan item : installmentPlanService.findByInvoiceId(invoice.getId())) {
+            if (item.getDeletedAt() != null || Boolean.FALSE.equals(item.getEnabled())) {
+                continue;
+            }
+            if (item.getPurchaseId() == null) {
+                throw invoiceItemWithoutAuditableOrigin();
+            }
+            if (item.getPurchaseId().equals(purchase.getId())) {
+                if (!canonicalInstallmentIds.contains(item.getId())) {
+                    throw new BadRequestException(
+                            ConstsMessages.ERROR_TITLE,
+                            "Não é possível alterar o parcelamento porque a compra possui desconto, estorno ou ajuste vinculado."
+                    );
+                }
+                continue;
+            }
+
+            Transactions origin = repository.findByIdIncludingDeleted(item.getPurchaseId())
+                    .orElseThrow(this::invoiceItemWithoutAuditableOrigin);
+            if (origin.getType() == TransactionType.PAGAMENTO_FATURA) {
+                if (origin.getDeletedAt() == null
+                        && origin.getTargetInvoice() != null
+                        && origin.getTargetInvoice().getId().equals(invoice.getId())) {
+                    throw new BadRequestException(
+                            ConstsMessages.ERROR_TITLE,
+                            "Não é possível alterar o parcelamento porque uma fatura envolvida possui pagamento parcial ou total."
+                    );
+                }
+                throw invoiceItemWithoutAuditableOrigin();
+            }
+            if (!isAuditablePurchaseItemFromSameInvoice(origin, item, invoice)) {
+                throw invoiceItemWithoutAuditableOrigin();
+            }
         }
+    }
+
+    private boolean isCanonicalPurchaseInstallment(InstallmentPlan installment, Transactions purchase) {
+        return installment.getPurchaseId() != null
+                && installment.getPurchaseId().equals(purchase.getId())
+                && installment.getType() != null
+                && purchase.getType() != null
+                && installment.getType().equals(purchase.getType().name());
+    }
+
+    private boolean isAuditablePurchaseItemFromSameInvoice(
+            Transactions origin,
+            InstallmentPlan item,
+            Invoices invoice
+    ) {
+        return origin.getDeletedAt() == null
+                && origin.getCreditCard() != null
+                && invoice.getCreditCard() != null
+                && origin.getCreditCard().getId().equals(invoice.getCreditCard().getId())
+                && origin.getUser() != null
+                && item.getUser() != null
+                && origin.getUser().getId().equals(item.getUser().getId());
+    }
+
+    private BadRequestException invoiceItemWithoutAuditableOrigin() {
+        return new BadRequestException(
+                ConstsMessages.ERROR_TITLE,
+                "Não é possível alterar o parcelamento porque a fatura possui item sem origem financeira auditável."
+        );
     }
 
     private boolean sameInvoicePeriod(Invoices invoice, LocalDateTime expectedInvoiceDate) {

@@ -544,6 +544,96 @@ public class TransactionControllerTest extends BaseTest {
     }
 
     @Test
+    @DisplayName("Adiantamento e desconto de outra compra na mesma fatura não bloqueiam conversão")
+    void shouldConvertPurchaseWhenAnotherPurchaseInInvoiceWasAdvancedWithDiscount() {
+        String cardName = "Cartão Conversão Isolada " + System.nanoTime();
+        UUID cardAccountId = createCreditCardAux(cardName, new BigDecimal("3000.00"));
+        UUID cardId = UUID.fromString(given().header("Authorization", "Bearer " + token)
+                .get("/cards")
+                .then().statusCode(200)
+                .extract().path("find { it.name == '" + cardName + "' }.id"));
+
+        TransactionDTO targetPurchase = new TransactionDTO();
+        targetPurchase.setName("Compra para converter");
+        targetPurchase.setType(TransactionType.DESPESA);
+        targetPurchase.setAmount(new BigDecimal("300.00"));
+        targetPurchase.setDate(DateUtils.getEpochNow());
+        targetPurchase.setPaid(false);
+        targetPurchase.setAccountId(cardAccountId);
+        targetPurchase.setCreditCardId(cardId);
+        targetPurchase.setCategoryId(categoryId);
+        targetPurchase.setInstallments(1);
+        targetPurchase.setIsFixed(false);
+
+        UUID targetPurchaseId = UUID.fromString(given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(targetPurchase).post("/transactions")
+                .then().statusCode(200)
+                .extract().path("id"));
+
+        TransactionDTO otherPurchase = new TransactionDTO();
+        otherPurchase.setName("Outra compra adiantada");
+        otherPurchase.setType(TransactionType.DESPESA);
+        otherPurchase.setAmount(new BigDecimal("600.00"));
+        otherPurchase.setDate(targetPurchase.getDate());
+        otherPurchase.setPaid(false);
+        otherPurchase.setAccountId(cardAccountId);
+        otherPurchase.setCreditCardId(cardId);
+        otherPurchase.setCategoryId(categoryId);
+        otherPurchase.setInstallments(3);
+        otherPurchase.setIsFixed(false);
+
+        UUID otherPurchaseId = UUID.fromString(given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(otherPurchase).post("/transactions")
+                .then().statusCode(200)
+                .extract().path("id"));
+
+        UUID currentInvoiceId = jdbcTemplate.queryForObject(
+                "SELECT invoices_id FROM installment_plan "
+                        + "WHERE purchase_id = ? AND current_installment = 1 AND deleted_at IS NULL",
+                UUID.class,
+                targetPurchaseId
+        );
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON)
+                .body(Map.of(
+                        "purchaseId", otherPurchaseId,
+                        "quantityToAdvance", 1,
+                        "discountAmount", new BigDecimal("10.00")
+                ))
+                .post("/invoices/" + currentInvoiceId + "/advance")
+                .then().statusCode(200);
+
+        targetPurchase.setInstallments(3);
+        given().header("Authorization", "Bearer " + token)
+                .queryParam("operationScope", "ALL")
+                .contentType(ContentType.JSON).body(targetPurchase)
+                .put("/transactions/" + targetPurchaseId)
+                .then().statusCode(200)
+                .body("id", is(targetPurchaseId.toString()));
+
+        assertEquals(
+                3,
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM installment_plan "
+                                + "WHERE purchase_id = ? AND type = 'DESPESA' AND deleted_at IS NULL",
+                        Integer.class,
+                        targetPurchaseId
+                )
+        );
+        assertEquals(
+                1,
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM installment_plan "
+                                + "WHERE purchase_id = ? AND type = 'RECEITA' "
+                                + "AND amount = -10.00 AND deleted_at IS NULL",
+                        Integer.class,
+                        otherPurchaseId
+                )
+        );
+    }
+
+    @Test
     @DisplayName("CENÁRIO 3: Compra Parcelada no Crédito e Pagamento de Fatura")
     void shouldCreateInstallmentsOnCreditCardAndPay() {
         UUID cardAccountId = createCreditCardAux("Nubank Gold", new BigDecimal("2000.00"));
