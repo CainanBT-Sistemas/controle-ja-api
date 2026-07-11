@@ -18,4 +18,5 @@ public class InvoicePaymentRequestDTO {
 
     private Long paymentDate;
     private String notes;
+    private Boolean advancePayment;
 }

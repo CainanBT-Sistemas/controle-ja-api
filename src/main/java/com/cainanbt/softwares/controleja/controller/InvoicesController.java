@@ -41,6 +41,16 @@ public class InvoicesController {
     }
 
     /**
+     * Consulta os dados consolidados de uma fatura persistida pelo identificador real.
+     */
+    @GetMapping("/{invoiceId}")
+    public ResponseEntity<InvoiceDetailsDTO> getInvoiceDetailsById(@PathVariable UUID invoiceId) {
+        return service.getInvoiceDetailsById(invoiceId)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /**
      * Lista compras futuras que ainda podem ser adiantadas para a fatura informada.
      */
     @GetMapping("/card/{cardId}/month/{month}/year/{year}/advanceable")

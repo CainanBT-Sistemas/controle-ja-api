@@ -163,6 +163,24 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         return Optional.of(dto);
     }
 
+    @Override
+    public Optional<InvoiceDetailsDTO> getInvoiceDetailsById(UUID invoiceId) {
+        Users currentUser = SecurityContextUtils.getCurrentUser();
+        Invoices invoice = invoicesService.findByIdOrThrow(invoiceId);
+
+        if (invoice.getDeletedAt() != null) {
+            throw new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Fatura não encontrada.");
+        }
+        if (!invoice.getUser().getId().equals(currentUser.getId())) {
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, "Fatura não pertence ao usuário autenticado.");
+        }
+        if (invoice.getCreditCard() == null) {
+            throw new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Cartão da fatura não encontrado.");
+        }
+
+        return getInvoiceDetails(invoice.getCreditCard().getId(), invoice.getMonth(), invoice.getYear());
+    }
+
     private Map<UUID, Transactions> findParentTransactions(List<InstallmentPlan> invoiceItems) {
         List<UUID> purchaseIds = invoiceItems.stream()
                 .map(InstallmentPlan::getPurchaseId)
@@ -312,7 +330,56 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
 
     private boolean isPaymentItem(InstallmentPlan item) {
         String name = item.getName() != null ? item.getName() : "";
-        return name.startsWith("Pagamento Recebido");
+        return name.startsWith("Pagamento Recebido") || name.startsWith("Adiantamento Recebido");
+    }
+
+    private String buildAdvanceInstallmentName(String purchaseName) {
+        String cleanName = purchaseName != null ? purchaseName.trim() : "";
+        if (cleanName.isEmpty()) {
+            return "Adiantamento de parcelas";
+        }
+        if (cleanName.startsWith("Adiantamento de parcelas")) {
+            return cleanName;
+        }
+        return "Adiantamento de parcelas - " + cleanName;
+    }
+
+    private String buildAdvanceInstallmentDescription(Invoices invoice) {
+        Integer month = invoice != null ? invoice.getMonth() : null;
+        Integer year = invoice != null ? invoice.getYear() : null;
+        if (month != null && year != null) {
+            return String.format("Adiantamento de parcelas da fatura de %02d/%d", month, year);
+        }
+        return "Adiantamento de parcelas da fatura selecionada";
+    }
+
+    private boolean isAdvancePayment(InvoicePaymentRequestDTO request, Invoices invoice, CreditCard card, long paymentDate) {
+        if (Boolean.TRUE.equals(request.getAdvancePayment())) {
+            return true;
+        }
+        if (invoice == null || card == null || invoice.getMonth() == null || invoice.getYear() == null) {
+            return false;
+        }
+        LocalDate closeDate = invoiceDateService.calculateCloseDate(card, invoice.getMonth(), invoice.getYear());
+        LocalDate paidAt = DateUtils.epochToLocalDate(paymentDate);
+        return paidAt.isBefore(closeDate);
+    }
+
+    private String buildInvoicePaymentName(CreditCard card, boolean advancePayment) {
+        String cardName = card != null && card.getName() != null ? card.getName() : "";
+        return (advancePayment ? "Adiantamento Fatura " : "Pagamento Fatura ") + cardName;
+    }
+
+    private String buildInvoicePaymentDescription(InvoicePaymentRequestDTO request, Invoices invoice, boolean advancePayment) {
+        if (advancePayment) {
+            Integer month = invoice != null ? invoice.getMonth() : null;
+            Integer year = invoice != null ? invoice.getYear() : null;
+            if (month != null && year != null) {
+                return String.format("Adiantamento de pagamento da fatura de %02d/%d", month, year);
+            }
+            return "Adiantamento de pagamento da fatura selecionada";
+        }
+        return request.getNotes() != null ? request.getNotes() : "";
     }
 
     private boolean isRefundableItem(InstallmentPlan item) {
@@ -513,11 +580,13 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
             oldInv.setAmount(invoiceTotalsCalculator.valueOrZero(oldInv.getAmount()).subtract(inst.getAmount()));
             invoicesToSave.put(oldInv.getId(), oldInv);
 
+            String originalName = inst.getName();
             inst.setAdvanceOperationId(advanceOperationId);
             inst.setAdvancedFromInvoice(oldInv);
             inst.setInvoices(currentInvoice);
             inst.setDate(currentInvoice.getExpirationDate());
-            inst.setName(inst.getName() + " (Adiantada)");
+            inst.setName(buildAdvanceInstallmentName(originalName));
+            inst.setDescription(buildAdvanceInstallmentDescription(currentInvoice));
         }
 
         if (!invoicesToSave.isEmpty()) {
@@ -532,6 +601,7 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
                     .id(ID.generate())
                     .date(now)
                     .name("Desconto Adiantamento")
+                    .description(buildAdvanceInstallmentDescription(currentInvoice))
                     .type(TransactionType.RECEITA.name())
                     .amount(discount)
                     .totalInstallmentsPlan(1)
@@ -744,11 +814,12 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         Category category = findPaymentCategory(currentUser);
         long now = DateUtils.getEpochNow();
         long paymentDate = request.getPaymentDate() != null ? request.getPaymentDate() : now;
-        String notes = request.getNotes() != null ? request.getNotes() : "";
+        boolean advancePayment = isAdvancePayment(request, invoice, card, paymentDate);
+        String notes = buildInvoicePaymentDescription(request, invoice, advancePayment);
 
         Transactions paymentOut = Transactions.builder()
                 .id(ID.generate())
-                .name("Pagamento Fatura " + card.getName())
+                .name(buildInvoicePaymentName(card, advancePayment))
                 .description(notes)
                 .type(TransactionType.PAGAMENTO_FATURA)
                 .amount(request.getAmount())
@@ -766,7 +837,7 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
 
         Transactions paymentIn = Transactions.builder()
                 .id(ID.generate())
-                .name("Recebimento de Fatura")
+                .name(advancePayment ? "Recebimento de Adiantamento" : "Recebimento de Fatura")
                 .description(notes)
                 .type(TransactionType.TRANSFERENCIA_ENTRADA)
                 .amount(request.getAmount())
@@ -796,7 +867,7 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         InstallmentPlan paymentCredit = InstallmentPlan.builder()
                 .id(ID.generate())
                 .date(paymentDate)
-                .name("Pagamento Recebido")
+                .name(advancePayment ? "Adiantamento Recebido" : "Pagamento Recebido")
                 .description(notes)
                 .type(TransactionType.RECEITA.name())
                 .amount(request.getAmount().abs().negate())

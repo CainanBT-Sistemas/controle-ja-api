@@ -19,6 +19,11 @@ public interface InvoicesWebService {
     Optional<InvoiceDetailsDTO> getInvoiceDetails(UUID cardId, Integer month, Integer year);
 
     /**
+     * Retorna detalhes de uma fatura persistida usando o identificador real da fatura.
+     */
+    Optional<InvoiceDetailsDTO> getInvoiceDetailsById(UUID invoiceId);
+
+    /**
      * Lista compras futuras elegíveis para adiantamento na fatura selecionada.
      */
     List<AdvanceablePurchaseDTO> getAdvanceablePurchases(UUID cardId, Integer month, Integer year);

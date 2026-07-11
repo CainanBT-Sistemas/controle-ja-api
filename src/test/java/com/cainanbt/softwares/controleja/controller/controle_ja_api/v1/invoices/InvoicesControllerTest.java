@@ -85,6 +85,37 @@ public class InvoicesControllerTest {
     }
 
     @Test
+    public void getInvoiceDetailsById_whenFound_returns200AndBody() throws Exception {
+        UUID invoiceId = UUID.randomUUID();
+        UUID cardId = UUID.randomUUID();
+        InvoiceDetailsDTO dto = InvoiceDetailsDTO.builder()
+                .invoiceId(invoiceId)
+                .cardId(cardId)
+                .cardName("Card")
+                .month(6)
+                .year(2026)
+                .totalAmount(new BigDecimal("100.00"))
+                .build();
+        when(service.getInvoiceDetailsById(eq(invoiceId))).thenReturn(Optional.of(dto));
+
+        mockMvc.perform(get("/controle_ja_api/v1/invoices/" + invoiceId))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.invoiceId").value(invoiceId.toString()))
+                .andExpect(jsonPath("$.month").value(6))
+                .andExpect(jsonPath("$.year").value(2026));
+    }
+
+    @Test
+    public void getInvoiceDetailsById_whenNotFound_returns404() throws Exception {
+        UUID invoiceId = UUID.randomUUID();
+        when(service.getInvoiceDetailsById(eq(invoiceId))).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/controle_ja_api/v1/invoices/" + invoiceId))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     public void getAdvanceable_returns200AndBody() throws Exception {
         UUID cardId = UUID.randomUUID();
         UUID purchaseId = UUID.randomUUID();

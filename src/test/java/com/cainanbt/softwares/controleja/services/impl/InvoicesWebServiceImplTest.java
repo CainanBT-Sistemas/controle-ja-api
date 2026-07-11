@@ -161,6 +161,43 @@ public class InvoicesWebServiceImplTest {
     }
 
     @Test
+    public void getInvoiceDetailsById_whenInvoiceBelongsToUser_usesPersistedInvoicePeriod() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            CreditCard card = CreditCard.builder()
+                    .id(UUID.randomUUID())
+                    .name("Card")
+                    .closeDay(5)
+                    .bestDay(10)
+                    .build();
+            Invoices invoice = Invoices.builder()
+                    .id(UUID.randomUUID())
+                    .month(6)
+                    .year(2026)
+                    .amount(new BigDecimal("250.00"))
+                    .paid(false)
+                    .creditCard(card)
+                    .user(currentUser)
+                    .build();
+
+            when(invoicesService.findByIdOrThrow(invoice.getId())).thenReturn(invoice);
+            when(invoicesService.findByCreditCardIdAndMonthAndYear(card.getId(), 6, 2026))
+                    .thenReturn(Optional.of(invoice));
+            when(installmentPlanService.findByInvoiceIdAndUserId(invoice.getId(), currentUser.getId()))
+                    .thenReturn(List.of());
+
+            InvoiceDetailsDTO result = service.getInvoiceDetailsById(invoice.getId()).orElseThrow();
+
+            assertEquals(invoice.getId(), result.getInvoiceId());
+            assertEquals(card.getId(), result.getCardId());
+            assertEquals(6, result.getMonth());
+            assertEquals(2026, result.getYear());
+            verify(invoicesService).findByCreditCardIdAndMonthAndYear(card.getId(), 6, 2026);
+        }
+    }
+
+    @Test
     public void getInvoiceDetails_ordersItemsByNewestPurchaseDateFirst() {
         try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
             mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
@@ -524,6 +561,8 @@ public class InvoicesWebServiceImplTest {
 
             Invoices currentInvoice = Invoices.builder()
                     .id(UUID.randomUUID())
+                    .month(4)
+                    .year(2026)
                     .expirationDate(DateUtils.getEpochNow())
                     .amount(new BigDecimal("100.00"))
                     .creditCard(card)
@@ -532,8 +571,8 @@ public class InvoicesWebServiceImplTest {
 
             Invoices oldInvoice = Invoices.builder().id(UUID.randomUUID()).expirationDate(DateUtils.getEpochNow() + 500000L).amount(new BigDecimal("200.00")).creditCard(card).user(currentUser).build();
 
-            InstallmentPlan i1 = InstallmentPlan.builder().id(UUID.randomUUID()).date(DateUtils.getEpochNow() + 100000L).amount(new BigDecimal("30.00")).invoices(oldInvoice).purchaseId(UUID.randomUUID()).user(currentUser).paid(false).build();
-            InstallmentPlan i2 = InstallmentPlan.builder().id(UUID.randomUUID()).date(DateUtils.getEpochNow() + 200000L).amount(new BigDecimal("40.00")).invoices(oldInvoice).purchaseId(i1.getPurchaseId()).user(currentUser).paid(false).build();
+            InstallmentPlan i1 = InstallmentPlan.builder().id(UUID.randomUUID()).date(DateUtils.getEpochNow() + 100000L).name("Compra teste (1/2)").amount(new BigDecimal("30.00")).invoices(oldInvoice).purchaseId(UUID.randomUUID()).user(currentUser).paid(false).build();
+            InstallmentPlan i2 = InstallmentPlan.builder().id(UUID.randomUUID()).date(DateUtils.getEpochNow() + 200000L).name("Compra teste (2/2)").amount(new BigDecimal("40.00")).invoices(oldInvoice).purchaseId(i1.getPurchaseId()).user(currentUser).paid(false).build();
 
             when(invoicesService.findByIdOrThrow(currentInvoice.getId())).thenReturn(currentInvoice);
             when(installmentPlanService.findByPurchaseIdAndUserId(i1.getPurchaseId(), currentUser.getId())).thenReturn(List.of(i1, i2));
@@ -548,6 +587,10 @@ public class InvoicesWebServiceImplTest {
 
             // Fatura atual: 100 original + 30 (parcela 1) + 40 (parcela 2) - 10 (desconto) = 160
             assertEquals(new BigDecimal("160.00"), currentInvoice.getAmount());
+            assertEquals("Adiantamento de parcelas - Compra teste (1/2)", i1.getName());
+            assertEquals("Adiantamento de parcelas - Compra teste (2/2)", i2.getName());
+            assertEquals("Adiantamento de parcelas da fatura de 04/2026", i1.getDescription());
+            assertEquals("Adiantamento de parcelas da fatura de 04/2026", i2.getDescription());
         }
     }
 
@@ -563,6 +606,8 @@ public class InvoicesWebServiceImplTest {
                     .build();
             Invoices currentInvoice = Invoices.builder()
                     .id(UUID.randomUUID())
+                    .month(4)
+                    .year(2026)
                     .expirationDate(DateUtils.getEpochNow())
                     .amount(new BigDecimal("100.00"))
                     .creditCard(card)
@@ -595,6 +640,7 @@ public class InvoicesWebServiceImplTest {
             ArgumentCaptor<InstallmentPlan> captor = ArgumentCaptor.forClass(InstallmentPlan.class);
             verify(installmentPlanService).save(captor.capture());
             assertEquals("Desconto Adiantamento", captor.getValue().getName());
+            assertEquals("Adiantamento de parcelas da fatura de 04/2026", captor.getValue().getDescription());
             assertEquals(new BigDecimal("-20.00"), captor.getValue().getAmount());
             assertEquals(purchaseId, captor.getValue().getPurchaseId());
         }
@@ -1042,6 +1088,7 @@ public class InvoicesWebServiceImplTest {
     }
 
     @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
     public void processPayment_whenFullPayment_shouldDebitPaidAmountAndCreateInvoiceCredit() {
         try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
             mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
@@ -1079,7 +1126,55 @@ public class InvoicesWebServiceImplTest {
             verify(installmentPlanService).save(captor.capture());
             assertEquals("Pagamento Recebido", captor.getValue().getName());
             assertEquals(new BigDecimal("-100.00"), captor.getValue().getAmount());
-            verify(transactionRepository).saveAll(anyList());
+            ArgumentCaptor<List<Transactions>> transactionCaptor = ArgumentCaptor.forClass(List.class);
+            verify(transactionRepository).saveAll(transactionCaptor.capture());
+            assertEquals("Pagamento Fatura Card", transactionCaptor.getValue().get(0).getName());
+            assertEquals("Pagamento total", transactionCaptor.getValue().get(0).getDescription());
+        }
+    }
+
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public void processPayment_whenAdvancePayment_shouldUseAdvanceNamesAndDescription() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            InvoicePaymentFixture fixture = paymentFixture("50.00", "100.00");
+            fixture.invoice.setMonth(8);
+            fixture.invoice.setYear(2026);
+            fixture.invoice.setPaid(false);
+            InstallmentPlan purchase = installment(fixture.invoice, "Compra", "100.00", false);
+            Category category = Category.builder().id(UUID.randomUUID()).name("Transfêrencia").user(currentUser).build();
+            InvoicePaymentRequestDTO request = new InvoicePaymentRequestDTO();
+            request.setAccountId(fixture.sourceAccount.getId());
+            request.setAmount(new BigDecimal("100.00"));
+            request.setAdvancePayment(true);
+            List<InstallmentPlan> invoiceItems = new ArrayList<>();
+            invoiceItems.add(purchase);
+
+            when(invoicesService.findByIdOrThrow(fixture.invoice.getId())).thenReturn(fixture.invoice);
+            when(installmentPlanService.findByInvoiceIdAndUserId(fixture.invoice.getId(), currentUser.getId())).thenAnswer(invocation -> new ArrayList<>(invoiceItems));
+            Mockito.doAnswer(invocation -> {
+                invoiceItems.add(invocation.getArgument(0));
+                return invocation.getArgument(0);
+            }).when(installmentPlanService).save(any(InstallmentPlan.class));
+            when(accountsService.findByIdOrThrow(fixture.sourceAccount.getId())).thenReturn(fixture.sourceAccount);
+            when(categoryService.findCategoryByUserAndName(currentUser, "Transfêrencia")).thenReturn(category);
+            when(invoicesService.findByCreditCardIdAndMonthAndYear(fixture.card.getId(), fixture.invoice.getMonth(), fixture.invoice.getYear()))
+                    .thenReturn(Optional.of(fixture.invoice));
+
+            service.processPayment(fixture.invoice.getId(), request);
+
+            ArgumentCaptor<InstallmentPlan> captor = ArgumentCaptor.forClass(InstallmentPlan.class);
+            verify(installmentPlanService).save(captor.capture());
+            assertEquals("Adiantamento Recebido", captor.getValue().getName());
+            assertEquals("Adiantamento de pagamento da fatura de 08/2026", captor.getValue().getDescription());
+
+            ArgumentCaptor<List<Transactions>> transactionCaptor = ArgumentCaptor.forClass(List.class);
+            verify(transactionRepository).saveAll(transactionCaptor.capture());
+            assertEquals("Adiantamento Fatura Card", transactionCaptor.getValue().get(0).getName());
+            assertEquals("Recebimento de Adiantamento", transactionCaptor.getValue().get(1).getName());
+            assertEquals("Adiantamento de pagamento da fatura de 08/2026", transactionCaptor.getValue().get(0).getDescription());
         }
     }
 
