@@ -59,12 +59,16 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @RequiredArgsConstructor
 @Service
 @Slf4j
 public class TransactionServiceImpl implements TransactionService {
+    private static final Pattern INSTALLMENT_SUFFIX = Pattern.compile(".*\\((\\d+)/(\\d+)\\)$");
+
     private final TransactionRepository repository;
     private final AccountsService accountsService;
     private final CategoryService categoryService;
@@ -214,9 +218,121 @@ public class TransactionServiceImpl implements TransactionService {
             return TransactionResponseDTO.toDetailedDTO(updateTransferPair(current, dto, scope));
         }
 
+        List<Transactions> standardInstallmentSeries = findStandardInstallmentSeries(current);
+        if (!standardInstallmentSeries.isEmpty()
+                && dto.getDate() != null
+                && !changesOnlyCurrentPaidStatus(current, dto, scope)) {
+            return updateStandardInstallmentSeries(current, standardInstallmentSeries, dto, scope);
+        }
+
         Transactions transaction = updateTransaction(id, dto, scope);
 
         return TransactionResponseDTO.toDetailedDTO(transaction);
+    }
+
+    private List<Transactions> findStandardInstallmentSeries(Transactions current) {
+        if (current.getAccount() == null || current.getAccount().getType() == AccountType.CREDIT_CARD) {
+            return Collections.emptyList();
+        }
+        if (current.getType() != TransactionType.DESPESA && current.getType() != TransactionType.RECEITA) {
+            return Collections.emptyList();
+        }
+
+        Transactions parent = current.getParentTransaction() != null ? current.getParentTransaction() : current;
+        List<Transactions> children = repository.findByParentTransactionId(parent.getId());
+        if (children.isEmpty() && current.getParentTransaction() == null) {
+            return Collections.emptyList();
+        }
+
+        List<Transactions> series = new ArrayList<>(children.size() + 1);
+        if (parent.getDeletedAt() == null) {
+            series.add(parent);
+        }
+        series.addAll(children.stream()
+                .filter(tx -> tx.getDeletedAt() == null)
+                .toList());
+
+        return series.stream()
+                .sorted((left, right) -> Integer.compare(
+                        resolveInstallmentNumber(left),
+                        resolveInstallmentNumber(right)))
+                .toList();
+    }
+
+    private boolean changesOnlyCurrentPaidStatus(Transactions current, TransactionDTO dto, OperationScope scope) {
+        return scope == OperationScope.ONLY_THIS
+                && dto.getPaid() != null
+                && !Objects.equals(dto.getPaid(), current.getPaid());
+    }
+
+    private TransactionResponseDTO updateStandardInstallmentSeries(
+            Transactions reference,
+            List<Transactions> series,
+            TransactionDTO dto,
+            OperationScope scope) {
+        Users currentUser = SecurityContextUtils.getCurrentUser();
+        long dateNow = DateUtils.getEpochNow();
+
+        for (Transactions tx : series) {
+            validateTransactionOwner(tx, currentUser);
+        }
+
+        List<Transactions> scoped = selectStandardInstallmentsForScope(series, scope, reference);
+        String baseName = removeInstallmentSuffix(dto.getName() != null ? dto.getName() : reference.getName());
+        int totalInstallments = series.size();
+        Integer referenceInstallment = resolveInstallmentNumber(reference);
+        Integer targetDay = dto.getDate() != null ? DateUtils.epochToLocalDate(dto.getDate()).getDayOfMonth() : null;
+
+        for (Transactions tx : scoped) {
+            if (dto.getName() != null) {
+                tx.setName(buildInstallmentName(baseName, resolveInstallmentNumber(tx), totalInstallments));
+            }
+            if (dto.getDescription() != null) {
+                tx.setDescription(dto.getDescription());
+            }
+            if (dto.getDate() != null) {
+                int monthsToAdd = resolveInstallmentNumber(tx) - referenceInstallment;
+                tx.setDate(recalculateInstallmentDate(dto.getDate(), monthsToAdd, targetDay));
+            }
+            tx.setUpdatedAt(dateNow);
+        }
+
+        repository.saveAll(scoped);
+        return TransactionResponseDTO.toDetailedDTO(reference);
+    }
+
+    private List<Transactions> selectStandardInstallmentsForScope(List<Transactions> series, OperationScope scope, Transactions reference) {
+        if (scope == OperationScope.ALL) {
+            return series;
+        }
+
+        int referenceInstallment = resolveInstallmentNumber(reference);
+        if (scope == OperationScope.FROM_THIS_FORWARD) {
+            return series.stream()
+                    .filter(tx -> resolveInstallmentNumber(tx) >= referenceInstallment)
+                    .toList();
+        }
+
+        return series.stream()
+                .filter(tx -> tx.getId().equals(reference.getId()))
+                .toList();
+    }
+
+    private int resolveInstallmentNumber(Transactions transaction) {
+        String name = transaction.getName();
+        if (name != null) {
+            Matcher matcher = INSTALLMENT_SUFFIX.matcher(name.trim());
+            if (matcher.matches()) {
+                return Integer.parseInt(matcher.group(1));
+            }
+        }
+        return transaction.getParentTransaction() == null ? 1 : Integer.MAX_VALUE;
+    }
+
+    private long recalculateInstallmentDate(Long referenceDateEpoch, int monthsToAdd, int targetDay) {
+        LocalDate targetMonth = DateUtils.epochToLocalDate(referenceDateEpoch).plusMonths(monthsToAdd);
+        int safeDay = Math.min(targetDay, targetMonth.lengthOfMonth());
+        return DateUtils.localDateToEpoch(LocalDate.of(targetMonth.getYear(), targetMonth.getMonth(), safeDay));
     }
 
     private TransactionResponseDTO updateCreditCardInstallments(InstallmentPlan reference, TransactionDTO dto) {

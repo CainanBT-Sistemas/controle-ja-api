@@ -9,9 +9,13 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Data
 public class TransactionResponseDTO {
+    private static final Pattern INSTALLMENT_SUFFIX = Pattern.compile(".*\\((\\d+)/(\\d+)\\)$");
+
     private UUID id;
     private String name;
     private TransactionType type;
@@ -42,6 +46,8 @@ public class TransactionResponseDTO {
     // CORREÇÃO: Campos que faltavam para o app ler o status do Toggle
     private Boolean isFixed;
     private RecurrenceFrequency recurrenceFrequency;
+    private Integer currentInstallment;
+    private Integer totalInstallmentsPlan;
 
     public static TransactionResponseDTO toBasicDTO(Transactions entity) {
         TransactionResponseDTO dto = new TransactionResponseDTO();
@@ -65,6 +71,8 @@ public class TransactionResponseDTO {
         if (entity.getParentTransaction() != null) {
             dto.setParentTransactionId(entity.getParentTransaction().getId());
         }
+
+        applyInstallmentMetadataFromName(dto, entity.getName());
 
         if (entity.getCreditCard() != null) {
             dto.setCreditCardId(entity.getCreditCard().getId());
@@ -104,5 +112,15 @@ public class TransactionResponseDTO {
         }
 
         return dto;
+    }
+
+    private static void applyInstallmentMetadataFromName(TransactionResponseDTO dto, String name) {
+        if (name == null) return;
+
+        Matcher matcher = INSTALLMENT_SUFFIX.matcher(name.trim());
+        if (!matcher.matches()) return;
+
+        dto.setCurrentInstallment(Integer.parseInt(matcher.group(1)));
+        dto.setTotalInstallmentsPlan(Integer.parseInt(matcher.group(2)));
     }
 }
