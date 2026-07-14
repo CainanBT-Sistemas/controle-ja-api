@@ -219,9 +219,7 @@ public class TransactionServiceImpl implements TransactionService {
         }
 
         List<Transactions> standardInstallmentSeries = findStandardInstallmentSeries(current);
-        if (!standardInstallmentSeries.isEmpty()
-                && dto.getDate() != null
-                && !changesOnlyCurrentPaidStatus(current, dto, scope)) {
+        if (!standardInstallmentSeries.isEmpty() && shouldUseStandardInstallmentSeriesUpdate(current, dto, scope)) {
             return updateStandardInstallmentSeries(current, standardInstallmentSeries, dto, scope);
         }
 
@@ -259,10 +257,24 @@ public class TransactionServiceImpl implements TransactionService {
                 .toList();
     }
 
-    private boolean changesOnlyCurrentPaidStatus(Transactions current, TransactionDTO dto, OperationScope scope) {
-        return scope == OperationScope.ONLY_THIS
-                && dto.getPaid() != null
-                && !Objects.equals(dto.getPaid(), current.getPaid());
+    private boolean shouldUseStandardInstallmentSeriesUpdate(Transactions current, TransactionDTO dto, OperationScope scope) {
+        return scope == OperationScope.ALL
+                || hasStandardInstallmentPaidChange(current, dto)
+                || hasStandardInstallmentNonPaidChange(current, dto);
+    }
+
+    private boolean hasStandardInstallmentPaidChange(Transactions current, TransactionDTO dto) {
+        return dto.getPaid() != null && !Objects.equals(dto.getPaid(), current.getPaid());
+    }
+
+    private boolean hasStandardInstallmentNonPaidChange(Transactions current, TransactionDTO dto) {
+        return (dto.getDate() != null && !Objects.equals(dto.getDate(), current.getDate()))
+                || (dto.getName() != null && !Objects.equals(removeInstallmentSuffix(dto.getName()), removeInstallmentSuffix(current.getName())))
+                || (dto.getDescription() != null && !Objects.equals(normalizeText(dto.getDescription()), normalizeText(current.getDescription())))
+                || (dto.getAmount() != null && current.getAmount() != null && dto.getAmount().compareTo(current.getAmount()) != 0)
+                || (dto.getType() != null && dto.getType() != current.getType())
+                || (dto.getAccountId() != null && (current.getAccount() == null || !dto.getAccountId().equals(current.getAccount().getId())))
+                || (dto.getCategoryId() != null && (current.getCategory() == null || !dto.getCategoryId().equals(current.getCategory().getId())));
     }
 
     private TransactionResponseDTO updateStandardInstallmentSeries(
@@ -277,13 +289,25 @@ public class TransactionServiceImpl implements TransactionService {
             validateTransactionOwner(tx, currentUser);
         }
 
-        List<Transactions> scoped = selectStandardInstallmentsForScope(series, scope, reference);
+        boolean paidChanged = hasStandardInstallmentPaidChange(reference, dto);
+        boolean nonPaidChanged = hasStandardInstallmentNonPaidChange(reference, dto);
+        validateSupportedStandardInstallmentSeriesUpdate(reference, dto, scope, paidChanged, nonPaidChanged);
+
+        List<Transactions> scoped = paidChanged
+                ? selectStandardInstallmentsForScope(series, OperationScope.ONLY_THIS, reference)
+                : selectStandardInstallmentsForScope(series, scope, reference);
+        validateEditableStandardInstallmentScope(scoped, reference, paidChanged);
         String baseName = removeInstallmentSuffix(dto.getName() != null ? dto.getName() : reference.getName());
         int totalInstallments = series.size();
         Integer referenceInstallment = resolveInstallmentNumber(reference);
         Integer targetDay = dto.getDate() != null ? DateUtils.epochToLocalDate(dto.getDate()).getDayOfMonth() : null;
 
         for (Transactions tx : scoped) {
+            Accounts oldAccount = tx.getAccount();
+            BigDecimal oldAmount = tx.getAmount();
+            TransactionType oldType = tx.getType();
+            boolean wasPaid = Boolean.TRUE.equals(tx.getPaid());
+
             if (dto.getName() != null) {
                 tx.setName(buildInstallmentName(baseName, resolveInstallmentNumber(tx), totalInstallments));
             }
@@ -294,11 +318,103 @@ public class TransactionServiceImpl implements TransactionService {
                 int monthsToAdd = resolveInstallmentNumber(tx) - referenceInstallment;
                 tx.setDate(recalculateInstallmentDate(dto.getDate(), monthsToAdd, targetDay));
             }
+            if (paidChanged) {
+                tx.setPaid(dto.getPaid());
+            }
+
+            if (paidChanged && !Objects.equals(wasPaid, Boolean.TRUE.equals(tx.getPaid()))) {
+                if (wasPaid) {
+                    reverseTransactionBalance(oldAccount, oldType, oldAmount);
+                }
+                if (Boolean.TRUE.equals(tx.getPaid())) {
+                    applyTransactionBalance(tx.getAccount(), tx.getType(), tx.getAmount());
+                }
+            }
             tx.setUpdatedAt(dateNow);
         }
 
         repository.saveAll(scoped);
         return TransactionResponseDTO.toDetailedDTO(reference);
+    }
+
+    private String normalizeText(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
+    }
+
+    private void validateSupportedStandardInstallmentSeriesUpdate(
+            Transactions reference,
+            TransactionDTO dto,
+            OperationScope scope,
+            boolean paidChanged,
+            boolean nonPaidChanged) {
+        if (scope == OperationScope.ALL) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Alteração em todas as parcelas comuns não está disponível. Use somente esta parcela ou esta e as próximas.");
+        }
+        if (paidChanged && nonPaidChanged) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Altere o status de pagamento separadamente dos demais campos da parcela.");
+        }
+        if (paidChanged) {
+            return;
+        }
+        if (dto.getPaid() != null) {
+            dto.setPaid(reference.getPaid());
+        }
+        if (scope == OperationScope.ONLY_THIS) {
+            return;
+        }
+        if (dto.getAmount() != null && reference.getAmount() != null && dto.getAmount().compareTo(reference.getAmount()) != 0) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Alteração em massa de valor de parcelas comuns não está disponível neste momento.");
+        }
+        if (dto.getType() != null && dto.getType() != reference.getType()) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Alteração em massa de tipo de parcelas comuns não está disponível neste momento.");
+        }
+        if (dto.getAccountId() != null && (reference.getAccount() == null || !dto.getAccountId().equals(reference.getAccount().getId()))) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Alteração em massa de conta de parcelas comuns não está disponível neste momento.");
+        }
+        if (dto.getCategoryId() != null && (reference.getCategory() == null || !dto.getCategoryId().equals(reference.getCategory().getId()))) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Alteração em massa de categoria de parcelas comuns não está disponível neste momento.");
+        }
+    }
+
+    private void validateEditableStandardInstallmentScope(List<Transactions> scoped, Transactions reference, boolean paidChanged) {
+        if (paidChanged) {
+            return;
+        }
+        for (Transactions tx : scoped) {
+            if (resolveInstallmentNumber(tx) < resolveInstallmentNumber(reference)) {
+                throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Alteração de parcelas anteriores não é permitida.");
+            }
+            if (Boolean.TRUE.equals(tx.getPaid())) {
+                throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Existem parcelas pagas neste parcelamento. Cancele ou ajuste essas parcelas antes de alterar as próximas.");
+            }
+        }
+    }
+
+    private void reverseTransactionBalance(Accounts account, TransactionType type, BigDecimal amount) {
+        if (account == null || account.getType() == AccountType.CREDIT_CARD || amount == null || type == null) {
+            return;
+        }
+        if (type == TransactionType.DESPESA) {
+            account.credit(amount);
+        } else if (type == TransactionType.RECEITA) {
+            account.debit(amount);
+        }
+        accountsService.update(account);
+    }
+
+    private void applyTransactionBalance(Accounts account, TransactionType type, BigDecimal amount) {
+        if (account == null || account.getType() == AccountType.CREDIT_CARD || amount == null || type == null) {
+            return;
+        }
+        if (type == TransactionType.DESPESA) {
+            account.debit(amount);
+        } else if (type == TransactionType.RECEITA) {
+            account.credit(amount);
+        }
+        accountsService.update(account);
     }
 
     private List<Transactions> selectStandardInstallmentsForScope(List<Transactions> series, OperationScope scope, Transactions reference) {

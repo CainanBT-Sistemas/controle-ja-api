@@ -773,9 +773,9 @@ public class TransactionControllerTest extends BaseTest {
     @Test
     @DisplayName("Despesa parcelada fora do cartão aplica nova data deste lançamento em diante")
     void shouldUpdateBankInstallmentDatesFromThisForward() {
-        String firstId = createBankInstallmentPurchase("Curso", LocalDate.of(2026, 1, 25), 6);
+        String firstId = createBankInstallmentPurchase("Curso", LocalDate.of(2026, 1, 25), 6, false);
 
-        TransactionDTO update = bankInstallmentUpdate("Curso", LocalDate.of(2026, 1, 30));
+        TransactionDTO update = bankInstallmentUpdate("Curso", LocalDate.of(2026, 1, 30), new BigDecimal("100.00"));
         given().header("Authorization", "Bearer " + token)
                 .queryParam("operationScope", "FROM_THIS_FORWARD")
                 .contentType(ContentType.JSON).body(update)
@@ -796,7 +796,7 @@ public class TransactionControllerTest extends BaseTest {
     @Test
     @DisplayName("Despesa parcelada fora do cartão com ONLY_THIS muda apenas a parcela selecionada")
     void shouldUpdateOnlySelectedBankInstallmentDate() {
-        String firstId = createBankInstallmentPurchase("Seguro", LocalDate.of(2026, 1, 25), 3);
+        String firstId = createBankInstallmentPurchase("Seguro", LocalDate.of(2026, 1, 25), 3, false);
 
         TransactionDTO update = bankInstallmentUpdate("Seguro", LocalDate.of(2026, 1, 30));
         given().header("Authorization", "Bearer " + token)
@@ -814,9 +814,9 @@ public class TransactionControllerTest extends BaseTest {
     }
 
     @Test
-    @DisplayName("Despesa parcelada fora do cartão com ALL muda todas as parcelas")
-    void shouldUpdateAllBankInstallmentDates() {
-        String firstId = createBankInstallmentPurchase("Material", LocalDate.of(2026, 1, 25), 3);
+    @DisplayName("Despesa parcelada fora do cartão rejeita ALL")
+    void shouldRejectAllScopeForBankInstallments() {
+        String firstId = createBankInstallmentPurchase("Material", LocalDate.of(2026, 1, 25), 3, false);
         String secondId = jdbcTemplate.queryForObject(
                 "SELECT id FROM transactions WHERE parent_transaction_id = ? ORDER BY date LIMIT 1",
                 String.class,
@@ -828,14 +828,13 @@ public class TransactionControllerTest extends BaseTest {
                 .queryParam("operationScope", "ALL")
                 .contentType(ContentType.JSON).body(update)
                 .put("/transactions/" + secondId)
-                .then().statusCode(200)
-                .body("currentInstallment", is(2))
-                .body("totalInstallmentsPlan", is(3));
+                .then().statusCode(400)
+                .body("message", containsString("todas as parcelas comuns"));
 
         assertInstallmentDates(firstId,
-                LocalDate.of(2026, 1, 28),
-                LocalDate.of(2026, 2, 28),
-                LocalDate.of(2026, 3, 28));
+                LocalDate.of(2026, 1, 25),
+                LocalDate.of(2026, 2, 25),
+                LocalDate.of(2026, 3, 25));
     }
 
     @Test
@@ -844,7 +843,7 @@ public class TransactionControllerTest extends BaseTest {
         String firstId = createBankInstallmentPurchase("Notebook", LocalDate.of(2026, 1, 25), 3);
         String otherUserToken = registerAndLoginUser();
 
-        TransactionDTO update = bankInstallmentUpdate("Notebook", LocalDate.of(2026, 1, 30));
+        TransactionDTO update = bankInstallmentUpdate("Notebook", LocalDate.of(2026, 1, 30), new BigDecimal("200.00"), true);
         given().header("Authorization", "Bearer " + otherUserToken)
                 .queryParam("operationScope", "FROM_THIS_FORWARD")
                 .contentType(ContentType.JSON).body(update)
@@ -895,6 +894,137 @@ public class TransactionControllerTest extends BaseTest {
         );
 
         assertEquals(List.of(true, true, false), paidStates);
+    }
+
+    @Test
+    @DisplayName("Despesa parcelada fora do cartão permite desmarcar pago somente na parcela selecionada")
+    void shouldUnpayOnlySelectedBankInstallment() {
+        String firstId = createBankInstallmentPurchase("Despesa Parcelada Unica", LocalDate.of(2026, 1, 25), 3);
+        markBankInstallmentSeriesPaid(firstId);
+
+        TransactionDTO payment = bankInstallmentPaidUpdate("Despesa Parcelada Unica (1/3)", LocalDate.of(2026, 1, 25), false);
+
+        given().header("Authorization", "Bearer " + token)
+                .queryParam("operationScope", "ONLY_THIS")
+                .contentType(ContentType.JSON).body(payment)
+                .put("/transactions/" + firstId)
+                .then().statusCode(200)
+                .body("paid", is(false))
+                .body("currentInstallment", is(1))
+                .body("totalInstallmentsPlan", is(3));
+
+        assertInstallmentPaidStates(firstId, false, true, true);
+    }
+
+    @Test
+    @DisplayName("Despesa parcelada fora do cartão com paid ignora escopo futuro e altera apenas a atual")
+    void shouldUnpayOnlySelectedBankInstallmentEvenWhenScopeIsFromThisForward() {
+        String firstId = createBankInstallmentPurchase("Despesa Parcelada Futuras", LocalDate.of(2026, 1, 25), 4);
+        markBankInstallmentSeriesPaid(firstId);
+        String secondId = jdbcTemplate.queryForObject(
+                "SELECT id FROM transactions WHERE parent_transaction_id = ? ORDER BY date LIMIT 1",
+                String.class,
+                UUID.fromString(firstId)
+        );
+
+        TransactionDTO payment = bankInstallmentPaidUpdate("Despesa Parcelada Futuras (2/4)", LocalDate.of(2026, 2, 25), new BigDecimal("150.00"), false);
+
+        given().header("Authorization", "Bearer " + token)
+                .queryParam("operationScope", "FROM_THIS_FORWARD")
+                .contentType(ContentType.JSON).body(payment)
+                .put("/transactions/" + secondId)
+                .then().statusCode(200)
+                .body("paid", is(false))
+                .body("currentInstallment", is(2))
+                .body("totalInstallmentsPlan", is(4));
+
+        assertInstallmentPaidStates(firstId, true, false, true, true);
+    }
+
+    @Test
+    @DisplayName("Despesa parcelada fora do cartão rejeita paid com ALL")
+    void shouldRejectAllScopeWhenChangingPaidForBankInstallments() {
+        String firstId = createBankInstallmentPurchase("Despesa Parcelada Todas", LocalDate.of(2026, 1, 25), 3);
+        markBankInstallmentSeriesPaid(firstId);
+        String secondId = jdbcTemplate.queryForObject(
+                "SELECT id FROM transactions WHERE parent_transaction_id = ? ORDER BY date LIMIT 1",
+                String.class,
+                UUID.fromString(firstId)
+        );
+
+        TransactionDTO payment = bankInstallmentPaidUpdate("Despesa Parcelada Todas (2/3)", LocalDate.of(2026, 2, 25), false);
+
+        given().header("Authorization", "Bearer " + token)
+                .queryParam("operationScope", "ALL")
+                .contentType(ContentType.JSON).body(payment)
+                .put("/transactions/" + secondId)
+                .then().statusCode(400)
+                .body("message", containsString("todas as parcelas comuns"));
+
+        assertInstallmentPaidStates(firstId, true, true, true);
+    }
+
+    @Test
+    @DisplayName("Despesa parcelada fora do cartão bloqueia paid misturado com data")
+    void shouldRejectPaidMixedWithDateForBankInstallments() {
+        String firstId = createBankInstallmentPurchase("Despesa Parcelada Mistura", LocalDate.of(2026, 1, 25), 3);
+
+        TransactionDTO payment = bankInstallmentPaidUpdate("Despesa Parcelada Mistura (1/3)", LocalDate.of(2026, 1, 30), false);
+
+        given().header("Authorization", "Bearer " + token)
+                .queryParam("operationScope", "ONLY_THIS")
+                .contentType(ContentType.JSON).body(payment)
+                .put("/transactions/" + firstId)
+                .then().statusCode(400)
+                .body("message", containsString("status de pagamento separadamente"));
+
+        assertInstallmentPaidStates(firstId, true, false, false);
+        assertInstallmentDates(firstId,
+                LocalDate.of(2026, 1, 25),
+                LocalDate.of(2026, 2, 25),
+                LocalDate.of(2026, 3, 25));
+    }
+
+    @Test
+    @DisplayName("Despesa parcelada fora do cartão bloqueia data futura quando o conjunto tem parcela paga")
+    void shouldRejectForwardDateChangeWhenBankInstallmentScopeContainsPaidInstallment() {
+        String firstId = createBankInstallmentPurchase("Despesa Parcelada Bloqueada", LocalDate.of(2026, 1, 25), 3, false);
+        String secondId = jdbcTemplate.queryForObject(
+                "SELECT id FROM transactions WHERE parent_transaction_id = ? ORDER BY date LIMIT 1",
+                String.class,
+                UUID.fromString(firstId)
+        );
+        jdbcTemplate.update("UPDATE transactions SET paid = true WHERE id = ?", UUID.fromString(secondId));
+
+        TransactionDTO update = bankInstallmentUpdate("Despesa Parcelada Bloqueada (2/3)", LocalDate.of(2026, 2, 28), new BigDecimal("200.00"), true);
+
+        given().header("Authorization", "Bearer " + token)
+                .queryParam("operationScope", "FROM_THIS_FORWARD")
+                .contentType(ContentType.JSON).body(update)
+                .put("/transactions/" + secondId)
+                .then().statusCode(400)
+                .body("message", containsString("parcelas pagas"));
+
+        assertInstallmentDates(firstId,
+                LocalDate.of(2026, 1, 25),
+                LocalDate.of(2026, 2, 25),
+                LocalDate.of(2026, 3, 25));
+    }
+
+    @Test
+    @DisplayName("Despesa parcelada fora do cartão bloqueia valor em massa para não retornar sucesso parcial")
+    void shouldRejectMassAmountChangeForBankInstallments() {
+        String firstId = createBankInstallmentPurchase("Despesa Parcelada Valor", LocalDate.of(2026, 1, 25), 3, false);
+
+        TransactionDTO update = bankInstallmentUpdate("Despesa Parcelada Valor", LocalDate.of(2026, 1, 25));
+        update.setAmount(new BigDecimal("999.99"));
+
+        given().header("Authorization", "Bearer " + token)
+                .queryParam("operationScope", "FROM_THIS_FORWARD")
+                .contentType(ContentType.JSON).body(update)
+                .put("/transactions/" + firstId)
+                .then().statusCode(400)
+                .body("message", containsString("valor de parcelas comuns"));
     }
 
     @Test
@@ -963,12 +1093,16 @@ public class TransactionControllerTest extends BaseTest {
     }
 
     private String createBankInstallmentPurchase(String name, LocalDate date, int installments) {
+        return createBankInstallmentPurchase(name, date, installments, true);
+    }
+
+    private String createBankInstallmentPurchase(String name, LocalDate date, int installments, boolean paid) {
         TransactionDTO dto = new TransactionDTO();
         dto.setName(name);
         dto.setType(TransactionType.DESPESA);
         dto.setAmount(new BigDecimal("600.00"));
         dto.setDate(DateUtils.localDateToEpoch(date));
-        dto.setPaid(true);
+        dto.setPaid(paid);
         dto.setAccountId(bankId);
         dto.setCategoryId(categoryId);
         dto.setIsFixed(false);
@@ -983,15 +1117,33 @@ public class TransactionControllerTest extends BaseTest {
     }
 
     private TransactionDTO bankInstallmentUpdate(String name, LocalDate date) {
+        return bankInstallmentUpdate(name, date, new BigDecimal("200.00"), false);
+    }
+
+    private TransactionDTO bankInstallmentUpdate(String name, LocalDate date, BigDecimal amount) {
+        return bankInstallmentUpdate(name, date, amount, false);
+    }
+
+    private TransactionDTO bankInstallmentUpdate(String name, LocalDate date, BigDecimal amount, boolean paid) {
         TransactionDTO dto = new TransactionDTO();
         dto.setName(name);
         dto.setType(TransactionType.DESPESA);
-        dto.setAmount(new BigDecimal("100.00"));
+        dto.setAmount(amount);
         dto.setDate(DateUtils.localDateToEpoch(date));
-        dto.setPaid(true);
+        dto.setPaid(paid);
         dto.setAccountId(bankId);
         dto.setCategoryId(categoryId);
         dto.setIsFixed(false);
+        return dto;
+    }
+
+    private TransactionDTO bankInstallmentPaidUpdate(String name, LocalDate date, boolean paid) {
+        return bankInstallmentPaidUpdate(name, date, new BigDecimal("200.00"), paid);
+    }
+
+    private TransactionDTO bankInstallmentPaidUpdate(String name, LocalDate date, BigDecimal amount, boolean paid) {
+        TransactionDTO dto = bankInstallmentUpdate(name, date, amount);
+        dto.setPaid(paid);
         return dto;
     }
 
@@ -1007,6 +1159,25 @@ public class TransactionControllerTest extends BaseTest {
         for (int index = 0; index < expectedDates.length; index++) {
             assertEquals(expectedDates[index], DateUtils.epochToLocalDate(dates.get(index)));
         }
+    }
+
+    private void assertInstallmentPaidStates(String firstId, Boolean... expectedPaidStates) {
+        List<Boolean> paidStates = jdbcTemplate.queryForList(
+                "SELECT paid FROM transactions WHERE id = ? OR parent_transaction_id = ? ORDER BY date",
+                Boolean.class,
+                UUID.fromString(firstId),
+                UUID.fromString(firstId)
+        );
+
+        assertEquals(List.of(expectedPaidStates), paidStates);
+    }
+
+    private void markBankInstallmentSeriesPaid(String firstId) {
+        jdbcTemplate.update(
+                "UPDATE transactions SET paid = true WHERE id = ? OR parent_transaction_id = ?",
+                UUID.fromString(firstId),
+                UUID.fromString(firstId)
+        );
     }
 
     private String registerAndLoginUser() {
