@@ -9,14 +9,14 @@ import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.enums.RoleEnum;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.repositories.UsersRepository;
-import com.cainanbt.softwares.controleja.services.UsersService;
 import com.cainanbt.softwares.controleja.services.ClosedTestAccessPolicy;
+import com.cainanbt.softwares.controleja.services.UsersService;
 import com.cainanbt.softwares.controleja.services.users.UserDefaultDataInitializer;
+import com.cainanbt.softwares.controleja.services.users.UserOperationalDataResetter;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
-import jakarta.persistence.EntityManager;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,8 +24,8 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -38,7 +38,7 @@ public class UserServiceImpl implements UsersService {
     private final UsersRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final UserDefaultDataInitializer defaultDataInitializer;
-    private final EntityManager entityManager;
+    private final UserOperationalDataResetter operationalDataResetter;
     private final ClosedTestAccessPolicy closedTestAccessPolicy;
 
     /**
@@ -202,23 +202,11 @@ public class UserServiceImpl implements UsersService {
         if (userOpt.isPresent()) {
             Users u = userOpt.get();
             UUID userId = u.getId();
-            userRepository.deleteInstallmentsByUserId(userId);
-            userRepository.deleteInvoicesByUserId(userId);
-            userRepository.deleteTransactionsByUserId(userId);
-            userRepository.deleteCreditCardsByUserId(userId);
-            userRepository.deleteVehiclesByUserId(userId);
-            userRepository.deleteSubCategoriesByUserId(userId);
-            userRepository.deleteCategoriesByUserId(userId);
-            userRepository.deleteAccountsByUserId(userId);
-            entityManager.flush();
-            entityManager.clear();
-
-            userOpt = userRepository.findById(uuid);
-            if (userOpt.isPresent()) {
-                u = userOpt.get();
-                defaultDataInitializer.initialize(u);
-                return u;
-            }
+            log.warn("Reset operacional iniciado: userId={}", userId);
+            operationalDataResetter.deleteOperationalData(userId);
+            defaultDataInitializer.initialize(u);
+            log.warn("Reset operacional concluido: userId={}", userId);
+            return u;
         }
         throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.FAILURE_TO_FIND_USER);
     }

@@ -76,7 +76,7 @@ public class UsersControllerTest extends BaseTest {
                 .then().statusCode(200);
 
         given().header("Authorization", "Bearer " + token)
-                .when().get("/users/reset/" + userId)
+                .when().post("/users/" + userId + "/reset")
                 .then().statusCode(200);
 
         given().header("Authorization", "Bearer " + token)
