@@ -8,6 +8,9 @@ import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.exceptions.models.EntityNotFoundException;
 import com.cainanbt.softwares.controleja.repositories.AccountsRepository;
 import com.cainanbt.softwares.controleja.repositories.CreditCardRepository;
+import com.cainanbt.softwares.controleja.repositories.InstallmentPlanRepository;
+import com.cainanbt.softwares.controleja.repositories.InvoicesRepository;
+import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
 import com.cainanbt.softwares.controleja.services.creditcards.CreditCardAccountFactory;
 import com.cainanbt.softwares.controleja.services.creditcards.CreditCardDomainValidator;
@@ -35,6 +38,9 @@ public class CreditCardServiceImpl implements CreditCardService {
 
     private final CreditCardRepository creditCardRepository;
     private final AccountsRepository accountsRepository;
+    private final InvoicesRepository invoicesRepository;
+    private final InstallmentPlanRepository installmentPlanRepository;
+    private final TransactionRepository transactionRepository;
 
     /**
      * Cria o cartão e a conta espelho usada pelo fluxo de faturas.
@@ -132,6 +138,7 @@ public class CreditCardServiceImpl implements CreditCardService {
     public void softDelete(UUID id) {
         CreditCard card = findMyCardById(id);
         creditCardDomainValidator.validateCanDelete(card);
+        validateNoActiveFinancialLinks(card);
 
         long now = DateUtils.getEpochNow();
         softDeleteLinkedAccount(card, now);
@@ -216,6 +223,30 @@ public class CreditCardServiceImpl implements CreditCardService {
         if (card.getAccounts() != null) {
             card.getAccounts().setDeletedAt(now);
             accountsRepository.save(card.getAccounts());
+        }
+    }
+
+    /**
+     * Bloqueia exclusao quando qualquer historico financeiro ainda referencia o cartao.
+     */
+    private void validateNoActiveFinancialLinks(CreditCard card) {
+        UUID userId = card.getUser().getId();
+        UUID cardId = card.getId();
+        UUID accountId = card.getAccounts() != null ? card.getAccounts().getId() : null;
+
+        boolean hasLinkedInvoices = invoicesRepository.existsActiveByCreditCardIdAndUserId(cardId, userId);
+        boolean hasLinkedInstallments = installmentPlanRepository.existsActiveByCreditCardIdAndUserId(cardId, userId);
+        boolean hasDirectCardTransactions = transactionRepository.existsActiveByCreditCardIdAndUserId(cardId, userId);
+        boolean hasInvoiceTransactions = transactionRepository.existsActiveByTargetInvoiceCreditCardIdAndUserId(cardId, userId);
+        boolean hasMirrorAccountTransactions = accountId != null
+                && transactionRepository.existsActiveByAccountIdAndUserId(accountId, userId);
+
+        if (hasLinkedInvoices
+                || hasLinkedInstallments
+                || hasDirectCardTransactions
+                || hasInvoiceTransactions
+                || hasMirrorAccountTransactions) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.CANT_DELETE_CARD_WITH_LINKS);
         }
     }
 }

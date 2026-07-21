@@ -13,7 +13,8 @@
 ### - Ao registrar ou resetar, a API cria carteira padrao e categorias iniciais.
 ### - Contrato canonico autenticado: id, username, email, createdAt, tokens.accessToken, tokens.refreshToken.
 ### - Cadastro nao faz login automatico por decisao da AUTH-005; retorna tokens null/ausente e o usuario deve fazer login depois.
-### - Reset apaga dados operacionais do usuario autenticado e recria defaults.
+### - Reset apaga dados operacionais do usuario autenticado em transacao unica e recria defaults.
+### - Reset preserva usuario, credenciais, refresh token atual, allowlist Tester e entitlement.
 ### - DELETE desativa a conta, invalida refresh token e bloqueia novo login.
 
 ### Register
@@ -95,12 +96,16 @@ Authorization: Bearer {{accessToken}}
 
 ### Reset Current User
 ### Decision: endpoint recomendado para reset, pois POST representa acao mutavel.
-### Response 200: usuario com dados operacionais recriados.
+### Response 200: usuario preservado com dados operacionais recriados.
+### Remove: transacoes, faturas, parcelas, pagamentos, adiantamentos, recorrencias, cartoes,
+### contas, categorias, veiculos, postos e rankings do usuario.
+### Recria: uma carteira padrao e categorias padrao oficiais, incluindo Transferencia.
 POST {{baseUrl}}/users/{{userId}}/reset
 Authorization: Bearer {{accessToken}}
 
 ### Reset Current User - Legacy
-### Decision: mantido por compatibilidade. Preferir POST /users/{id}/reset.
+### Decision: mantido por compatibilidade. Novos clients nao devem usar este endpoint.
+### Preferir POST /users/{id}/reset.
 GET {{baseUrl}}/users/reset/{{userId}}
 Authorization: Bearer {{accessToken}}
 

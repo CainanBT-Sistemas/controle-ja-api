@@ -220,4 +220,22 @@ public interface TransactionRepository extends JpaRepository<Transactions, UUID>
             "AND t.deletedAt IS NULL " +
             "ORDER BY t.date ASC, t.createdAt ASC")
     List<Transactions> findValidRefuelsForRankingByUserId(@Param("userId") UUID userId);
+
+    /**
+     * Verifica se existe lancamento ativo usando a conta informada.
+     */
+    @Query("SELECT COUNT(t) > 0 FROM Transactions t WHERE t.account.id = :accountId AND t.user.id = :userId AND t.deletedAt IS NULL")
+    boolean existsActiveByAccountIdAndUserId(@Param("accountId") UUID accountId, @Param("userId") UUID userId);
+
+    /**
+     * Verifica se existe lancamento ativo ligado diretamente ao cartao.
+     */
+    @Query("SELECT COUNT(t) > 0 FROM Transactions t WHERE t.creditCard.id = :cardId AND t.user.id = :userId AND t.deletedAt IS NULL")
+    boolean existsActiveByCreditCardIdAndUserId(@Param("cardId") UUID cardId, @Param("userId") UUID userId);
+
+    /**
+     * Verifica se existe pagamento, estorno ou ajuste ativo vinculado a faturas do cartao.
+     */
+    @Query("SELECT COUNT(t) > 0 FROM Transactions t WHERE t.targetInvoice.creditCard.id = :cardId AND t.user.id = :userId AND t.deletedAt IS NULL")
+    boolean existsActiveByTargetInvoiceCreditCardIdAndUserId(@Param("cardId") UUID cardId, @Param("userId") UUID userId);
 }

@@ -163,6 +163,24 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         return Optional.of(dto);
     }
 
+    @Override
+    public Optional<InvoiceDetailsDTO> getInvoiceDetailsById(UUID invoiceId) {
+        Users currentUser = SecurityContextUtils.getCurrentUser();
+        Invoices invoice = invoicesService.findByIdOrThrow(invoiceId);
+
+        if (invoice.getDeletedAt() != null) {
+            throw new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Fatura não encontrada.");
+        }
+        if (!invoice.getUser().getId().equals(currentUser.getId())) {
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, "Fatura não pertence ao usuário autenticado.");
+        }
+        if (invoice.getCreditCard() == null) {
+            throw new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Cartão da fatura não encontrado.");
+        }
+
+        return getInvoiceDetails(invoice.getCreditCard().getId(), invoice.getMonth(), invoice.getYear());
+    }
+
     private Map<UUID, Transactions> findParentTransactions(List<InstallmentPlan> invoiceItems) {
         List<UUID> purchaseIds = invoiceItems.stream()
                 .map(InstallmentPlan::getPurchaseId)
@@ -244,6 +262,7 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         boolean fixed = parentTransaction != null
                 ? Boolean.TRUE.equals(parentTransaction.getFixed())
                 : Boolean.TRUE.equals(item.getFixed());
+        boolean pendingAdvance = isPendingAdvanceItem(item);
         return InvoiceItemDTO.builder()
                 .id(item.getId())
                 .transactionId(item.getPurchaseId())
@@ -270,7 +289,9 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
                 .recurrenceFrequency(parentTransaction != null && parentTransaction.getRecurrenceRule() != null
                         ? parentTransaction.getRecurrenceRule().getFrequency()
                         : null)
-                .canEdit(!closedOrPaid && !Boolean.TRUE.equals(item.getPaid()) && "PURCHASE".equals(itemKind))
+                .canEdit(!closedOrPaid && !Boolean.TRUE.equals(item.getPaid()) && "PURCHASE".equals(itemKind) && !pendingAdvance)
+                .canCorrectAdvance(!closedOrPaid && pendingAdvance)
+                .advanceOperationId(item.getAdvanceOperationId())
                 .itemKind(itemKind)
                 .build();
     }
@@ -294,14 +315,71 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         String name = item.getName() != null ? item.getName() : "";
         if (isPaymentItem(item)) return "PAYMENT";
         if (name.startsWith("Estorno:")) return "REFUND";
-        if (name.contains("(Adiantada)") || "Desconto Adiantamento".equals(name)) return "INSTALLMENT_ADVANCED";
+        if (isAdvanceItem(item)) return "INSTALLMENT_ADVANCED";
         if (item.getAmount() != null && item.getAmount().compareTo(BigDecimal.ZERO) < 0) return "ADJUSTMENT";
         return "PURCHASE";
     }
 
+    private boolean isAdvanceItem(InstallmentPlan item) {
+        return item.getAdvanceOperationId() != null && item.getAdvanceCorrectedAt() == null;
+    }
+
+    private boolean isPendingAdvanceItem(InstallmentPlan item) {
+        return item.getDeletedAt() == null && isAdvanceItem(item);
+    }
+
     private boolean isPaymentItem(InstallmentPlan item) {
         String name = item.getName() != null ? item.getName() : "";
-        return name.startsWith("Pagamento Recebido");
+        return name.startsWith("Pagamento Recebido") || name.startsWith("Adiantamento Recebido");
+    }
+
+    private String buildAdvanceInstallmentName(String purchaseName) {
+        String cleanName = purchaseName != null ? purchaseName.trim() : "";
+        if (cleanName.isEmpty()) {
+            return "Adiantamento de parcelas";
+        }
+        if (cleanName.startsWith("Adiantamento de parcelas")) {
+            return cleanName;
+        }
+        return "Adiantamento de parcelas - " + cleanName;
+    }
+
+    private String buildAdvanceInstallmentDescription(Invoices invoice) {
+        Integer month = invoice != null ? invoice.getMonth() : null;
+        Integer year = invoice != null ? invoice.getYear() : null;
+        if (month != null && year != null) {
+            return String.format("Adiantamento de parcelas da fatura de %02d/%d", month, year);
+        }
+        return "Adiantamento de parcelas da fatura selecionada";
+    }
+
+    private boolean isAdvancePayment(InvoicePaymentRequestDTO request, Invoices invoice, CreditCard card, long paymentDate) {
+        if (Boolean.TRUE.equals(request.getAdvancePayment())) {
+            return true;
+        }
+        if (invoice == null || card == null || invoice.getMonth() == null || invoice.getYear() == null) {
+            return false;
+        }
+        LocalDate closeDate = invoiceDateService.calculateCloseDate(card, invoice.getMonth(), invoice.getYear());
+        LocalDate paidAt = DateUtils.epochToLocalDate(paymentDate);
+        return paidAt.isBefore(closeDate);
+    }
+
+    private String buildInvoicePaymentName(CreditCard card, boolean advancePayment) {
+        String cardName = card != null && card.getName() != null ? card.getName() : "";
+        return (advancePayment ? "Adiantamento Fatura " : "Pagamento Fatura ") + cardName;
+    }
+
+    private String buildInvoicePaymentDescription(InvoicePaymentRequestDTO request, Invoices invoice, boolean advancePayment) {
+        if (advancePayment) {
+            Integer month = invoice != null ? invoice.getMonth() : null;
+            Integer year = invoice != null ? invoice.getYear() : null;
+            if (month != null && year != null) {
+                return String.format("Adiantamento de pagamento da fatura de %02d/%d", month, year);
+            }
+            return "Adiantamento de pagamento da fatura selecionada";
+        }
+        return request.getNotes() != null ? request.getNotes() : "";
     }
 
     private boolean isRefundableItem(InstallmentPlan item) {
@@ -327,27 +405,46 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
             throw new BadRequestException("Acesso Negado", "Cartão não pertence ao usuário autenticado.");
         }
 
-        LocalDate closeLocal = invoiceDateService.calculateCloseDate(card, month, year);
-        long closeEpoch = DateUtils.localDateToEpoch(closeLocal);
+        Optional<Invoices> currentInvoiceOptional = invoicesService.findByCreditCardIdAndMonthAndYear(cardId, month, year);
+        if (currentInvoiceOptional.isEmpty()) {
+            return List.of();
+        }
+        Invoices currentInvoice = currentInvoiceOptional.get();
+        invoiceDomainValidator.validateInvoiceOwner(currentInvoice, currentUser);
+        if (currentInvoice.getExpirationDate() == null) {
+            return List.of();
+        }
 
-        // Use optimized repository method to fetch future unpaid invoices directly
-        List<Invoices> futureInvoices = invoicesService.findFutureUnpaidByCardAndDate(currentUser.getId(), cardId, closeEpoch);
+        List<Invoices> futureInvoices = invoicesService.findFutureUnpaidByCardAndDate(
+                currentUser.getId(),
+                cardId,
+                currentInvoice.getExpirationDate()
+        );
 
         if (futureInvoices == null || futureInvoices.isEmpty()) return List.of();
 
         List<UUID> invoiceIds = futureInvoices.stream().map(Invoices::getId).toList();
 
         // Fetch all advanceable installments in one query
-        List<InstallmentPlan> advanceable = installmentPlanService.findAdvanceableByInvoiceIdsAndUserId(invoiceIds, currentUser.getId());
+        List<InstallmentPlan> candidates = installmentPlanService
+                .findAdvanceableByInvoiceIdsAndUserId(invoiceIds, currentUser.getId());
+        if (candidates == null || candidates.isEmpty()) return List.of();
 
-        if (advanceable == null || advanceable.isEmpty()) return List.of();
+        List<InstallmentPlan> advanceable = candidates
+                .stream()
+                .filter(item -> invoiceDomainValidator.isAdvanceableFutureInstallment(item, currentInvoice, currentUser))
+                .toList();
+
+        if (advanceable.isEmpty()) return List.of();
 
         List<AdvanceablePurchaseDTO> result = advanceable.stream()
                 .collect(Collectors.groupingBy(InstallmentPlan::getPurchaseId))
                 .entrySet().stream()
                 .map(e -> {
                     UUID purchaseId = e.getKey();
-                    List<InstallmentPlan> plans = e.getValue();
+                    List<InstallmentPlan> plans = e.getValue().stream()
+                            .sorted(Comparator.comparing(i -> i.getInvoices().getExpirationDate()))
+                            .toList();
                     String name = plans.stream().findFirst().map(InstallmentPlan::getName).orElse("");
                     // remove suffixes like " (1/10)"
                     name = name.replaceAll(" \\([0-9]+/[0-9]+\\)$", "");
@@ -359,6 +456,10 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
                                     .map(InstallmentPlan::getAmount)
                                     .filter(amount -> amount != null && amount.compareTo(BigDecimal.ZERO) > 0)
                                     .reduce(BigDecimal.ZERO, BigDecimal::add))
+                            .installmentAmounts(plans.stream()
+                                    .map(InstallmentPlan::getAmount)
+                                    .filter(amount -> amount != null && amount.compareTo(BigDecimal.ZERO) > 0)
+                                    .toList())
                             .build();
                 })
                 .sorted((a, b) -> a.getName().compareToIgnoreCase(b.getName()))
@@ -470,6 +571,8 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, "O desconto não pode ser maior que o total adiantado.");
         }
 
+        UUID advanceOperationId = ID.generate();
+        long now = DateUtils.getEpochNow();
         Map<UUID, Invoices> invoicesToSave = new HashMap<>();
 
         for (InstallmentPlan inst : futureInstallments) {
@@ -477,9 +580,13 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
             oldInv.setAmount(invoiceTotalsCalculator.valueOrZero(oldInv.getAmount()).subtract(inst.getAmount()));
             invoicesToSave.put(oldInv.getId(), oldInv);
 
+            String originalName = inst.getName();
+            inst.setAdvanceOperationId(advanceOperationId);
+            inst.setAdvancedFromInvoice(oldInv);
             inst.setInvoices(currentInvoice);
             inst.setDate(currentInvoice.getExpirationDate());
-            inst.setName(inst.getName() + " (Adiantada)");
+            inst.setName(buildAdvanceInstallmentName(originalName));
+            inst.setDescription(buildAdvanceInstallmentDescription(currentInvoice));
         }
 
         if (!invoicesToSave.isEmpty()) {
@@ -492,8 +599,9 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
 
             InstallmentPlan discountPlan = InstallmentPlan.builder()
                     .id(ID.generate())
-                    .date(DateUtils.getEpochNow())
+                    .date(now)
                     .name("Desconto Adiantamento")
+                    .description(buildAdvanceInstallmentDescription(currentInvoice))
                     .type(TransactionType.RECEITA.name())
                     .amount(discount)
                     .totalInstallmentsPlan(1)
@@ -501,8 +609,9 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
                     .fixed(false)
                     .paid(false)
                     .purchaseId(request.getPurchaseId())
+                    .advanceOperationId(advanceOperationId)
                     .enabled(true)
-                    .createdAt(DateUtils.getEpochNow())
+                    .createdAt(now)
                     .user(currentInvoice.getUser())
                     .invoices(currentInvoice)
                     .build();
@@ -519,6 +628,103 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         currentInvoice.setAmount(invoiceTotalsCalculator.valueOrZero(currentInvoice.getAmount()).add(totalAdvanced));
         invoicesService.save(currentInvoice);
         log.info("Invoice installments advanced: invoiceId={}, purchaseId={}, quantity={}, netAmount={}", invoiceId, request.getPurchaseId(), futureInstallments.size(), totalAdvanced);
+    }
+
+    /**
+     * Corrige uma operacao de adiantamento ainda reversivel, devolvendo parcelas para as faturas originais.
+     */
+    @Override
+    @Transactional
+    public InvoiceDetailsDTO correctAdvance(UUID invoiceId, UUID operationId) {
+        if (operationId == null) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Operação de adiantamento não informada.");
+        }
+
+        Invoices targetInvoice = resolveEditableInvoice(invoiceId);
+        Users currentUser = SecurityContextUtils.getCurrentUser();
+
+        List<InstallmentPlan> operationItems = installmentPlanService
+                .findByAdvanceOperationIdAndUserIdForUpdate(operationId, currentUser.getId());
+        if (operationItems.isEmpty()) {
+            throw new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Operação de adiantamento não encontrada.");
+        }
+        if (operationItems.stream().allMatch(item -> item.getAdvanceCorrectedAt() != null)) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Este adiantamento já foi corrigido.");
+        }
+
+        List<InstallmentPlan> activeOperationItems = operationItems.stream()
+                .filter(item -> item.getDeletedAt() == null)
+                .toList();
+        if (activeOperationItems.isEmpty()) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Este adiantamento não pode mais ser corrigido.");
+        }
+        if (activeOperationItems.stream().anyMatch(item -> item.getInvoices() == null || !item.getInvoices().getId().equals(targetInvoice.getId()))) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Operação de adiantamento não pertence à fatura informada.");
+        }
+        if (activeOperationItems.stream().anyMatch(item -> Boolean.TRUE.equals(item.getPaid()))) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Adiantamento com parcela paga não pode ser corrigido.");
+        }
+
+        List<InstallmentPlan> invoiceItems = installmentPlanService.findByInvoiceIdAndUserId(targetInvoice.getId(), currentUser.getId());
+        boolean hasPayment = invoiceItems.stream()
+                .filter(item -> item.getDeletedAt() == null)
+                .anyMatch(this::isPaymentItem);
+        if (hasPayment) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Adiantamento não pode ser corrigido após pagamento da fatura.");
+        }
+
+        List<InstallmentPlan> movedInstallments = activeOperationItems.stream()
+                .filter(item -> item.getAmount() != null && item.getAmount().compareTo(BigDecimal.ZERO) > 0)
+                .toList();
+        InstallmentPlan discountItem = activeOperationItems.stream()
+                .filter(item -> item.getAmount() != null && item.getAmount().compareTo(BigDecimal.ZERO) < 0)
+                .findFirst()
+                .orElse(null);
+        if (movedInstallments.isEmpty()) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Operação de adiantamento sem parcelas identificáveis.");
+        }
+        if (movedInstallments.stream().anyMatch(item -> item.getAdvancedFromInvoice() == null)) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Operação de adiantamento sem vínculo com fatura original.");
+        }
+
+        long now = DateUtils.getEpochNow();
+        Map<UUID, Invoices> invoicesToSave = new HashMap<>();
+        BigDecimal amountToRemoveFromTarget = BigDecimal.ZERO;
+
+        for (InstallmentPlan installment : movedInstallments) {
+            Invoices originalInvoice = installment.getAdvancedFromInvoice();
+            invoiceDomainValidator.validateInvoiceOwner(originalInvoice, currentUser);
+            invoiceDomainValidator.validateEditableInvoice(originalInvoice);
+
+            amountToRemoveFromTarget = amountToRemoveFromTarget.add(installment.getAmount());
+            originalInvoice.setAmount(invoiceTotalsCalculator.valueOrZero(originalInvoice.getAmount()).add(installment.getAmount()));
+            invoicesToSave.put(originalInvoice.getId(), originalInvoice);
+
+            installment.setInvoices(originalInvoice);
+            installment.setDate(originalInvoice.getExpirationDate());
+            installment.setAdvanceCorrectedAt(now);
+            installment.setUpdatedAt(now);
+        }
+
+        targetInvoice.setAmount(invoiceTotalsCalculator.valueOrZero(targetInvoice.getAmount()).subtract(amountToRemoveFromTarget));
+        if (discountItem != null) {
+            BigDecimal discount = discountItem.getAmount().abs();
+            discountItem.setDeletedAt(now);
+            discountItem.setAdvanceCorrectedAt(now);
+            discountItem.setUpdatedAt(now);
+            targetInvoice.setAmount(invoiceTotalsCalculator.valueOrZero(targetInvoice.getAmount()).add(discount));
+
+            CreditCard card = invoiceDomainValidator.requireInvoiceCard(targetInvoice);
+            card.consumeLimit(discount);
+            creditCardService.updateLimit(card);
+        }
+        targetInvoice.setUpdatedAt(now);
+        invoicesToSave.put(targetInvoice.getId(), targetInvoice);
+
+        installmentPlanService.saveAll(operationItems);
+        invoicesService.saveAll(invoicesToSave.values().stream().toList());
+        log.info("Invoice advance corrected: invoiceId={}, operationId={}, installments={}", invoiceId, operationId, movedInstallments.size());
+        return refreshInvoiceDetails(targetInvoice);
     }
 
     /**
@@ -578,7 +784,7 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
     }
 
     /**
-     * Registra pagamento integral da fatura, movimentando conta origem, conta do cartão, limite e item de crédito.
+     * Registra pagamento total ou parcial da fatura, movimentando conta origem, conta do cartão, limite e item de crédito.
      */
     @Override
     @Transactional
@@ -596,8 +802,8 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         if (currentTotals.openAmount().compareTo(BigDecimal.ZERO) <= 0) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Fatura não possui saldo em aberto.");
         }
-        if (request.getAmount().compareTo(currentTotals.openAmount()) < 0) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "O pagamento não pode ser menor que o saldo em aberto.");
+        if (request.getAmount().compareTo(currentTotals.openAmount()) > 0) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "O pagamento não pode ser maior que o saldo em aberto.");
         }
 
         Accounts sourceAccount = accountsService.findByIdOrThrow(request.getAccountId());
@@ -608,16 +814,12 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         Category category = findPaymentCategory(currentUser);
         long now = DateUtils.getEpochNow();
         long paymentDate = request.getPaymentDate() != null ? request.getPaymentDate() : now;
-        BigDecimal surchargeAmount = request.getAmount().subtract(currentTotals.openAmount());
-        String notes = request.getNotes() != null ? request.getNotes() : "";
-        if (surchargeAmount.compareTo(BigDecimal.ZERO) > 0) {
-            notes = (notes.isBlank() ? "" : notes + " | ")
-                    + "Acréscimo por juros/multa: R$ " + surchargeAmount;
-        }
+        boolean advancePayment = isAdvancePayment(request, invoice, card, paymentDate);
+        String notes = buildInvoicePaymentDescription(request, invoice, advancePayment);
 
         Transactions paymentOut = Transactions.builder()
                 .id(ID.generate())
-                .name("Pagamento Fatura " + card.getName())
+                .name(buildInvoicePaymentName(card, advancePayment))
                 .description(notes)
                 .type(TransactionType.PAGAMENTO_FATURA)
                 .amount(request.getAmount())
@@ -635,7 +837,7 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
 
         Transactions paymentIn = Transactions.builder()
                 .id(ID.generate())
-                .name("Recebimento de Fatura")
+                .name(advancePayment ? "Recebimento de Adiantamento" : "Recebimento de Fatura")
                 .description(notes)
                 .type(TransactionType.TRANSFERENCIA_ENTRADA)
                 .amount(request.getAmount())
@@ -665,7 +867,7 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         InstallmentPlan paymentCredit = InstallmentPlan.builder()
                 .id(ID.generate())
                 .date(paymentDate)
-                .name("Pagamento Recebido")
+                .name(advancePayment ? "Adiantamento Recebido" : "Pagamento Recebido")
                 .description(notes)
                 .type(TransactionType.RECEITA.name())
                 .amount(request.getAmount().abs().negate())
@@ -692,10 +894,12 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
 
         invoice.setAmount(updatedTotals.openAmount());
         invoice.setTransaction(paymentOut);
-        if (updatedTotals.openAmount().compareTo(BigDecimal.ZERO) <= 0 && !invoiceDateService.isInvoiceOpenWindow(invoice)) {
+        if (updatedTotals.openAmount().compareTo(BigDecimal.ZERO) <= 0) {
             invoice.setPaid(true);
             updatedItems.forEach(inst -> inst.setPaid(true));
             installmentPlanService.saveAll(updatedItems);
+        } else {
+            invoice.setPaid(false);
         }
         invoicesService.save(invoice);
         log.info("Invoice payment processed: invoiceId={}, accountId={}, amount={}, openAmount={}", invoiceId, sourceAccount.getId(), request.getAmount(), updatedTotals.openAmount());
@@ -772,7 +976,7 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
             if (invoice.getTransaction() != null && invoice.getTransaction().getId().equals(payment.getId())) {
                 invoice.setTransaction(null);
             }
-            invoice.setPaid(totals.openAmount().compareTo(BigDecimal.ZERO) <= 0 && !invoiceDateService.isInvoiceOpenWindow(invoice));
+            invoice.setPaid(totals.openAmount().compareTo(BigDecimal.ZERO) <= 0);
             invoicesService.save(invoice);
             log.info("Invoice payment cancelled: invoiceId={}, paymentTransactionId={}, openAmount={}", invoice.getId(), payment.getId(), totals.openAmount());
 
@@ -819,6 +1023,9 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Parcela não pertence à fatura informada.");
         }
         invoiceDomainValidator.validateEditableInstallment(installment);
+        if (isPendingAdvanceItem(installment)) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Use a correção de adiantamento para alterar esta operação.");
+        }
         return installment;
     }
 

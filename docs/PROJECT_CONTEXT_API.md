@@ -965,6 +965,10 @@ e nunca expõe uma data passada.
 
 Transações e entidades financeiras preservam histórico. Exclusão física ainda existe no
 reset/exclusão completa do usuário, executada em ordem por queries nativas.
+Desde a RESET-001, o reset canonico e `POST /users/{id}/reset`: ele quebra
+referencias cíclicas entre transacoes/faturas, remove dados operacionais em
+ordem de FKs, preserva usuario/autenticacao/allowlist Tester/entitlement e
+recria somente carteira e categorias padrao.
 
 # Padrões de Desenvolvimento
 

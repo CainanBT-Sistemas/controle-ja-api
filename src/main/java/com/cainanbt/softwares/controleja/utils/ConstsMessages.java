@@ -51,11 +51,13 @@ public class ConstsMessages {
     public static final String CANT_DELETE_MAIN_ACCOUNT = "Você não pode remover a conta principal.";
     public static final String CANT_UPDATE_ACCOUNT_NO_ID = "Impossível atualizar conta sem ID.";
     public static final String ACCOUNT_NAME_ALREADY_EXIST = "Este nome de conta já esta cadastrada";
+    public static final String CANT_DELETE_ACCOUNT_WITH_LINKS = "Nao e possivel excluir esta conta porque existem lancamentos, saldo ou vinculos financeiros ativos. Resolva os vinculos antes de excluir.";
 
 
     // --- CARTÕES DE CRÉDITO ---
     public static final String LIMIT_REACHED_CARDS = "Usuários Free só podem ter 2 cartões de crédito. Assine o Premium!";
     public static final String CARD_ACCOUNT_NOT_FOUND = "Cartão não encontrado para esta conta.";
+    public static final String CANT_DELETE_CARD_WITH_LINKS = "Nao e possivel excluir este cartao porque existem faturas, parcelas ou lancamentos vinculados. Quite, cancele ou ajuste os lancamentos antes de excluir.";
 
     // --- TRANSAÇÕES ---
     public static final String INVOICE_MISSING_TARGET = "Para pagar fatura, informe o ID da conta do cartão (targetAccountId).";
@@ -63,6 +65,7 @@ public class ConstsMessages {
     public static final String TRANSFER_ACCOUNT_NOT_VALID = "Transferencia permitida apenas entre Carteira, Conta Bancaria e Poupanca. Cartao de credito e Investimento patrimonial nao podem ser usados como origem ou destino.";
     public static final String INVOICE_TARGET_NOT_CARD = "A conta de destino deve ser um Cartão de Crédito.";
     public static final String CARD_ONLY_EXPENSE = "Em conta de cartão, use apenas DESPESA.";
+    public static final String INVOICE_PAYMENT_EDIT_BLOCKED = "Para corrigir pagamento de fatura, cancele o pagamento pela fatura e pague novamente.";
 
     // --- CATEGORIAS ---
     public static final String PARENT_CATEGORY_NOT_FOUND = "Categoria pai não encontrada.";

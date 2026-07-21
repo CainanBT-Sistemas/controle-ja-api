@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -13,4 +14,5 @@ public class AdvanceablePurchaseDTO {
     private String name;
     private int maxInstallmentsAvailable;
     private BigDecimal estimatedAmount;
+    private List<BigDecimal> installmentAmounts;
 }

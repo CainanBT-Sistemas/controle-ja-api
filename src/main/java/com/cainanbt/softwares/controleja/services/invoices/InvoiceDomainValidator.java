@@ -95,7 +95,9 @@ public class InvoiceDomainValidator {
      * Confirma se a parcela futura pertence ao usuário, ao cartão da fatura atual e ainda está pendente.
      */
     public boolean isAdvanceableFutureInstallment(InstallmentPlan installment, Invoices currentInvoice, Users currentUser) {
-        if (installment.getDeletedAt() != null || Boolean.TRUE.equals(installment.getPaid())) {
+        if (installment.getDeletedAt() != null
+                || Boolean.TRUE.equals(installment.getPaid())
+                || Boolean.FALSE.equals(installment.getEnabled())) {
             return false;
         }
         if (installment.getAmount() == null || installment.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
@@ -105,7 +107,12 @@ public class InvoiceDomainValidator {
             return false;
         }
         Invoices futureInvoice = installment.getInvoices();
-        if (futureInvoice == null || futureInvoice.getCreditCard() == null || currentInvoice.getCreditCard() == null) {
+        if (futureInvoice == null
+                || futureInvoice.getDeletedAt() != null
+                || Boolean.TRUE.equals(futureInvoice.getPaid())
+                || Boolean.FALSE.equals(futureInvoice.getEnabled())
+                || futureInvoice.getCreditCard() == null
+                || currentInvoice.getCreditCard() == null) {
             return false;
         }
         if (!futureInvoice.getCreditCard().getId().equals(currentInvoice.getCreditCard().getId())) {

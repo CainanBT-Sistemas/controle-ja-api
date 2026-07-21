@@ -32,4 +32,10 @@ public interface CreditCardRepository extends JpaRepository<CreditCard, UUID> {
      */
     @Query("SELECT c FROM CreditCard c WHERE c.id = :id AND c.deletedAt IS NULL")
     Optional<CreditCard> findByIdAndNotDeleted(UUID id);
+
+    /**
+     * Verifica se a conta ainda esta vinculada a um cartao ativo.
+     */
+    @Query("SELECT COUNT(c) > 0 FROM CreditCard c WHERE c.accounts.id = :accountId AND c.user.id = :userId AND c.deletedAt IS NULL")
+    boolean existsActiveByAccountIdAndUserId(UUID accountId, UUID userId);
 }

@@ -152,14 +152,14 @@ Base:
 
 Responsabilidade: cadastro, perfil, senha, desativacao e reset dos dados do usuario.
 
-| Metodo   | Endpoint                 | Recebe                | Retorna                                  |
-|----------|--------------------------|-----------------------|------------------------------------------|
-| `POST`   | `/users/register`        | `InsertUpdateUserDTO` | `UserResponseDTO` sem tokens.            |
-| `PUT`    | `/users/change-password` | `PasswordChangeDTO`   | Mensagem de sucesso.                     |
-| `PUT`    | `/users/profile`         | `UpdateProfileDTO`    | `UserResponseDTO`.                       |
-| `DELETE` | `/users/{id}`            | Path `id`             | Mensagem de sucesso.                     |
-| `POST`   | `/users/{id}/reset`      | Path `id`             | `UserResponseDTO` reinicializado.        |
-| `GET`    | `/users/reset/{id}`      | Path `id`             | Legado; mesmo retorno do reset por POST. |
+| Metodo   | Endpoint                 | Recebe                | Retorna                                                                                                                     |
+|----------|--------------------------|-----------------------|-----------------------------------------------------------------------------------------------------------------------------|
+| `POST`   | `/users/register`        | `InsertUpdateUserDTO` | `UserResponseDTO` sem tokens.                                                                                               |
+| `PUT`    | `/users/change-password` | `PasswordChangeDTO`   | Mensagem de sucesso.                                                                                                        |
+| `PUT`    | `/users/profile`         | `UpdateProfileDTO`    | `UserResponseDTO`.                                                                                                          |
+| `DELETE` | `/users/{id}`            | Path `id`             | Mensagem de sucesso.                                                                                                        |
+| `POST`   | `/users/{id}/reset`      | Path `id`             | Contrato canonico; apaga dados operacionais em transacao unica, preserva usuario/auth/Tester/entitlement e recria defaults. |
+| `GET`    | `/users/reset/{id}`      | Path `id`             | Legado; mantido por compatibilidade. Novos clients devem usar POST.                                                         |
 
 ### POST /users/register
 
@@ -898,13 +898,13 @@ Todas as rotas recebem `start` e `end` em epoch milliseconds.
 
 ## Resumo rapido por modulo
 
-| Modulo               | O que o front deve saber                                                                      |
-|----------------------|-----------------------------------------------------------------------------------------------|
-| Auth/Users           | Login, Google e auto-login devolvem contrato canonico com tokens; cadastro devolve usuario sem tokens; reset recria defaults. |
-| Accounts             | Saldo muda por transacao ou ajuste; conta default nao deve ser excluida.                      |
-| Categories           | Categoria pai de veiculo exige subcategoria no lancamento.                                    |
-| Cards/Invoices       | Cartao cria conta espelho; fatura paga bloqueia edicoes; parcelas pagas protegem a compra.    |
-| Transactions         | `operationScope` controla edicao/exclusao em massa; `updateFuture` nao deve ser usado.        |
-| Vehicles             | Odometro deve evoluir de forma valida a partir das transacoes veiculares.                     |
-| Gas Stations/Ranking | Ranking usa apenas abastecimentos confiaveis.                                                 |
-| Dashboard            | Consultas agregadas por periodo; `full-summary` entrega a visao mais completa da home.        |
+| Modulo               | O que o front deve saber                                                                                                                                                                       |
+|----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Auth/Users           | Login, Google e auto-login devolvem contrato canonico com tokens; cadastro devolve usuario sem tokens; reset canonico via POST remove dados operacionais em transacao unica e recria defaults. |
+| Accounts             | Saldo muda por transacao ou ajuste; conta default nao deve ser excluida.                                                                                                                       |
+| Categories           | Categoria pai de veiculo exige subcategoria no lancamento.                                                                                                                                     |
+| Cards/Invoices       | Cartao cria conta espelho; fatura paga bloqueia edicoes; parcelas pagas protegem a compra.                                                                                                     |
+| Transactions         | `operationScope` controla edicao/exclusao em massa; `updateFuture` nao deve ser usado.                                                                                                         |
+| Vehicles             | Odometro deve evoluir de forma valida a partir das transacoes veiculares.                                                                                                                      |
+| Gas Stations/Ranking | Ranking usa apenas abastecimentos confiaveis.                                                                                                                                                  |
+| Dashboard            | Consultas agregadas por periodo; `full-summary` entrega a visao mais completa da home.                                                                                                         |

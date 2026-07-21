@@ -53,4 +53,9 @@ public interface CategoryService {
      * Localiza categoria ativa por usuário e nome para fluxos internos.
      */
     Category findCategoryByUserAndName(Users user, String categoryName);
+
+    /**
+     * Resolve a categoria tecnica obrigatoria de transferencia do usuario.
+     */
+    Category findTransferCategory(Users user);
 }

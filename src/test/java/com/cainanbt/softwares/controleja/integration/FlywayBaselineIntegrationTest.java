@@ -87,7 +87,8 @@ class FlywayBaselineIntegrationTest {
             "fk_invoicess_user",
             "fk_transactions_target_invoice",
             "fk_installment_plan_invoice",
-            "fk_installment_plan_user"
+            "fk_installment_plan_user",
+            "fk_installment_advanced_from_invoice"
     );
 
     private static final Set<String> EXPECTED_INDEXES = Set.of(
@@ -124,6 +125,7 @@ class FlywayBaselineIntegrationTest {
             "idx_installments_purchase_user_deleted",
             "idx_installments_user_date_deleted",
             "idx_installments_invoice_paid_amount",
+            "idx_installments_advance_operation",
             "idx_closed_test_testers_normalized_enabled"
     );
 
@@ -238,13 +240,13 @@ class FlywayBaselineIntegrationTest {
     private void assertMigrationAppliedSuccessfully(Flyway flyway, JdbcTemplate jdbc) {
         MigrationInfo current = flyway.info().current();
         assertNotNull(current);
-        assertEquals("2", current.getVersion().getVersion());
+        assertEquals("3", current.getVersion().getVersion());
         assertEquals(MigrationState.SUCCESS, current.getState());
         assertEquals(
-                2,
+                3,
                 jdbc.queryForObject(
                         "SELECT COUNT(*) FROM flyway_schema_history "
-                                + "WHERE version IN ('1', '2') AND success = true",
+                                + "WHERE version IN ('1', '2', '3') AND success = true",
                         Integer.class
                 )
         );
@@ -385,6 +387,16 @@ class FlywayBaselineIntegrationTest {
                         id
                 )
         );
+        assertEquals(
+                1,
+                jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM category "
+                                + "WHERE user_id = ? AND category_type = 'TRANSFERENCIA' "
+                                + "AND is_default = true AND enabled = true AND deleted_at IS NULL",
+                        Integer.class,
+                        id
+                )
+        );
         return id;
     }
 
@@ -409,7 +421,7 @@ class FlywayBaselineIntegrationTest {
         AccountDTO account = new AccountDTO();
         account.setName("Conta Flyway");
         account.setType(AccountType.BANK);
-        account.setInitialBalance(new BigDecimal("125.50"));
+        account.setInitialBalance(BigDecimal.ZERO);
         account.setInstitution("Banco Teste");
         account.setCalculateBalance(true);
 
@@ -643,6 +655,9 @@ class FlywayBaselineIntegrationTest {
                 "invoices_id",
                 "purchase_id",
                 "user_id",
+                "advance_operation_id",
+                "advanced_from_invoice_id",
+                "advance_corrected_at",
                 "description",
                 "name",
                 "type"

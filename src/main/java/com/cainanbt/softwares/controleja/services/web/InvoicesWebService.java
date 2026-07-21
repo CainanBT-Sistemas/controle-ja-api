@@ -19,6 +19,11 @@ public interface InvoicesWebService {
     Optional<InvoiceDetailsDTO> getInvoiceDetails(UUID cardId, Integer month, Integer year);
 
     /**
+     * Retorna detalhes de uma fatura persistida usando o identificador real da fatura.
+     */
+    Optional<InvoiceDetailsDTO> getInvoiceDetailsById(UUID invoiceId);
+
+    /**
      * Lista compras futuras elegíveis para adiantamento na fatura selecionada.
      */
     List<AdvanceablePurchaseDTO> getAdvanceablePurchases(UUID cardId, Integer month, Integer year);
@@ -32,6 +37,11 @@ public interface InvoicesWebService {
      * Move parcelas futuras da mesma compra para a fatura informada.
      */
     void advanceInstallments(UUID invoiceId, AdvanceRequestDTO request);
+
+    /**
+     * Corrige uma operacao de adiantamento registrada por engano, quando ainda reversivel.
+     */
+    InvoiceDetailsDTO correctAdvance(UUID invoiceId, UUID operationId);
 
     /**
      * Atualiza item/parcela da fatura respeitando o escopo informado.
