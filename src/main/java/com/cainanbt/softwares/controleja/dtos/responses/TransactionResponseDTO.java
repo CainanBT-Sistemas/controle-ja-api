@@ -32,6 +32,7 @@ public class TransactionResponseDTO {
     private String vehicleName;
     private UUID vehicleId;
     private Double liters;
+    private Boolean fullTank;
     private BigDecimal currentOdometer;
     private FuelType fuelType;
     private DrivingPredominance drivingPredominance;
@@ -100,6 +101,7 @@ public class TransactionResponseDTO {
             dto.setVehicleName(entity.getVehicle().getName());
             dto.setEfficiency(entity.getEfficiency());
             dto.setLiters(entity.getLiters());
+            dto.setFullTank(Boolean.TRUE.equals(entity.getFullTank()));
             dto.setCurrentOdometer(entity.getCurrentOdometer());
             dto.setFuelType(entity.getFuelType());
             dto.setDrivingPredominance(entity.getDrivingPredominance());

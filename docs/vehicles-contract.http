@@ -15,6 +15,12 @@
 ### - currentOdometer inicial é obrigatório no cadastro do veículo.
 ### - Atualizar odômetro exige valor maior que o atual e passa por validação de salto plausível.
 ### - A evolução do odômetro é derivada das transações veiculares.
+### - Somente abastecimentos reais alteram a linha de odômetro.
+### - Abastecimento real exige veículo, litros, combustível e odômetro.
+### - Despesa/manutenção veicular não exige odômetro e não altera odômetro atual.
+### - fullTank=true indica tanque cheio e fecha ciclo confiável de KM/L quando há tanque cheio anterior.
+### - fullTank=false indica abastecimento parcial e não gera KM/L confiável sozinho.
+### - Salto alto de odômetro exige odometerJumpConfirmed=true.
 ### - Dashboard usa o Vehicle já autorizado pelo controller para evitar buscar o mesmo veículo duas vezes.
 ### - Dashboard calcula custo mensal, anual, custo por km, média de consumo e previsão quando houver dados confiáveis.
 
@@ -175,6 +181,7 @@ Authorization: Bearer {{token}}
 ### - When estimated autonomy is exhausted, remainingKms is 0 and the refuel prediction uses the current instant.
 ### - The first refuel is used as an odometer/date baseline even though it has no efficiency.
 ### - Forecast KML is recalculated from the latest two refuels when both odometer readings are available.
+### - Since VEH-001, reliable KML comes from full-tank cycles. Partial refuels accumulate liters and do not close KML.
 ### - Monthly prediction uses known future vehicle costs/installments when available and falls back to recent vehicle cost average when no future cost is scheduled.
 ### - Refuel prediction uses recent fuel price per liter, estimated refuel volume, odometer, KML and average usage interval.
 ### - Credit-card purchases are not counted by their full original amount in the purchase month.

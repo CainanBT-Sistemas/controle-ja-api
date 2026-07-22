@@ -37,19 +37,30 @@ public class VehicleRefuelMetricsService {
                                 : 0L))
                 .toList();
 
-        Transactions previous = null;
+        Transactions lastFullTank = null;
+        double accumulatedLitersSinceLastFullTank = 0.0;
         double gasolineTotal = 0.0;
         int gasolineCount = 0;
         double ethanolTotal = 0.0;
         int ethanolCount = 0;
 
         for (Transactions refuel : refuels) {
-            Double efficiency = previous == null
-                    ? null
-                    : consumptionCalculator.calculateConsumption(
-                    previous.getCurrentOdometer(),
-                    refuel.getCurrentOdometer(),
-                    refuel.getLiters());
+            Double efficiency = null;
+            if (VehicleTransactionRules.isFullTank(refuel)) {
+                if (lastFullTank != null) {
+                    double cycleLiters = accumulatedLitersSinceLastFullTank
+                            + (refuel.getLiters() != null ? refuel.getLiters() : 0.0);
+                    efficiency = consumptionCalculator.calculateConsumption(
+                            lastFullTank.getCurrentOdometer(),
+                            refuel.getCurrentOdometer(),
+                            cycleLiters);
+                }
+                lastFullTank = refuel;
+                accumulatedLitersSinceLastFullTank = 0.0;
+            } else if (lastFullTank != null && refuel.getLiters() != null) {
+                accumulatedLitersSinceLastFullTank += refuel.getLiters();
+            }
+
             refuel.setEfficiency(efficiency);
 
             if (efficiency != null && efficiency > 0) {
@@ -61,7 +72,6 @@ public class VehicleRefuelMetricsService {
                     ethanolCount++;
                 }
             }
-            previous = refuel;
         }
 
         if (!refuels.isEmpty()) {

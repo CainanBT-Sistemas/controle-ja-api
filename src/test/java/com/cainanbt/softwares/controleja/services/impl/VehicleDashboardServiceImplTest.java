@@ -235,7 +235,7 @@ public class VehicleDashboardServiceImplTest {
                 now - (5L * day),
                 "181055.00",
                 32.93,
-                0.41,
+                10.0,
                 "124.80"
         );
         long start = currentMonthStart();
@@ -542,7 +542,7 @@ public class VehicleDashboardServiceImplTest {
         long start = epoch(2026, 5, 1);
         long end = epoch(2026, 5, 31);
         Transactions aprilRefuel = refuel(epoch(2026, 4, 25), "1000.00", 30.0, 9.0, "180.00");
-        Transactions mayRefuel = refuel(epoch(2026, 5, 15), "1250.00", 25.0, 0.41, "150.00");
+        Transactions mayRefuel = refuel(epoch(2026, 5, 15), "1250.00", 25.0, 10.0, "150.00");
 
         stubCommon(vehicleId, vehicle, start, end, new BigDecimal("150.00"), new BigDecimal("330.00"));
         when(transactionRepository.findRefuelsByVehicleAndDateBetween(vehicleId, start, end)).thenReturn(List.of(mayRefuel));
@@ -753,6 +753,7 @@ public class VehicleDashboardServiceImplTest {
                 .date(date)
                 .currentOdometer(new BigDecimal(currentOdometer))
                 .liters(liters)
+                .fullTank(true)
                 .efficiency(efficiency)
                 .fuelType(FuelType.GASOLINA)
                 .amount(new BigDecimal(amount))

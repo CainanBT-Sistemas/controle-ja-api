@@ -10,6 +10,7 @@ import com.cainanbt.softwares.controleja.services.VehicleDashboardService;
 import com.cainanbt.softwares.controleja.services.VehicleService;
 import com.cainanbt.softwares.controleja.services.dashboard.DashboardPeriodValidator;
 import com.cainanbt.softwares.controleja.services.vehicles.VehicleDomainValidator;
+import com.cainanbt.softwares.controleja.services.vehicles.VehicleTransactionRules;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
@@ -150,29 +151,6 @@ public class VehicleDashboardServiceImpl implements VehicleDashboardService {
      * Calcula média KM/L do período usando somente abastecimentos confiáveis.
      */
     private Double calculateAverageKml(UUID vehicleId, List<Transactions> refuels, Vehicle vehicle) {
-        if (refuels.size() == 1) {
-            Transactions currentRefuel = refuels.get(0);
-            Optional<Transactions> previousRefuel = transactionRepository
-                    .findPreviousValidRefuelsByVehicleBeforeDate(vehicleId, currentRefuel.getDate())
-                    .stream()
-                    .filter(this::isValidRefuelForPreviousDistance)
-                    .findFirst();
-            if (previousRefuel.isPresent()
-                    && currentRefuel.getLiters() != null
-                    && currentRefuel.getLiters() > 0) {
-                BigDecimal distance = currentRefuel.getCurrentOdometer()
-                        .subtract(previousRefuel.get().getCurrentOdometer());
-                if (distance.compareTo(BigDecimal.ZERO) > 0) {
-                    double calculatedKml = distance.doubleValue() / currentRefuel.getLiters();
-                    if (isPlausibleKml(calculatedKml)) {
-                        return BigDecimal.valueOf(calculatedKml)
-                                .setScale(2, RoundingMode.HALF_UP)
-                                .doubleValue();
-                    }
-                }
-            }
-        }
-
         double kmFromRefuels = 0.0;
         double litersFromRefuels = 0.0;
         for (Transactions refuel : refuels) {
@@ -206,30 +184,28 @@ public class VehicleDashboardServiceImpl implements VehicleDashboardService {
         BigDecimal lastFuelPricePerLiter = lastRefuel.getAmount()
                 .divide(BigDecimal.valueOf(lastRefuel.getLiters()), 2, RoundingMode.HALF_UP);
 
-        Optional<Transactions> previousRefuelOpt = findPreviousRefuelInPeriod(periodRefuels, lastRefuel)
-                .or(() -> transactionRepository.findPreviousValidRefuelsByVehicleBeforeDate(vehicleId, lastRefuel.getDate())
-                        .stream()
-                        .filter(this::isValidRefuelForPreviousDistance)
-                        .findFirst());
-
-        if (previousRefuelOpt.isEmpty() || previousRefuelOpt.get().getCurrentOdometer() == null) {
+        if (!isPlausibleKml(lastRefuel.getEfficiency())) {
             return new LastRefuelData(lastRefuel.getAmount(), lastFuelPricePerLiter, null, null, lastRefuel.getFuelType());
         }
 
-        BigDecimal distance = lastRefuel.getCurrentOdometer().subtract(previousRefuelOpt.get().getCurrentOdometer());
+        Optional<Transactions> previousFullTankOpt = findPreviousRefuelInPeriod(periodRefuels, lastRefuel)
+                .filter(VehicleTransactionRules::isFullTank)
+                .or(() -> transactionRepository.findPreviousValidRefuelsByVehicleBeforeDate(vehicleId, lastRefuel.getDate())
+                        .stream()
+                        .filter(VehicleTransactionRules::isFullTank)
+                        .findFirst());
+        if (previousFullTankOpt.isEmpty() || previousFullTankOpt.get().getCurrentOdometer() == null) {
+            return new LastRefuelData(lastRefuel.getAmount(), lastFuelPricePerLiter, null, null, lastRefuel.getFuelType());
+        }
+
+        BigDecimal distance = lastRefuel.getCurrentOdometer().subtract(previousFullTankOpt.get().getCurrentOdometer());
         if (distance.compareTo(BigDecimal.ZERO) <= 0) {
             return new LastRefuelData(lastRefuel.getAmount(), lastFuelPricePerLiter, null, null, lastRefuel.getFuelType());
         }
-
-        double calculatedKml = distance.doubleValue() / lastRefuel.getLiters();
-        if (!isPlausibleKml(calculatedKml)) {
-            return new LastRefuelData(lastRefuel.getAmount(), lastFuelPricePerLiter, null, null, lastRefuel.getFuelType());
-        }
-
         double distanceKm = BigDecimal.valueOf(distance.doubleValue())
                 .setScale(2, RoundingMode.HALF_UP)
                 .doubleValue();
-        double kml = BigDecimal.valueOf(calculatedKml)
+        double kml = BigDecimal.valueOf(lastRefuel.getEfficiency())
                 .setScale(2, RoundingMode.HALF_UP)
                 .doubleValue();
 
@@ -384,19 +360,6 @@ public class VehicleDashboardServiceImpl implements VehicleDashboardService {
      * Decide qual KM/L usar na previsão: abastecimento atual ou média cadastrada no veículo.
      */
     private double resolveForecastKml(Transactions lastRefuel, Transactions previousRefuel, Vehicle vehicle) {
-        if (previousRefuel != null
-                && previousRefuel.getCurrentOdometer() != null
-                && lastRefuel.getCurrentOdometer() != null
-                && lastRefuel.getLiters() != null
-                && lastRefuel.getLiters() > 0) {
-            BigDecimal distance = lastRefuel.getCurrentOdometer().subtract(previousRefuel.getCurrentOdometer());
-            if (distance.compareTo(BigDecimal.ZERO) > 0) {
-                double calculatedKml = distance.doubleValue() / lastRefuel.getLiters();
-                if (isPlausibleKml(calculatedKml)) {
-                    return calculatedKml;
-                }
-            }
-        }
         if (isPlausibleKml(lastRefuel.getEfficiency())) {
             return lastRefuel.getEfficiency();
         }

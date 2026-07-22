@@ -37,12 +37,19 @@ public final class OdometerValidator {
      * Bloqueia saltos muito grandes para evitar erros de digitacao em lancamentos.
      */
     public static void validateJump(BigDecimal referenceOdometer, BigDecimal newOdometer) {
+        validateJump(referenceOdometer, newOdometer, false);
+    }
+
+    /**
+     * Bloqueia saltos muito grandes sem confirmacao explicita do usuario.
+     */
+    public static void validateJump(BigDecimal referenceOdometer, BigDecimal newOdometer, boolean confirmed) {
         if (referenceOdometer == null || newOdometer == null) {
             return;
         }
         BigDecimal jump = newOdometer.subtract(referenceOdometer);
-        if (jump.compareTo(MAX_ODOMETER_JUMP_WITHOUT_CONFIRMATION) > 0) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Salto de odômetro acima do limite permitido sem confirmação.");
+        if (!confirmed && jump.compareTo(MAX_ODOMETER_JUMP_WITHOUT_CONFIRMATION) > 0) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Salto de odômetro alto. Confirme se a leitura está correta para continuar.");
         }
     }
 }

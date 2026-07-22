@@ -143,6 +143,8 @@ public class VehicleControllerTest extends BaseTest {
         tDto.setCategoryId(categoryId);
         tDto.setVehicleId(UUID.fromString(vehicleId));
         tDto.setCurrentOdometer(new BigDecimal("19000.00")); // <--- MENOR
+        tDto.setLiters(10.0);
+        tDto.setFuelType(FuelType.GASOLINA);
         tDto.setIsFixed(false);
 
         given().header("Authorization", "Bearer " + token)
@@ -155,8 +157,8 @@ public class VehicleControllerTest extends BaseTest {
     }
 
     @Test
-    @DisplayName("Deve salvar despesa de veículo mantendo odômetro absoluto em KM")
-    void shouldKeepVehicleExpenseOdometerAsAbsoluteKilometers() {
+    @DisplayName("Deve salvar manutenção de veículo sem exigir nem alterar odômetro")
+    void shouldKeepVehicleMaintenanceWithoutChangingOdometer() {
         VehicleDTO vDto = new VehicleDTO();
         vDto.setName("Odômetro Absoluto");
         vDto.setBrand("Fiat");
@@ -169,26 +171,28 @@ public class VehicleControllerTest extends BaseTest {
                 .then().statusCode(200).extract().path("id");
 
         TransactionDTO tDto = vehicleTransactionDTO(vehicleId, "Troca de óleo", DateUtils.getEpochNow(), new BigDecimal("180080.00"));
+        tDto.setLiters(null);
+        tDto.setFuelType(null);
 
         String transactionId = given().header("Authorization", "Bearer " + token)
                 .contentType(ContentType.JSON).body(tDto).post("/transactions")
                 .then().statusCode(200)
-                .body("currentOdometer", is(180080.0f))
+                .body("currentOdometer", nullValue())
                 .extract().path("id");
 
         given().header("Authorization", "Bearer " + token).get("/transactions/" + transactionId)
                 .then().statusCode(200)
-                .body("currentOdometer", is(180080.0f));
+                .body("currentOdometer", nullValue());
 
         tDto.setAmount(new BigDecimal("120.00"));
         given().header("Authorization", "Bearer " + token)
                 .contentType(ContentType.JSON).body(tDto).put("/transactions/" + transactionId)
                 .then().statusCode(200)
-                .body("currentOdometer", is(180080.0f));
+                .body("currentOdometer", nullValue());
 
         given().header("Authorization", "Bearer " + token).get("/vehicles/" + vehicleId)
                 .then().statusCode(200)
-                .body("currentOdometer", is(180080.0f));
+                .body("currentOdometer", is(180000.0f));
     }
 
     @Test
@@ -265,7 +269,9 @@ public class VehicleControllerTest extends BaseTest {
                   "categoryId": "%s",
                   "isFixed": false,
                   "vehicleId": "%s",
-                  "currentOdometer": "1034.7"
+                  "currentOdometer": "1034.7",
+                  "liters": 10.0,
+                  "fuelType": "GASOLINA"
                 }
                 """.formatted(DateUtils.getEpochNow(), walletId, categoryId, vehicleId);
 
@@ -359,6 +365,8 @@ public class VehicleControllerTest extends BaseTest {
         tDto.setIsFixed(false);
         tDto.setVehicleId(UUID.fromString(vehicleId));
         tDto.setCurrentOdometer(new BigDecimal("30100.00"));
+        tDto.setLiters(10.0);
+        tDto.setFuelType(FuelType.GASOLINA);
 
         String transactionId = given().header("Authorization", "Bearer " + token)
                 .contentType(ContentType.JSON).body(tDto).post("/transactions")
@@ -476,6 +484,103 @@ public class VehicleControllerTest extends BaseTest {
     }
 
     @Test
+    @DisplayName("Deve validar odômetro de abastecimento intermediário contra vizinhos cronológicos")
+    void shouldValidateIntermediateRefuelOdometerAgainstChronologicalNeighbors() {
+        VehicleDTO vehicleDTO = new VehicleDTO();
+        vehicleDTO.setName("Sequência Cronológica");
+        vehicleDTO.setBrand("Honda");
+        vehicleDTO.setModel("Fit");
+        vehicleDTO.setYear(2020);
+        vehicleDTO.setCurrentOdometer(new BigDecimal("1000.0"));
+
+        String vehicleId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(vehicleDTO).post("/vehicles")
+                .then().statusCode(200).extract().path("id");
+
+        long firstDate = DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 7, 1, 8, 0));
+        long secondDate = DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 7, 2, 8, 0));
+        long thirdDate = DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 7, 3, 8, 0));
+        long fourthDate = DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 7, 4, 8, 0));
+        createVehicleTransaction(vehicleId, "Abastecimento 1", firstDate, new BigDecimal("2000.0"));
+        String secondId = createVehicleTransaction(vehicleId, "Abastecimento 2", secondDate, new BigDecimal("2300.0"));
+        createVehicleTransaction(vehicleId, "Abastecimento 3", thirdDate, new BigDecimal("2500.0"));
+        createVehicleTransaction(vehicleId, "Abastecimento 4", fourthDate, new BigDecimal("2800.0"));
+
+        TransactionDTO correction = vehicleTransactionDTO(vehicleId, "Abastecimento 2", secondDate, new BigDecimal("2400.0"));
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(correction).put("/transactions/" + secondId)
+                .then().statusCode(200)
+                .body("currentOdometer", is(2400.0f));
+
+        correction.setCurrentOdometer(new BigDecimal("2500.0"));
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(correction).put("/transactions/" + secondId)
+                .then().statusCode(400)
+                .body("message", is("Odômetro deve ser menor que a próxima leitura de 2500.00."));
+
+        correction.setCurrentOdometer(new BigDecimal("2000.0"));
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(correction).put("/transactions/" + secondId)
+                .then().statusCode(400)
+                .body("message", is("Odômetro deve ser maior que a leitura anterior de 2000.00."));
+
+        given().header("Authorization", "Bearer " + token).get("/vehicles/" + vehicleId)
+                .then().statusCode(200)
+                .body("currentOdometer", is(2800.0f));
+    }
+
+    @Test
+    @DisplayName("Deve validar data de abastecimento intermediário pela posição cronológica")
+    void shouldValidateIntermediateRefuelDateAgainstChronologicalNeighbors() {
+        VehicleDTO vehicleDTO = new VehicleDTO();
+        vehicleDTO.setName("Data Cronológica");
+        vehicleDTO.setBrand("Toyota");
+        vehicleDTO.setModel("Etios");
+        vehicleDTO.setYear(2020);
+        vehicleDTO.setCurrentOdometer(new BigDecimal("1000.0"));
+
+        String vehicleId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(vehicleDTO).post("/vehicles")
+                .then().statusCode(200).extract().path("id");
+
+        long firstDate = DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 7, 1, 8, 0));
+        long secondDate = DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 7, 2, 8, 0));
+        long thirdDate = DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 7, 3, 8, 0));
+        long fourthDate = DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 7, 4, 8, 0));
+        createVehicleTransaction(vehicleId, "Abastecimento 1", firstDate, new BigDecimal("2000.0"));
+        String secondId = createVehicleTransaction(vehicleId, "Abastecimento 2", secondDate, new BigDecimal("2300.0"));
+        createVehicleTransaction(vehicleId, "Abastecimento 3", thirdDate, new BigDecimal("2500.0"));
+        createVehicleTransaction(vehicleId, "Abastecimento 4", fourthDate, new BigDecimal("2800.0"));
+
+        TransactionDTO validDate = vehicleTransactionDTO(
+                vehicleId,
+                "Abastecimento 2",
+                DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 7, 2, 12, 0)),
+                new BigDecimal("2300.0"));
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(validDate).put("/transactions/" + secondId)
+                .then().statusCode(200);
+
+        TransactionDTO afterNext = vehicleTransactionDTO(
+                vehicleId,
+                "Abastecimento 2",
+                DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 7, 5, 8, 0)),
+                new BigDecimal("2300.0"));
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(afterNext).put("/transactions/" + secondId)
+                .then().statusCode(400);
+
+        TransactionDTO beforePrevious = vehicleTransactionDTO(
+                vehicleId,
+                "Abastecimento 2",
+                DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 6, 30, 8, 0)),
+                new BigDecimal("2300.0"));
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(beforePrevious).put("/transactions/" + secondId)
+                .then().statusCode(400);
+    }
+
+    @Test
     @DisplayName("Deve retornar contexto de odômetro usando transações veiculares")
     void shouldReturnOdometerContextFromVehicleTransactions() {
         VehicleDTO vehicleDTO = new VehicleDTO();
@@ -526,6 +631,8 @@ public class VehicleControllerTest extends BaseTest {
         dto.setIsFixed(false);
         dto.setVehicleId(UUID.fromString(vehicleId));
         dto.setCurrentOdometer(currentOdometer);
+        dto.setLiters(10.0);
+        dto.setFuelType(FuelType.GASOLINA);
         return dto;
     }
 }

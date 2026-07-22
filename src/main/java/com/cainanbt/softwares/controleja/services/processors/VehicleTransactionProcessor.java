@@ -6,13 +6,11 @@ import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.entities.Vehicle;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
-import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.services.GasStationService;
 import com.cainanbt.softwares.controleja.services.VehicleService;
-import com.cainanbt.softwares.controleja.services.vehicles.VehicleConsumptionCalculator;
+import com.cainanbt.softwares.controleja.services.vehicles.VehicleTransactionRules;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
@@ -20,12 +18,9 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @RequiredArgsConstructor
-@Slf4j
 public class VehicleTransactionProcessor {
     private final VehicleService vehicleService;
     private final GasStationService gasStationService;
-    private final TransactionRepository transactionRepository;
-    private final VehicleConsumptionCalculator vehicleConsumptionCalculator;
 
     /**
      * Enriquece o builder com veiculo, posto e metricas sem misturar essa regra com processadores financeiros.
@@ -34,9 +29,11 @@ public class VehicleTransactionProcessor {
         if (dto.getType() != com.cainanbt.softwares.controleja.enums.TransactionType.DESPESA) {
             return;
         }
-        applyGasStation(dto, builder, user);
         if (dto.getVehicleId() == null) {
             return;
+        }
+        if (Boolean.TRUE.equals(dto.getFullTank()) && !VehicleTransactionRules.isRefuel(dto)) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Tanque cheio só pode ser informado em abastecimentos.");
         }
 
         Vehicle vehicle = vehicleService.findById(dto.getVehicleId());
@@ -44,13 +41,20 @@ public class VehicleTransactionProcessor {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_VEHICLE);
         }
 
-        Double efficiency = processVehicleMetrics(dto, vehicle);
         builder.vehicle(vehicle)
-                .liters(dto.getLiters())
+                .drivingPredominance(dto.getDrivingPredominance())
+                .fullTank(false);
+
+        if (!VehicleTransactionRules.isRefuel(dto)) {
+            return;
+        }
+
+        applyGasStation(dto, builder, user);
+        builder.liters(dto.getLiters())
                 .currentOdometer(dto.getCurrentOdometer())
                 .fuelType(dto.getFuelType())
-                .drivingPredominance(dto.getDrivingPredominance())
-                .efficiency(efficiency);
+                .fullTank(Boolean.TRUE.equals(dto.getFullTank()))
+                .efficiency(null);
     }
 
     /**
@@ -67,37 +71,4 @@ public class VehicleTransactionProcessor {
         builder.gasStation(station);
     }
 
-    /**
-     * Calcula KM/L apenas quando existe abastecimento anterior confiavel.
-     */
-    private Double processVehicleMetrics(TransactionDTO dto, Vehicle vehicle) {
-        if (dto.getCurrentOdometer() == null) {
-            return null;
-        }
-        if (!isRefuel(dto)) {
-            return null;
-        }
-
-        Transactions previousRefuel = transactionRepository
-                .findPreviousValidRefuelsByVehicleBeforeDate(vehicle.getId(), dto.getDate())
-                .stream()
-                .findFirst()
-                .orElse(null);
-        if (previousRefuel == null || previousRefuel.getCurrentOdometer() == null) {
-            log.info("Primeiro abastecimento do veículo {} registrado sem cálculo de KM/L.", vehicle.getId());
-            return null;
-        }
-        return vehicleConsumptionCalculator.calculateConsumption(
-                previousRefuel.getCurrentOdometer(),
-                dto.getCurrentOdometer(),
-                dto.getLiters()
-        );
-    }
-
-    /**
-     * Identifica um abastecimento por campos tecnicos, sem depender do nome da categoria.
-     */
-    private boolean isRefuel(TransactionDTO dto) {
-        return dto.getLiters() != null && dto.getLiters() > 0 && dto.getFuelType() != null;
-    }
 }

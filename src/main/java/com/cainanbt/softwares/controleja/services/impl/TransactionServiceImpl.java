@@ -5,6 +5,7 @@ import com.cainanbt.softwares.controleja.dtos.responses.TransactionResponseDTO;
 import com.cainanbt.softwares.controleja.entities.Accounts;
 import com.cainanbt.softwares.controleja.entities.Category;
 import com.cainanbt.softwares.controleja.entities.CreditCard;
+import com.cainanbt.softwares.controleja.entities.GasStation;
 import com.cainanbt.softwares.controleja.entities.InstallmentPlan;
 import com.cainanbt.softwares.controleja.entities.Invoices;
 import com.cainanbt.softwares.controleja.entities.RecurrenceRule;
@@ -23,6 +24,7 @@ import com.cainanbt.softwares.controleja.services.AccountsService;
 import com.cainanbt.softwares.controleja.services.CategoryService;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
 import com.cainanbt.softwares.controleja.services.GasStationRankingService;
+import com.cainanbt.softwares.controleja.services.GasStationService;
 import com.cainanbt.softwares.controleja.services.InstallmentPlanService;
 import com.cainanbt.softwares.controleja.services.InvoicesService;
 import com.cainanbt.softwares.controleja.services.RecurrenceRuleService;
@@ -34,6 +36,7 @@ import com.cainanbt.softwares.controleja.services.processors.TransactionProcesso
 import com.cainanbt.softwares.controleja.services.processors.TransactionProcessorFactory;
 import com.cainanbt.softwares.controleja.services.vehicles.VehicleOdometerTimelineService;
 import com.cainanbt.softwares.controleja.services.vehicles.VehicleRefuelMetricsService;
+import com.cainanbt.softwares.controleja.services.vehicles.VehicleTransactionRules;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
@@ -78,6 +81,7 @@ public class TransactionServiceImpl implements TransactionService {
     private final RecurrenceRuleService recurrenceRuleService;
     private final TransactionProcessorFactory processorFactory;
     private final TransactionHelper helper;
+    private final GasStationService gasStationService;
     private final GasStationRankingService gasStationRankingService;
     private final VehicleService vehicleService;
     private final VehicleOdometerTimelineService odometerTimelineService;
@@ -110,7 +114,7 @@ public class TransactionServiceImpl implements TransactionService {
         // Salva a transação atual e a regra de recorrência
         Transactions savedTransaction = processor.process(dto, account, category, user);
 
-        if (savedTransaction.getVehicle() != null && savedTransaction.getCurrentOdometer() != null) {
+        if (VehicleTransactionRules.isRefuel(savedTransaction)) {
             odometerTimelineService.recalculateCurrentOdometer(savedTransaction.getVehicle());
             refuelMetricsService.recalculate(savedTransaction.getVehicle());
             rebuildGasStationRankingsIfApplicable(savedTransaction);
@@ -1471,6 +1475,8 @@ public class TransactionServiceImpl implements TransactionService {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.ENTITY_ALREADY_DELETED);
         }
 
+        validateRefuelDeletionAllowed(transaction);
+
         if (scope == OperationScope.FROM_THIS_FORWARD) {
             if (transaction.getRecurrenceRule() != null) {
                 RecurrenceRule rule = transaction.getRecurrenceRule();
@@ -1514,6 +1520,26 @@ public class TransactionServiceImpl implements TransactionService {
             if (transaction.getUser() != null) {
                 gasStationRankingService.rebuildRankings(transaction.getUser().getId());
             }
+        }
+    }
+
+    private void validateRefuelDeletionAllowed(Transactions transaction) {
+        if (!VehicleTransactionRules.isRefuel(transaction) || transaction.getVehicle() == null) {
+            return;
+        }
+        List<Transactions> refuels = repository.findActiveRefuelsByVehicleOrdered(transaction.getVehicle().getId());
+        int index = -1;
+        for (int i = 0; i < refuels.size(); i++) {
+            if (refuels.get(i).getId().equals(transaction.getId())) {
+                index = i;
+                break;
+            }
+        }
+        if (index > 0 && index < refuels.size() - 1) {
+            throw new BadRequestException(
+                    ConstsMessages.ERROR_TITLE,
+                    "Exclusão de abastecimento intermediário não está disponível no MVP."
+            );
         }
     }
 
@@ -1611,6 +1637,8 @@ public class TransactionServiceImpl implements TransactionService {
         BigDecimal oldAmount = transaction.getAmount();
         boolean wasPaid = transaction.getPaid();
         TransactionType oldType = transaction.getType();
+        Vehicle oldVehicle = transaction.getVehicle();
+        boolean oldWasRefuel = VehicleTransactionRules.isRefuel(transaction);
         boolean affectedGasStationRanking = transaction.getGasStation() != null;
 
         if (wasPaid && oldAccount.getType() != AccountType.CREDIT_CARD) {
@@ -1719,10 +1747,18 @@ public class TransactionServiceImpl implements TransactionService {
         transaction = repository.save(transaction);
         final Transactions savedTransaction = transaction;
 
+        if (oldWasRefuel
+                && oldVehicle != null
+                && (savedTransaction.getVehicle() == null
+                || !oldVehicle.getId().equals(savedTransaction.getVehicle().getId()))) {
+            recalculateVehicleCurrentOdometer(oldVehicle);
+            refuelMetricsService.recalculate(oldVehicle);
+        }
         if (shouldRecalculateVehicleOdometer && savedTransaction.getVehicle() != null) {
             recalculateVehicleCurrentOdometer(savedTransaction.getVehicle());
+            refuelMetricsService.recalculate(savedTransaction.getVehicle());
         }
-        if (savedTransaction.getVehicle() != null) {
+        if (!shouldRecalculateVehicleOdometer && VehicleTransactionRules.isRefuel(savedTransaction)) {
             refuelMetricsService.recalculate(savedTransaction.getVehicle());
         }
 
@@ -1810,7 +1846,16 @@ public class TransactionServiceImpl implements TransactionService {
         if (transaction.getType() != TransactionType.DESPESA) {
             return false;
         }
+        boolean wasRefuel = VehicleTransactionRules.isRefuel(transaction);
         Vehicle vehicle = transaction.getVehicle();
+        boolean vehiclePayloadPresent = dto.getVehicleId() != null
+                || dto.getCurrentOdometer() != null
+                || dto.getLiters() != null
+                || dto.getFuelType() != null
+                || dto.getGasStationId() != null
+                || dto.getFullTank() != null
+                || dto.getOdometerJumpConfirmed() != null;
+
         if (dto.getVehicleId() != null) {
             vehicle = vehicleService.findById(dto.getVehicleId());
             if (!vehicle.getUser().getId().equals(currentUser.getId())) {
@@ -1823,40 +1868,88 @@ public class TransactionServiceImpl implements TransactionService {
             return false;
         }
 
+        Double targetLiters = vehiclePayloadPresent ? dto.getLiters() : transaction.getLiters();
+        var targetFuelType = vehiclePayloadPresent ? dto.getFuelType() : transaction.getFuelType();
+        boolean targetRefuel = targetLiters != null && targetLiters > 0 && targetFuelType != null;
+        boolean targetFullTank = dto.getFullTank() != null
+                ? Boolean.TRUE.equals(dto.getFullTank())
+                : Boolean.TRUE.equals(transaction.getFullTank());
+
+        if (targetFullTank && !targetRefuel) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Tanque cheio só pode ser informado em abastecimentos.");
+        }
+
+        if (!targetRefuel) {
+            transaction.setCurrentOdometer(null);
+            transaction.setLiters(null);
+            transaction.setFuelType(null);
+            transaction.setGasStation(null);
+            transaction.setEfficiency(null);
+            transaction.setFullTank(false);
+            if (dto.getDrivingPredominance() != null) {
+                transaction.setDrivingPredominance(dto.getDrivingPredominance());
+            }
+            return wasRefuel;
+        }
+
+        BigDecimal targetOdometer = dto.getCurrentOdometer() != null
+                ? dto.getCurrentOdometer()
+                : transaction.getCurrentOdometer();
+        if (targetOdometer == null) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Informe o odômetro do abastecimento.");
+        }
+
         boolean shouldValidateOdometer = dto.getCurrentOdometer() != null
-                || (dto.getDate() != null && transaction.getCurrentOdometer() != null);
-        boolean shouldRecalculateVehicleOdometer = false;
+                || dto.getDate() != null
+                || !wasRefuel;
+        boolean shouldRecalculateVehicleOdometer = !wasRefuel
+                || dto.getLiters() != null
+                || dto.getFuelType() != null
+                || dto.getFullTank() != null;
         if (shouldValidateOdometer) {
-            BigDecimal targetOdometer = dto.getCurrentOdometer() != null
-                    ? dto.getCurrentOdometer()
-                    : transaction.getCurrentOdometer();
             odometerTimelineService.validateReading(
                     vehicle,
                     transaction.getDate(),
                     targetOdometer,
                     transaction.getId(),
-                    transaction.getCreatedAt()
+                    transaction.getCreatedAt(),
+                    Boolean.TRUE.equals(dto.getOdometerJumpConfirmed())
             );
             shouldRecalculateVehicleOdometer = transaction.getCurrentOdometer() == null
                     || targetOdometer.compareTo(transaction.getCurrentOdometer()) != 0
-                    || dto.getDate() != null;
-            if (dto.getCurrentOdometer() != null) {
-                transaction.setCurrentOdometer(targetOdometer);
-            }
+                    || dto.getDate() != null
+                    || shouldRecalculateVehicleOdometer;
         }
-        if (dto.getLiters() != null) {
-            transaction.setLiters(dto.getLiters());
-        }
-        if (dto.getFuelType() != null) {
-            transaction.setFuelType(dto.getFuelType());
-        }
+
+        transaction.setCurrentOdometer(targetOdometer);
+        transaction.setLiters(targetLiters);
+        transaction.setFuelType(targetFuelType);
+        transaction.setFullTank(targetFullTank);
+        applyGasStationOnUpdate(transaction, dto, currentUser, vehiclePayloadPresent);
         if (dto.getDrivingPredominance() != null) {
             transaction.setDrivingPredominance(dto.getDrivingPredominance());
         }
-        if (dto.getEfficiency() != null) {
-            transaction.setEfficiency(dto.getEfficiency());
-        }
+        transaction.setEfficiency(null);
         return shouldRecalculateVehicleOdometer;
+    }
+
+    private void applyGasStationOnUpdate(
+            Transactions transaction,
+            TransactionDTO dto,
+            Users currentUser,
+            boolean vehiclePayloadPresent) {
+        if (!vehiclePayloadPresent) {
+            return;
+        }
+        if (dto.getGasStationId() == null) {
+            transaction.setGasStation(null);
+            return;
+        }
+        GasStation station = gasStationService.findByIdOrThrow(dto.getGasStationId());
+        if (station.getUser() == null || !station.getUser().getId().equals(currentUser.getId())) {
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, "Este posto não pertence a você.");
+        }
+        transaction.setGasStation(station);
     }
 
     private boolean splitRecurringScheduleFromTransactionForward(Transactions transaction, TransactionDTO dto, Long referenceDate, long dateNow, Users currentUser, Accounts account) {
@@ -1951,8 +2044,7 @@ public class TransactionServiceImpl implements TransactionService {
 
     private void validateVehicleOdometerOnCreate(TransactionDTO dto, Users user) {
         if (dto.getType() != TransactionType.DESPESA
-                || dto.getVehicleId() == null
-                || dto.getCurrentOdometer() == null) {
+                || dto.getVehicleId() == null) {
             return;
         }
 
@@ -1961,12 +2053,23 @@ public class TransactionServiceImpl implements TransactionService {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_VEHICLE);
         }
 
+        if (Boolean.TRUE.equals(dto.getFullTank()) && !VehicleTransactionRules.isRefuel(dto)) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Tanque cheio só pode ser informado em abastecimentos.");
+        }
+        if (!VehicleTransactionRules.isRefuel(dto)) {
+            return;
+        }
+        if (dto.getCurrentOdometer() == null) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Informe o odômetro do abastecimento.");
+        }
+
         odometerTimelineService.validateReading(
                 vehicle,
                 dto.getDate(),
                 dto.getCurrentOdometer(),
                 null,
-                Long.MAX_VALUE
+                Long.MAX_VALUE,
+                Boolean.TRUE.equals(dto.getOdometerJumpConfirmed())
         );
     }
 
