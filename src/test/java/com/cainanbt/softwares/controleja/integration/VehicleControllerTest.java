@@ -581,6 +581,41 @@ public class VehicleControllerTest extends BaseTest {
     }
 
     @Test
+    @DisplayName("Deve bloquear exclusão de abastecimento intermediário e permitir excluir o último com recálculo")
+    void shouldBlockMiddleRefuelDeletionAndRecalculateAfterDeletingLastRefuel() {
+        VehicleDTO vehicleDTO = new VehicleDTO();
+        vehicleDTO.setName("Exclusão Segura");
+        vehicleDTO.setBrand("Toyota");
+        vehicleDTO.setModel("Corolla");
+        vehicleDTO.setYear(2020);
+        vehicleDTO.setCurrentOdometer(new BigDecimal("1000.0"));
+
+        String vehicleId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(vehicleDTO).post("/vehicles")
+                .then().statusCode(200).extract().path("id");
+
+        long firstDate = DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 7, 1, 8, 0));
+        long secondDate = DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 7, 2, 8, 0));
+        long thirdDate = DateUtils.localDateTimeToEpoch(LocalDateTime.of(2026, 7, 3, 8, 0));
+        createVehicleTransaction(vehicleId, "Abastecimento 1", firstDate, new BigDecimal("2000.0"));
+        String secondId = createVehicleTransaction(vehicleId, "Abastecimento 2", secondDate, new BigDecimal("2300.0"));
+        String thirdId = createVehicleTransaction(vehicleId, "Abastecimento 3", thirdDate, new BigDecimal("2500.0"));
+
+        given().header("Authorization", "Bearer " + token)
+                .delete("/transactions/" + secondId)
+                .then().statusCode(400)
+                .body("message", is("Não é possível excluir este abastecimento porque isso afetaria o histórico e os cálculos do veículo. Exclua os abastecimentos em sequência, do último até o desejado."));
+
+        given().header("Authorization", "Bearer " + token)
+                .delete("/transactions/" + thirdId)
+                .then().statusCode(200);
+
+        given().header("Authorization", "Bearer " + token).get("/vehicles/" + vehicleId)
+                .then().statusCode(200)
+                .body("currentOdometer", is(2300.0f));
+    }
+
+    @Test
     @DisplayName("Deve retornar contexto de odômetro usando transações veiculares")
     void shouldReturnOdometerContextFromVehicleTransactions() {
         VehicleDTO vehicleDTO = new VehicleDTO();

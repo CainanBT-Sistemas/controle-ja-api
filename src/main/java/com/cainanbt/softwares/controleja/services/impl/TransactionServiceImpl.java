@@ -1538,7 +1538,7 @@ public class TransactionServiceImpl implements TransactionService {
         if (index > 0 && index < refuels.size() - 1) {
             throw new BadRequestException(
                     ConstsMessages.ERROR_TITLE,
-                    "Exclusão de abastecimento intermediário não está disponível no MVP."
+                    "Não é possível excluir este abastecimento porque isso afetaria o histórico e os cálculos do veículo. Exclua os abastecimentos em sequência, do último até o desejado."
             );
         }
     }
