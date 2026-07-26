@@ -71,6 +71,5 @@ public class TransactionDTO {
     @Positive(message = "A eficiência deve ser maior que zero")
     private Double efficiency;
     private DrivingPredominance drivingPredominance;
-    private UUID gasStationId;
 
 }

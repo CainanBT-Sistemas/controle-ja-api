@@ -5,7 +5,6 @@ import com.cainanbt.softwares.controleja.dtos.responses.TransactionResponseDTO;
 import com.cainanbt.softwares.controleja.entities.Accounts;
 import com.cainanbt.softwares.controleja.entities.Category;
 import com.cainanbt.softwares.controleja.entities.CreditCard;
-import com.cainanbt.softwares.controleja.entities.GasStation;
 import com.cainanbt.softwares.controleja.entities.InstallmentPlan;
 import com.cainanbt.softwares.controleja.entities.Invoices;
 import com.cainanbt.softwares.controleja.entities.RecurrenceRule;
@@ -23,8 +22,6 @@ import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.services.AccountsService;
 import com.cainanbt.softwares.controleja.services.CategoryService;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
-import com.cainanbt.softwares.controleja.services.GasStationRankingService;
-import com.cainanbt.softwares.controleja.services.GasStationService;
 import com.cainanbt.softwares.controleja.services.InstallmentPlanService;
 import com.cainanbt.softwares.controleja.services.InvoicesService;
 import com.cainanbt.softwares.controleja.services.RecurrenceRuleService;
@@ -81,8 +78,6 @@ public class TransactionServiceImpl implements TransactionService {
     private final RecurrenceRuleService recurrenceRuleService;
     private final TransactionProcessorFactory processorFactory;
     private final TransactionHelper helper;
-    private final GasStationService gasStationService;
-    private final GasStationRankingService gasStationRankingService;
     private final VehicleService vehicleService;
     private final VehicleOdometerTimelineService odometerTimelineService;
     private final VehicleRefuelMetricsService refuelMetricsService;
@@ -102,6 +97,8 @@ public class TransactionServiceImpl implements TransactionService {
         Category category;
         if (dto.getType() == TransactionType.TRANSFERENCIA) {
             category = categoryService.findTransferCategory(user);
+        } else if (shouldResolveVehicleTechnicalCategory(dto)) {
+            category = categoryService.ensureVehicleEntryCategory(user, VehicleTransactionRules.isRefuel(dto));
         } else {
             category = categoryService.findById(dto.getCategoryId())
                     .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.CATEGORY_NOT_FOUND));
@@ -117,7 +114,6 @@ public class TransactionServiceImpl implements TransactionService {
         if (VehicleTransactionRules.isRefuel(savedTransaction)) {
             odometerTimelineService.recalculateCurrentOdometer(savedTransaction.getVehicle());
             refuelMetricsService.recalculate(savedTransaction.getVehicle());
-            rebuildGasStationRankingsIfApplicable(savedTransaction);
         }
 
         // CORREÇÃO: Roda na mesma thread. É tão rápido (5ms) que não vai travar o celular.
@@ -130,13 +126,10 @@ public class TransactionServiceImpl implements TransactionService {
         return savedTransaction;
     }
 
-    private void rebuildGasStationRankingsIfApplicable(Transactions transaction) {
-        if (transaction.getUser() != null
-                && transaction.getGasStation() != null
-                && transaction.getLiters() != null
-                && transaction.getLiters() > 0) {
-            gasStationRankingService.rebuildRankings(transaction.getUser().getId());
-        }
+    private boolean shouldResolveVehicleTechnicalCategory(TransactionDTO dto) {
+        return dto.getType() == TransactionType.DESPESA
+                && dto.getVehicleId() != null
+                && dto.getCategoryId() == null;
     }
 
     @Override
@@ -1517,9 +1510,6 @@ public class TransactionServiceImpl implements TransactionService {
         if (transaction.getVehicle() != null && transaction.getCurrentOdometer() != null) {
             recalculateVehicleCurrentOdometer(transaction.getVehicle());
             refuelMetricsService.recalculate(transaction.getVehicle());
-            if (transaction.getUser() != null) {
-                gasStationRankingService.rebuildRankings(transaction.getUser().getId());
-            }
         }
     }
 
@@ -1639,7 +1629,6 @@ public class TransactionServiceImpl implements TransactionService {
         TransactionType oldType = transaction.getType();
         Vehicle oldVehicle = transaction.getVehicle();
         boolean oldWasRefuel = VehicleTransactionRules.isRefuel(transaction);
-        boolean affectedGasStationRanking = transaction.getGasStation() != null;
 
         if (wasPaid && oldAccount.getType() != AccountType.CREDIT_CARD) {
             if (oldType == TransactionType.DESPESA) oldAccount.credit(oldAmount);
@@ -1762,11 +1751,6 @@ public class TransactionServiceImpl implements TransactionService {
             refuelMetricsService.recalculate(savedTransaction.getVehicle());
         }
 
-        if (savedTransaction.getUser() != null
-                && (affectedGasStationRanking || savedTransaction.getGasStation() != null)) {
-            gasStationRankingService.rebuildRankings(savedTransaction.getUser().getId());
-        }
-
         // 2. AGORA SIM GERA AS PROJEÇÕES (O banco já consegue enxergar a transação do passo 1)
         if (transformToFixed) {
             LocalDate limiteProjecao = LocalDate.now(DateUtils.zoneId).plusYears(1);
@@ -1852,7 +1836,6 @@ public class TransactionServiceImpl implements TransactionService {
                 || dto.getCurrentOdometer() != null
                 || dto.getLiters() != null
                 || dto.getFuelType() != null
-                || dto.getGasStationId() != null
                 || dto.getFullTank() != null
                 || dto.getOdometerJumpConfirmed() != null;
 
@@ -1870,7 +1853,13 @@ public class TransactionServiceImpl implements TransactionService {
 
         Double targetLiters = vehiclePayloadPresent ? dto.getLiters() : transaction.getLiters();
         var targetFuelType = vehiclePayloadPresent ? dto.getFuelType() : transaction.getFuelType();
-        boolean targetRefuel = targetLiters != null && targetLiters > 0 && targetFuelType != null;
+        BigDecimal targetOdometer = dto.getCurrentOdometer() != null
+                ? dto.getCurrentOdometer()
+                : transaction.getCurrentOdometer();
+        boolean targetRefuel = targetLiters != null
+                && targetLiters > 0
+                && targetOdometer != null
+                && targetOdometer.signum() > 0;
         boolean targetFullTank = dto.getFullTank() != null
                 ? Boolean.TRUE.equals(dto.getFullTank())
                 : Boolean.TRUE.equals(transaction.getFullTank());
@@ -1892,9 +1881,6 @@ public class TransactionServiceImpl implements TransactionService {
             return wasRefuel;
         }
 
-        BigDecimal targetOdometer = dto.getCurrentOdometer() != null
-                ? dto.getCurrentOdometer()
-                : transaction.getCurrentOdometer();
         if (targetOdometer == null) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Informe o odômetro do abastecimento.");
         }
@@ -1925,31 +1911,12 @@ public class TransactionServiceImpl implements TransactionService {
         transaction.setLiters(targetLiters);
         transaction.setFuelType(targetFuelType);
         transaction.setFullTank(targetFullTank);
-        applyGasStationOnUpdate(transaction, dto, currentUser, vehiclePayloadPresent);
+        transaction.setGasStation(null);
         if (dto.getDrivingPredominance() != null) {
             transaction.setDrivingPredominance(dto.getDrivingPredominance());
         }
         transaction.setEfficiency(null);
         return shouldRecalculateVehicleOdometer;
-    }
-
-    private void applyGasStationOnUpdate(
-            Transactions transaction,
-            TransactionDTO dto,
-            Users currentUser,
-            boolean vehiclePayloadPresent) {
-        if (!vehiclePayloadPresent) {
-            return;
-        }
-        if (dto.getGasStationId() == null) {
-            transaction.setGasStation(null);
-            return;
-        }
-        GasStation station = gasStationService.findByIdOrThrow(dto.getGasStationId());
-        if (station.getUser() == null || !station.getUser().getId().equals(currentUser.getId())) {
-            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, "Este posto não pertence a você.");
-        }
-        transaction.setGasStation(station);
     }
 
     private boolean splitRecurringScheduleFromTransactionForward(Transactions transaction, TransactionDTO dto, Long referenceDate, long dateNow, Users currentUser, Accounts account) {

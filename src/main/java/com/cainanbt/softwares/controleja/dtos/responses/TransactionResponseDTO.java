@@ -36,8 +36,6 @@ public class TransactionResponseDTO {
     private BigDecimal currentOdometer;
     private FuelType fuelType;
     private DrivingPredominance drivingPredominance;
-    private UUID gasStationId;
-    private String gasStationName;
     private UUID creditCardId;
     private UUID targetInvoiceId;
     private UUID recurrenceRuleId;
@@ -106,11 +104,6 @@ public class TransactionResponseDTO {
             dto.setFuelType(entity.getFuelType());
             dto.setDrivingPredominance(entity.getDrivingPredominance());
             dto.setVehicleId(entity.getVehicle().getId());
-        }
-
-        if (entity.getGasStation() != null) {
-            dto.setGasStationId(entity.getGasStation().getId());
-            dto.setGasStationName(entity.getGasStation().getName());
         }
 
         return dto;

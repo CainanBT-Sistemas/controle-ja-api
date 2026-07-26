@@ -17,6 +17,8 @@ import io.restassured.http.ContentType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -34,11 +36,16 @@ public class VehicleControllerTest extends BaseTest {
     private String token;
     private UUID walletId;
     private UUID categoryId;
+    private String currentEmail;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @BeforeEach
     void setup() {
         String unique = UUID.randomUUID().toString().substring(0, 8);
         String email = "driver_" + unique + "@test.com";
+        currentEmail = email;
         InsertUpdateUserDTO user = new InsertUpdateUserDTO();
         user.setUsername("Motorista " + unique);
         user.setEmail(email);
@@ -419,6 +426,125 @@ public class VehicleControllerTest extends BaseTest {
         given().header("Authorization", "Bearer " + token)
                 .contentType(ContentType.JSON).body(correction).put("/transactions/" + wrongTransactionId)
                 .then().statusCode(400);
+    }
+
+    @Test
+    @DisplayName("Deve criar categoria técnica veicular ausente ao salvar abastecimento sem categoria manual")
+    void shouldCreateMissingVehicleTechnicalCategoryWhenSavingQuickRefuel() {
+        UUID userId = jdbcTemplate.queryForObject(
+                "SELECT id FROM users WHERE email = ?",
+                UUID.class,
+                currentEmail
+        );
+        long now = DateUtils.getEpochNow();
+        jdbcTemplate.update(
+                "UPDATE category SET deleted_at = ? WHERE user_id = ? AND name IN ('Veículo', 'Abastecimento', 'Manutenção')",
+                now,
+                userId
+        );
+
+        VehicleDTO vDto = new VehicleDTO();
+        vDto.setName("Categoria Técnica");
+        vDto.setBrand("VW");
+        vDto.setModel("Polo");
+        vDto.setYear(2024);
+        vDto.setCurrentOdometer(new BigDecimal("2000.00"));
+
+        String vehicleId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(vDto).post("/vehicles")
+                .then().statusCode(200).extract().path("id");
+
+        TransactionDTO tDto = new TransactionDTO();
+        tDto.setName("Abastecimento rápido");
+        tDto.setType(TransactionType.DESPESA);
+        tDto.setAmount(new BigDecimal("250.00"));
+        tDto.setDate(DateUtils.getEpochNow());
+        tDto.setPaid(true);
+        tDto.setAccountId(walletId);
+        tDto.setIsFixed(false);
+        tDto.setVehicleId(UUID.fromString(vehicleId));
+        tDto.setCurrentOdometer(new BigDecimal("2300.00"));
+        tDto.setLiters(35.0);
+        tDto.setFullTank(true);
+
+        String transactionId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(tDto).post("/transactions")
+                .then().statusCode(200)
+                .extract().path("id");
+
+        given().header("Authorization", "Bearer " + token)
+                .get("/transactions/" + transactionId)
+                .then().statusCode(200)
+                .body("categoryName", is("Abastecimento"));
+
+        Integer activeTechnicalCategories = jdbcTemplate.queryForObject(
+                """
+                        SELECT COUNT(*)
+                          FROM category child
+                          JOIN category parent ON parent.id = child.sub_category_id
+                         WHERE child.user_id = ?
+                           AND child.deleted_at IS NULL
+                           AND parent.deleted_at IS NULL
+                           AND parent.name = 'Veículo'
+                           AND child.name = 'Abastecimento'
+                        """,
+                Integer.class,
+                userId
+        );
+        org.junit.jupiter.api.Assertions.assertEquals(1, activeTechnicalCategories);
+    }
+
+    @Test
+    @DisplayName("Deve criar categoria técnica veicular ausente ao salvar manutenção sem categoria manual")
+    void shouldCreateMissingVehicleTechnicalCategoryWhenSavingQuickMaintenance() {
+        UUID userId = jdbcTemplate.queryForObject(
+                "SELECT id FROM users WHERE email = ?",
+                UUID.class,
+                currentEmail
+        );
+        long now = DateUtils.getEpochNow();
+        jdbcTemplate.update(
+                "UPDATE category SET deleted_at = ? WHERE user_id = ? AND name IN ('Veículo', 'Abastecimento', 'Manutenção')",
+                now,
+                userId
+        );
+
+        VehicleDTO vDto = new VehicleDTO();
+        vDto.setName("Manutenção Técnica");
+        vDto.setBrand("Fiat");
+        vDto.setModel("Argo");
+        vDto.setYear(2023);
+        vDto.setCurrentOdometer(new BigDecimal("5100.00"));
+
+        String vehicleId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(vDto).post("/vehicles")
+                .then().statusCode(200).extract().path("id");
+
+        TransactionDTO tDto = new TransactionDTO();
+        tDto.setName("Manutenção rápida");
+        tDto.setDescription("Troca de óleo");
+        tDto.setType(TransactionType.DESPESA);
+        tDto.setAmount(new BigDecimal("180.00"));
+        tDto.setDate(DateUtils.getEpochNow());
+        tDto.setPaid(true);
+        tDto.setAccountId(walletId);
+        tDto.setIsFixed(false);
+        tDto.setVehicleId(UUID.fromString(vehicleId));
+
+        String transactionId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(tDto).post("/transactions")
+                .then().statusCode(200)
+                .extract().path("id");
+
+        given().header("Authorization", "Bearer " + token)
+                .get("/transactions/" + transactionId)
+                .then().statusCode(200)
+                .body("categoryName", is("Manutenção"));
+
+        given().header("Authorization", "Bearer " + token)
+                .get("/vehicles/" + vehicleId)
+                .then().statusCode(200)
+                .body("currentOdometer", is(5100.0f));
     }
 
     @Test

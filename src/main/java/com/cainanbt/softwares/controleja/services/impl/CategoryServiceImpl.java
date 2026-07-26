@@ -13,6 +13,7 @@ import com.cainanbt.softwares.controleja.services.categories.CategoryDomainValid
 import com.cainanbt.softwares.controleja.services.categories.CategoryFactory;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
+import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -156,6 +157,54 @@ public class CategoryServiceImpl implements CategoryService {
             );
         }
         return categories.get(0);
+    }
+
+    @Override
+    @Transactional
+    public Category ensureVehicleEntryCategory(Users user, boolean refuel) {
+        Category vehicleParent = findOrCreateDefaultCategory(
+                user,
+                "Veículo",
+                "directions_car",
+                "#3F51B5",
+                null
+        );
+        return findOrCreateDefaultCategory(
+                user,
+                refuel ? "Abastecimento" : "Manutenção",
+                refuel ? "local_gas_station" : "build",
+                "#3F51B5",
+                vehicleParent
+        );
+    }
+
+    private Category findOrCreateDefaultCategory(
+            Users user,
+            String name,
+            String icon,
+            String color,
+            Category parentCategory
+    ) {
+        return repository.findAllByUserIdAndNameAndDeletedAtIsNull(user.getId(), name)
+                .stream()
+                .filter(category -> parentCategory == null
+                        ? category.getSubCategory() == null
+                        : category.getSubCategory() != null
+                        && category.getSubCategory().getId().equals(parentCategory.getId()))
+                .findFirst()
+                .orElseGet(() -> repository.save(Category.builder()
+                        .id(ID.generate())
+                        .name(name)
+                        .categoryType(TransactionType.DESPESA.name())
+                        .enabled(true)
+                        .isDefault(true)
+                        .isSubCategory(parentCategory != null)
+                        .icon(icon)
+                        .color(color)
+                        .user(user)
+                        .createdAt(DateUtils.getEpochNow())
+                        .subCategory(parentCategory)
+                        .build()));
     }
 
     /**

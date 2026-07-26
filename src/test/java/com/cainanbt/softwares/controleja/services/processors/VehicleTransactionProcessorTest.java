@@ -8,7 +8,6 @@ import com.cainanbt.softwares.controleja.enums.FuelType;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
-import com.cainanbt.softwares.controleja.services.GasStationService;
 import com.cainanbt.softwares.controleja.services.VehicleService;
 import com.cainanbt.softwares.controleja.services.vehicles.VehicleConsumptionCalculator;
 import org.junit.jupiter.api.Test;
@@ -34,8 +33,6 @@ class VehicleTransactionProcessorTest {
     @Mock
     private VehicleService vehicleService;
     @Mock
-    private GasStationService gasStationService;
-    @Mock
     private TransactionRepository transactionRepository;
     @Mock
     private VehicleConsumptionCalculator vehicleConsumptionCalculator;
@@ -48,7 +45,6 @@ class VehicleTransactionProcessorTest {
         TransactionDTO dto = new TransactionDTO();
         dto.setType(TransactionType.PAGAMENTO_FATURA);
         dto.setVehicleId(UUID.randomUUID());
-        dto.setGasStationId(UUID.randomUUID());
         dto.setCurrentOdometer(new BigDecimal("180400.0"));
 
         Transactions.TransactionsBuilder builder = Transactions.builder();
@@ -58,7 +54,7 @@ class VehicleTransactionProcessorTest {
         assertNull(transaction.getVehicle());
         assertNull(transaction.getGasStation());
         assertNull(transaction.getCurrentOdometer());
-        verifyNoInteractions(vehicleService, gasStationService, transactionRepository, vehicleConsumptionCalculator);
+        verifyNoInteractions(vehicleService, transactionRepository, vehicleConsumptionCalculator);
     }
 
     @Test
@@ -92,7 +88,6 @@ class VehicleTransactionProcessorTest {
         dto.setVehicleId(vehicleId);
         dto.setCurrentOdometer(new BigDecimal("180400.0"));
         dto.setLiters(40.0);
-        dto.setFuelType(FuelType.GASOLINA);
         dto.setFullTank(true);
         Vehicle vehicle = Vehicle.builder().id(vehicleId).user(Users.builder().id(userId).build()).build();
         when(vehicleService.findById(vehicleId)).thenReturn(vehicle);
@@ -103,8 +98,29 @@ class VehicleTransactionProcessorTest {
 
         assertEquals(new BigDecimal("180400.0"), transaction.getCurrentOdometer());
         assertEquals(40.0, transaction.getLiters());
-        assertEquals(FuelType.GASOLINA, transaction.getFuelType());
+        assertNull(transaction.getFuelType());
         assertTrue(transaction.getFullTank());
+    }
+
+    @Test
+    void shouldKeepOptionalFuelTypeWhenInformedForRefuel() {
+        UUID userId = UUID.randomUUID();
+        UUID vehicleId = UUID.randomUUID();
+        TransactionDTO dto = new TransactionDTO();
+        dto.setType(TransactionType.DESPESA);
+        dto.setVehicleId(vehicleId);
+        dto.setCurrentOdometer(new BigDecimal("180400.0"));
+        dto.setLiters(40.0);
+        dto.setFuelType(FuelType.GASOLINA);
+        dto.setFullTank(true);
+        Vehicle vehicle = Vehicle.builder().id(vehicleId).user(Users.builder().id(userId).build()).build();
+        when(vehicleService.findById(vehicleId)).thenReturn(vehicle);
+
+        Transactions.TransactionsBuilder builder = Transactions.builder();
+        processor.apply(dto, builder, Users.builder().id(userId).build());
+        Transactions transaction = builder.build();
+
+        assertEquals(FuelType.GASOLINA, transaction.getFuelType());
     }
 
     @Test
