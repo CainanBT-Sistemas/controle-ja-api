@@ -56,6 +56,28 @@ class VehicleRefuelMetricsServiceTest {
     }
 
     @Test
+    void recalculate_shouldAccumulatePartialRefuelLitersUntilNextFullTank() {
+        Vehicle vehicle = Vehicle.builder().id(UUID.randomUUID()).build();
+        Transactions baseline = refuel(1000L, 1000L, "2000.0", 35.0, FuelType.GASOLINA, true);
+        Transactions partial = refuel(2000L, 2000L, "2100.0", 10.0, FuelType.GASOLINA, false);
+        Transactions closingFull = refuel(3000L, 3000L, "2500.0", 43.6, FuelType.GASOLINA, true);
+        when(transactionRepository.findValidRefuelsByVehicleUpToDate(vehicle.getId(), Long.MAX_VALUE))
+                .thenReturn(List.of(closingFull, partial, baseline));
+
+        service.recalculate(vehicle);
+
+        ArgumentCaptor<List<Transactions>> captor = ArgumentCaptor.forClass(List.class);
+        verify(transactionRepository).saveAll(captor.capture());
+        List<Transactions> saved = captor.getValue();
+        assertNull(saved.get(0).getEfficiency());
+        assertNull(saved.get(1).getEfficiency());
+        assertEquals(9.33, saved.get(2).getEfficiency());
+        assertEquals(9.33, vehicle.getAvgKmPerLiterGasoline());
+        assertNull(vehicle.getAvgKmPerLiterEthanol());
+        verify(vehicleRepository).save(vehicle);
+    }
+
+    @Test
     void recalculate_whenNoRefuelsRemain_shouldClearVehicleAverages() {
         Vehicle vehicle = Vehicle.builder()
                 .id(UUID.randomUUID())

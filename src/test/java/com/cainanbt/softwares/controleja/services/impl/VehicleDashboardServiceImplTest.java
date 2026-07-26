@@ -62,18 +62,22 @@ public class VehicleDashboardServiceImplTest {
         Vehicle vehicle = vehicle(vehicleId, "10100.00");
         long start = epoch(2026, 5, 1);
         long end = epoch(2026, 5, 31);
-        Transactions firstRefuel = refuel(epoch(2026, 5, 1), "9900.00", 20.0, 10.0);
+        Transactions firstRefuel = refuel(epoch(2026, 5, 1), "9900.00", 20.0, null);
         Transactions lastRefuel = refuel(epoch(2026, 5, 31), "10100.00", 20.0, 10.0);
 
         stubCommon(vehicleId, vehicle, start, end, new BigDecimal("300.00"), new BigDecimal("1200.00"));
         when(transactionRepository.findRefuelsByVehicleAndDateBetween(vehicleId, start, end))
                 .thenReturn(List.of(firstRefuel, lastRefuel));
+        when(transactionRepository.findValidRefuelsByVehicleUpToDate(vehicleId, end))
+                .thenReturn(List.of(lastRefuel, firstRefuel));
+        when(transactionRepository.getNetVehicleCost(vehicleId, 0L, lastRefuel.getDate()))
+                .thenReturn(new BigDecimal("300.00"));
 
         VehicleDashboardDTO dto = service.getDashboard(vehicleId, start, end);
 
         assertEquals(10.0, dto.getCurrentAvgKml());
         assertEquals(new BigDecimal("300.00"), dto.getMonthlyCost());
-        assertEquals(new BigDecimal("1.50"), dto.getCostPerKm());
+        assertEquals(new BigDecimal("1.00"), dto.getCostPerKm());
     }
 
     @Test
@@ -104,10 +108,14 @@ public class VehicleDashboardServiceImplTest {
         Vehicle vehicleA = vehicle(vehicleAId, "5050.00");
         long start = epoch(2026, 5, 1);
         long end = epoch(2026, 5, 31);
+        Transactions vehicleABaseline = refuel(epoch(2026, 5, 1), "4920.00", 10.0, null);
         Transactions vehicleARefuel = refuel(epoch(2026, 5, 8), "5000.00", 10.0, 8.0);
 
         stubCommon(vehicleAId, vehicleA, start, end, new BigDecimal("100.00"), new BigDecimal("100.00"));
-        when(transactionRepository.findRefuelsByVehicleAndDateBetween(vehicleAId, start, end)).thenReturn(List.of(vehicleARefuel));
+        when(transactionRepository.findRefuelsByVehicleAndDateBetween(vehicleAId, start, end))
+                .thenReturn(List.of(vehicleABaseline, vehicleARefuel));
+        when(transactionRepository.findValidRefuelsByVehicleUpToDate(vehicleAId, end))
+                .thenReturn(List.of(vehicleARefuel, vehicleABaseline));
 
         VehicleDashboardDTO dto = service.getDashboard(vehicleAId, start, end);
 
@@ -150,6 +158,172 @@ public class VehicleDashboardServiceImplTest {
 
         assertEquals(new BigDecimal("80.00"), dto.getMonthlyCost());
         assertEquals(new BigDecimal("0.80"), dto.getCostPerKm());
+    }
+
+    @Test
+    void getDashboard_whenOnlyBaselineRefuelExists_shouldNotReturnReliableCostPerKm() {
+        UUID vehicleId = UUID.randomUUID();
+        Vehicle vehicle = vehicle(vehicleId, "1000.00");
+        long start = epoch(2026, 7, 1);
+        long end = epoch(2026, 7, 31);
+        Transactions baseline = refuel(epoch(2026, 7, 5), "1000.00", 40.0, null, "200.00");
+
+        stubCommon(vehicleId, vehicle, start, end, new BigDecimal("300.00"), new BigDecimal("300.00"));
+        when(transactionRepository.findRefuelsByVehicleAndDateBetween(vehicleId, start, end)).thenReturn(List.of(baseline));
+        when(transactionRepository.findValidRefuelsByVehicleUpToDate(vehicleId, end)).thenReturn(List.of(baseline));
+
+        VehicleDashboardDTO dto = service.getDashboard(vehicleId, start, end);
+
+        assertEquals(BigDecimal.ZERO, dto.getCostPerKm());
+        assertEquals(false, dto.getCostPerKmReliable());
+        assertNull(dto.getCurrentAvgKml());
+    }
+
+    @Test
+    void getDashboard_whenSecondRefuelClosesFirstReliableInterval_shouldIncludePreBaselineCostsOnce() {
+        UUID vehicleId = UUID.randomUUID();
+        Vehicle vehicle = vehicle(vehicleId, "1200.00");
+        long start = epoch(2026, 7, 1);
+        long end = epoch(2026, 7, 31);
+        Transactions baseline = refuel(epoch(2026, 7, 5), "1000.00", 40.0, null, "200.00");
+        Transactions secondRefuel = refuel(epoch(2026, 7, 15), "1200.00", 20.0, 10.0, "300.00");
+
+        stubCommon(vehicleId, vehicle, start, end, new BigDecimal("650.00"), new BigDecimal("650.00"));
+        when(transactionRepository.findRefuelsByVehicleAndDateBetween(vehicleId, start, end))
+                .thenReturn(List.of(baseline, secondRefuel));
+        when(transactionRepository.findValidRefuelsByVehicleUpToDate(vehicleId, end))
+                .thenReturn(List.of(secondRefuel, baseline));
+        when(transactionRepository.getNetVehicleCost(vehicleId, 0L, secondRefuel.getDate()))
+                .thenReturn(new BigDecimal("650.00"));
+
+        VehicleDashboardDTO dto = service.getDashboard(vehicleId, start, end);
+
+        assertEquals(new BigDecimal("2.25"), dto.getCostPerKm());
+        assertEquals(true, dto.getCostPerKmReliable());
+        assertEquals(10.0, dto.getCurrentAvgKml());
+    }
+
+    @Test
+    void getDashboard_whenPartialRefuelExistsBetweenBaselineAndClosingFullTank_shouldNotUsePartialAsCostPerKmBoundary() {
+        UUID vehicleId = UUID.randomUUID();
+        Vehicle vehicle = vehicle(vehicleId, "2500.00");
+        long start = epoch(2026, 7, 1);
+        long end = epoch(2026, 7, 31);
+        Transactions baseline = refuel(epoch(2026, 7, 22), "2000.00", 35.0, null, "360.00", 1000L, true);
+        Transactions partial = refuel(epoch(2026, 7, 22), "2100.00", 10.0, null, "80.00", 2000L, false);
+        Transactions closingFull = refuel(epoch(2026, 7, 22), "2500.00", 43.6, 9.328358208955224, "300.00", 3000L, true);
+
+        stubCommon(vehicleId, vehicle, start, end, new BigDecimal("2740.00"), new BigDecimal("2740.00"));
+        when(transactionRepository.findRefuelsByVehicleAndDateBetween(vehicleId, start, end))
+                .thenReturn(List.of(baseline, partial, closingFull));
+        when(transactionRepository.findValidRefuelsByVehicleUpToDate(vehicleId, end))
+                .thenReturn(List.of(closingFull, partial, baseline));
+        when(transactionRepository.getNetVehicleCost(vehicleId, 0L, closingFull.getDate()))
+                .thenReturn(new BigDecimal("2740.00"));
+
+        VehicleDashboardDTO dto = service.getDashboard(vehicleId, start, end);
+
+        assertEquals(new BigDecimal("4.76"), dto.getCostPerKm());
+        assertEquals(true, dto.getCostPerKmReliable());
+        assertEquals(9.33, dto.getCurrentAvgKml());
+        assertEquals(500.0, dto.getLastRefuelDistanceKm());
+        assertEquals(9.33, dto.getLastRefuelKml());
+    }
+
+    @Test
+    void getDashboard_whenMultipleReliableCyclesCloseInSelectedMonth_shouldReturnWeightedMonthlyKml() {
+        UUID vehicleId = UUID.randomUUID();
+        Vehicle vehicle = vehicle(vehicleId, "2800.00");
+        long start = epoch(2026, 7, 1);
+        long end = epoch(2026, 7, 31);
+        Transactions baseline = refuel(epoch(2026, 7, 5), "2000.00", 45.0, null, "300.00", 1000L, true);
+        Transactions partial = refuel(epoch(2026, 7, 10), "2100.00", 10.0, null, "100.00", 2000L, false);
+        Transactions firstClosingFull = refuel(epoch(2026, 7, 15), "2500.00", 35.0, 11.11111111111111, "300.00", 3000L, true);
+        Transactions secondClosingFull = refuel(epoch(2026, 7, 25), "2800.00", 42.0, 7.142857142857143, "350.00", 4000L, true);
+
+        stubCommon(vehicleId, vehicle, start, end, new BigDecimal("2050.00"), new BigDecimal("2050.00"));
+        when(transactionRepository.findRefuelsByVehicleAndDateBetween(vehicleId, start, end))
+                .thenReturn(List.of(baseline, partial, firstClosingFull, secondClosingFull));
+        when(transactionRepository.findValidRefuelsByVehicleUpToDate(vehicleId, end))
+                .thenReturn(List.of(secondClosingFull, firstClosingFull, partial, baseline));
+
+        VehicleDashboardDTO dto = service.getDashboard(vehicleId, start, end);
+
+        assertEquals(9.20, dto.getCurrentAvgKml());
+        assertEquals(300.0, dto.getLastRefuelDistanceKm());
+        assertEquals(7.14, dto.getLastRefuelKml());
+    }
+
+    @Test
+    void getDashboard_whenCycleStartsBeforeSelectedMonthAndClosesInsideIt_shouldIncludeCycleInMonthlyKml() {
+        UUID vehicleId = UUID.randomUUID();
+        Vehicle vehicle = vehicle(vehicleId, "2500.00");
+        long start = epoch(2026, 7, 1);
+        long end = epoch(2026, 7, 31);
+        Transactions juneBaseline = refuel(epoch(2026, 6, 28), "2000.00", 45.0, null, "300.00", 1000L, true);
+        Transactions julyPartial = refuel(epoch(2026, 7, 5), "2100.00", 10.0, null, "100.00", 2000L, false);
+        Transactions julyClosingFull = refuel(epoch(2026, 7, 15), "2500.00", 35.0, 11.11111111111111, "300.00", 3000L, true);
+
+        stubCommon(vehicleId, vehicle, start, end, new BigDecimal("1400.00"), new BigDecimal("1400.00"));
+        when(transactionRepository.findRefuelsByVehicleAndDateBetween(vehicleId, start, end))
+                .thenReturn(List.of(julyPartial, julyClosingFull));
+        when(transactionRepository.findValidRefuelsByVehicleUpToDate(vehicleId, end))
+                .thenReturn(List.of(julyClosingFull, julyPartial, juneBaseline));
+        when(transactionRepository.findPreviousValidRefuelsByVehicleBeforeDate(vehicleId, julyClosingFull.getDate()))
+                .thenReturn(List.of(juneBaseline));
+
+        VehicleDashboardDTO dto = service.getDashboard(vehicleId, start, end);
+
+        assertEquals(11.11, dto.getCurrentAvgKml());
+        assertEquals(500.0, dto.getLastRefuelDistanceKm());
+        assertEquals(11.11, dto.getLastRefuelKml());
+    }
+
+    @Test
+    void getDashboard_whenOnlyOpenCycleExistsInSelectedMonth_shouldNotInventMonthlyKml() {
+        UUID vehicleId = UUID.randomUUID();
+        Vehicle vehicle = vehicle(vehicleId, "2100.00");
+        long start = epoch(2026, 7, 1);
+        long end = epoch(2026, 7, 31);
+        Transactions baseline = refuel(epoch(2026, 7, 5), "2000.00", 45.0, null, "300.00", 1000L, true);
+        Transactions partial = refuel(epoch(2026, 7, 10), "2100.00", 10.0, null, "100.00", 2000L, false);
+
+        stubCommon(vehicleId, vehicle, start, end, new BigDecimal("400.00"), new BigDecimal("400.00"));
+        when(transactionRepository.findRefuelsByVehicleAndDateBetween(vehicleId, start, end))
+                .thenReturn(List.of(baseline, partial));
+        when(transactionRepository.findValidRefuelsByVehicleUpToDate(vehicleId, end))
+                .thenReturn(List.of(partial, baseline));
+
+        VehicleDashboardDTO dto = service.getDashboard(vehicleId, start, end);
+
+        assertNull(dto.getCurrentAvgKml());
+        assertNull(dto.getLastRefuelDistanceKm());
+        assertNull(dto.getLastRefuelKml());
+    }
+
+    @Test
+    void getDashboard_whenThirdRefuelClosesNextInterval_shouldNotDuplicatePreBaselineCosts() {
+        UUID vehicleId = UUID.randomUUID();
+        Vehicle vehicle = vehicle(vehicleId, "1500.00");
+        long start = epoch(2026, 7, 1);
+        long end = epoch(2026, 7, 31);
+        Transactions baseline = refuel(epoch(2026, 7, 5), "1000.00", 40.0, null, "200.00");
+        Transactions secondRefuel = refuel(epoch(2026, 7, 15), "1200.00", 20.0, 10.0, "300.00");
+        Transactions thirdRefuel = refuel(epoch(2026, 7, 25), "1500.00", 30.0, 10.0, "320.00");
+
+        stubCommon(vehicleId, vehicle, start, end, new BigDecimal("1050.00"), new BigDecimal("1050.00"));
+        when(transactionRepository.findRefuelsByVehicleAndDateBetween(vehicleId, start, end))
+                .thenReturn(List.of(baseline, secondRefuel, thirdRefuel));
+        when(transactionRepository.findValidRefuelsByVehicleUpToDate(vehicleId, end))
+                .thenReturn(List.of(thirdRefuel, secondRefuel, baseline));
+        when(transactionRepository.getNetVehicleCost(vehicleId, secondRefuel.getDate(), thirdRefuel.getDate()))
+                .thenReturn(new BigDecimal("700.00"));
+
+        VehicleDashboardDTO dto = service.getDashboard(vehicleId, start, end);
+
+        assertEquals(new BigDecimal("1.33"), dto.getCostPerKm());
+        assertEquals(true, dto.getCostPerKmReliable());
+        assertEquals(10.0, dto.getCurrentAvgKml());
     }
 
     @Test
@@ -272,12 +446,16 @@ public class VehicleDashboardServiceImplTest {
         lenient().when(transactionRepository.getNetVehicleCost(vehicleId, aprilStart, aprilEnd)).thenReturn(new BigDecimal("50.00"));
         lenient().when(transactionRepository.getNetVehicleCost(vehicleId, mayStart, mayEnd)).thenReturn(new BigDecimal("300.00"));
         lenient().when(transactionRepository.getNetVehicleCost(vehicleId, startOfYear, endOfYear)).thenReturn(new BigDecimal("1000.00"));
+        Transactions mayBaseline = refuel(mayStart, "10000.00", 20.0, null);
+        Transactions mayClosingFull = refuel(mayEnd, "10200.00", 20.0, 10.0);
         when(transactionRepository.findRefuelsByVehicleAndDateBetween(vehicleId, aprilStart, aprilEnd)).thenReturn(List.of());
         when(transactionRepository.findRefuelsByVehicleAndDateBetween(vehicleId, mayStart, mayEnd))
-                .thenReturn(List.of(
-                        refuel(mayStart, "10000.00", 20.0, 10.0),
-                        refuel(mayEnd, "10200.00", 20.0, 10.0)
-                ));
+                .thenReturn(List.of(mayBaseline, mayClosingFull));
+        when(transactionRepository.findValidRefuelsByVehicleUpToDate(vehicleId, aprilEnd)).thenReturn(List.of());
+        when(transactionRepository.findValidRefuelsByVehicleUpToDate(vehicleId, mayEnd))
+                .thenReturn(List.of(mayClosingFull, mayBaseline));
+        when(transactionRepository.getNetVehicleCost(vehicleId, 0L, mayClosingFull.getDate()))
+                .thenReturn(new BigDecimal("300.00"));
 
         VehicleDashboardDTO april = service.getDashboard(vehicleId, aprilStart, aprilEnd);
         VehicleDashboardDTO may = service.getDashboard(vehicleId, mayStart, mayEnd);
@@ -289,7 +467,7 @@ public class VehicleDashboardServiceImplTest {
         assertNull(april.getCurrentAvgKml());
         assertEquals(10.0, may.getCurrentAvgKml());
         assertEquals(BigDecimal.ZERO, april.getCostPerKm());
-        assertEquals(new BigDecimal("1.50"), may.getCostPerKm());
+        assertEquals(new BigDecimal("1.00"), may.getCostPerKm());
     }
 
     @Test
@@ -469,7 +647,6 @@ public class VehicleDashboardServiceImplTest {
         assertNull(dto.getNextMonthEstimatedCostConfidence());
         assertNull(dto.getNextRefuelPrediction());
         assertTrue(dto.getFuturePredictions().isEmpty());
-        verify(transactionRepository, never()).findValidRefuelsByVehicleUpToDate(eq(vehicleId), anyLong());
     }
 
     @Test
@@ -546,6 +723,8 @@ public class VehicleDashboardServiceImplTest {
 
         stubCommon(vehicleId, vehicle, start, end, new BigDecimal("150.00"), new BigDecimal("330.00"));
         when(transactionRepository.findRefuelsByVehicleAndDateBetween(vehicleId, start, end)).thenReturn(List.of(mayRefuel));
+        when(transactionRepository.findValidRefuelsByVehicleUpToDate(vehicleId, end))
+                .thenReturn(List.of(mayRefuel, aprilRefuel));
         when(transactionRepository.findPreviousValidRefuelsByVehicleBeforeDate(vehicleId, mayRefuel.getDate())).thenReturn(List.of(aprilRefuel));
 
         VehicleDashboardDTO dto = service.getDashboard(vehicleId, start, end);
@@ -661,6 +840,8 @@ public class VehicleDashboardServiceImplTest {
         stubCommon(vehicleId, vehicle, start, end, new BigDecimal("2070.00"), new BigDecimal("2070.00"));
         when(transactionRepository.findRefuelsByVehicleAndDateBetween(vehicleId, start, end))
                 .thenReturn(List.of(invalidLargeLiters, refuel2000, refuel2280, refuel2480, expectedLast, invalidOdometerJump));
+        when(transactionRepository.findValidRefuelsByVehicleUpToDate(vehicleId, end))
+                .thenReturn(List.of(invalidOdometerJump, expectedLast, refuel2480, refuel2280, refuel2000, invalidLargeLiters));
 
         VehicleDashboardDTO dto = service.getDashboard(vehicleId, start, end);
 
@@ -748,12 +929,23 @@ public class VehicleDashboardServiceImplTest {
     }
 
     private Transactions refuel(long date, String currentOdometer, Double liters, Double efficiency, String amount, Long createdAt) {
+        return refuel(date, currentOdometer, liters, efficiency, amount, createdAt, true);
+    }
+
+    private Transactions refuel(
+            long date,
+            String currentOdometer,
+            Double liters,
+            Double efficiency,
+            String amount,
+            Long createdAt,
+            boolean fullTank) {
         return Transactions.builder()
                 .id(UUID.randomUUID())
                 .date(date)
                 .currentOdometer(new BigDecimal(currentOdometer))
                 .liters(liters)
-                .fullTank(true)
+                .fullTank(fullTank)
                 .efficiency(efficiency)
                 .fuelType(FuelType.GASOLINA)
                 .amount(new BigDecimal(amount))

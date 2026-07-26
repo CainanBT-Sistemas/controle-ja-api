@@ -13,6 +13,7 @@ public class VehicleDashboardDTO {
     private BigDecimal monthlyCost;
     private BigDecimal yearlyCost;
     private BigDecimal costPerKm;
+    private Boolean costPerKmReliable;
 
     private Double currentAvgKml; // A média atual (Gasolina ou Etanol)
 
