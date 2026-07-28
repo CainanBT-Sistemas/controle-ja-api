@@ -19,7 +19,6 @@ import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.services.AccountsService;
 import com.cainanbt.softwares.controleja.services.CategoryService;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
-import com.cainanbt.softwares.controleja.services.GasStationRankingService;
 import com.cainanbt.softwares.controleja.services.InstallmentPlanService;
 import com.cainanbt.softwares.controleja.services.InvoicesService;
 import com.cainanbt.softwares.controleja.services.RecurrenceRuleService;
@@ -84,8 +83,6 @@ class TransactionServiceImplTest {
     private TransactionProcessorFactory processorFactory;
     @Mock
     private TransactionHelper helper;
-    @Mock
-    private GasStationRankingService gasStationRankingService;
     @Mock
     private VehicleService vehicleService;
     @Mock

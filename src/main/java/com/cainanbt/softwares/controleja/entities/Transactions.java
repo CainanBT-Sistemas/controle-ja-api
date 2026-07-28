@@ -19,6 +19,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
+import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.SQLDelete;
 import org.hibernate.annotations.Where;
@@ -94,6 +95,10 @@ public class Transactions {
     private BigDecimal currentOdometer;
     @Column(nullable = true)
     private Double liters;
+    @Builder.Default
+    @Column(nullable = false)
+    @ColumnDefault("false")
+    private Boolean fullTank = false;
     @Enumerated(EnumType.STRING)
     @Column(nullable = true)
     private FuelType fuelType;

@@ -65,10 +65,11 @@ public class TransactionDTO {
     private BigDecimal currentOdometer;
     @Positive(message = "Litros deve ser maior que zero")
     private Double liters;
+    private Boolean fullTank;
+    private Boolean odometerJumpConfirmed;
     private FuelType fuelType;
     @Positive(message = "A eficiência deve ser maior que zero")
     private Double efficiency;
     private DrivingPredominance drivingPredominance;
-    private UUID gasStationId;
 
 }

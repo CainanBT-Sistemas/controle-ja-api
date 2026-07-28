@@ -40,6 +40,19 @@ public class VehicleOdometerTimelineService {
             BigDecimal odometer,
             UUID excludedTransactionId,
             Long createdAt) {
+        validateReading(vehicle, date, odometer, excludedTransactionId, createdAt, false);
+    }
+
+    /**
+     * Valida uma leitura absoluta entre os eventos cronológicos anterior e posterior.
+     */
+    public void validateReading(
+            Vehicle vehicle,
+            Long date,
+            BigDecimal odometer,
+            UUID excludedTransactionId,
+            Long createdAt,
+            boolean odometerJumpConfirmed) {
         OdometerValidator.validateValue(odometer);
         if (date == null) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, "A data da leitura do odômetro é obrigatória.");
@@ -55,21 +68,21 @@ public class VehicleOdometerTimelineService {
                 .map(OdometerPoint::odometer)
                 .orElse(vehicle.getInitialOdometer());
 
-        if (previous != null && odometer.compareTo(previous) < 0) {
+        if (previous != null && odometer.compareTo(previous) <= 0) {
             throw new BadRequestException(
                     ConstsMessages.ERROR_TITLE,
-                    "Odômetro não pode ser menor que a leitura anterior de " + previous + "."
+                    "Odômetro deve ser maior que a leitura anterior de " + previous + "."
             );
         }
         context.next().ifPresent(next -> {
-            if (odometer.compareTo(next.odometer()) > 0) {
+            if (odometer.compareTo(next.odometer()) >= 0) {
                 throw new BadRequestException(
                         ConstsMessages.ERROR_TITLE,
-                        "Odômetro não pode ser maior que a próxima leitura de " + next.odometer() + "."
+                        "Odômetro deve ser menor que a próxima leitura de " + next.odometer() + "."
                 );
             }
         });
-        OdometerValidator.validateJump(previous, odometer);
+        OdometerValidator.validateJump(previous, odometer, odometerJumpConfirmed);
     }
 
     /**

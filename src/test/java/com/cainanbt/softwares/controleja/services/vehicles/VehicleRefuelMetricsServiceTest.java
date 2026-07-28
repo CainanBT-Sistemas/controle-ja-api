@@ -34,13 +34,13 @@ class VehicleRefuelMetricsServiceTest {
     private VehicleRefuelMetricsService service;
 
     @Test
-    void recalculate_shouldUseFirstRefuelAsBaselineAndRebuildFollowingEfficiencies() {
+    void recalculate_shouldUseFullTankCycleAndIgnorePartialEfficiency() {
         Vehicle vehicle = Vehicle.builder().id(UUID.randomUUID()).build();
-        Transactions first = refuel(1000L, 1000L, "10000.0", 20.0, FuelType.ETANOL);
-        Transactions second = refuel(2000L, 2000L, "10200.0", 20.0, FuelType.ETANOL);
-        Transactions third = refuel(3000L, 3000L, "10500.0", 30.0, FuelType.GASOLINA);
+        Transactions baseline = refuel(1000L, 1000L, "10000.0", 40.0, FuelType.ETANOL, true);
+        Transactions partial = refuel(2000L, 2000L, "10100.0", 10.0, FuelType.ETANOL, false);
+        Transactions closingFull = refuel(3000L, 3000L, "10400.0", 30.0, FuelType.ETANOL, true);
         when(transactionRepository.findValidRefuelsByVehicleUpToDate(vehicle.getId(), Long.MAX_VALUE))
-                .thenReturn(List.of(third, second, first));
+                .thenReturn(List.of(closingFull, partial, baseline));
 
         service.recalculate(vehicle);
 
@@ -48,10 +48,32 @@ class VehicleRefuelMetricsServiceTest {
         verify(transactionRepository).saveAll(captor.capture());
         List<Transactions> saved = captor.getValue();
         assertNull(saved.get(0).getEfficiency());
-        assertEquals(10.0, saved.get(1).getEfficiency());
+        assertNull(saved.get(1).getEfficiency());
         assertEquals(10.0, saved.get(2).getEfficiency());
         assertEquals(10.0, vehicle.getAvgKmPerLiterEthanol());
-        assertEquals(10.0, vehicle.getAvgKmPerLiterGasoline());
+        assertNull(vehicle.getAvgKmPerLiterGasoline());
+        verify(vehicleRepository).save(vehicle);
+    }
+
+    @Test
+    void recalculate_shouldAccumulatePartialRefuelLitersUntilNextFullTank() {
+        Vehicle vehicle = Vehicle.builder().id(UUID.randomUUID()).build();
+        Transactions baseline = refuel(1000L, 1000L, "2000.0", 35.0, FuelType.GASOLINA, true);
+        Transactions partial = refuel(2000L, 2000L, "2100.0", 10.0, FuelType.GASOLINA, false);
+        Transactions closingFull = refuel(3000L, 3000L, "2500.0", 43.6, FuelType.GASOLINA, true);
+        when(transactionRepository.findValidRefuelsByVehicleUpToDate(vehicle.getId(), Long.MAX_VALUE))
+                .thenReturn(List.of(closingFull, partial, baseline));
+
+        service.recalculate(vehicle);
+
+        ArgumentCaptor<List<Transactions>> captor = ArgumentCaptor.forClass(List.class);
+        verify(transactionRepository).saveAll(captor.capture());
+        List<Transactions> saved = captor.getValue();
+        assertNull(saved.get(0).getEfficiency());
+        assertNull(saved.get(1).getEfficiency());
+        assertEquals(9.33, saved.get(2).getEfficiency());
+        assertEquals(9.33, vehicle.getAvgKmPerLiterGasoline());
+        assertNull(vehicle.getAvgKmPerLiterEthanol());
         verify(vehicleRepository).save(vehicle);
     }
 
@@ -77,7 +99,8 @@ class VehicleRefuelMetricsServiceTest {
             long createdAt,
             String odometer,
             Double liters,
-            FuelType fuelType) {
+            FuelType fuelType,
+            boolean fullTank) {
         return Transactions.builder()
                 .id(UUID.randomUUID())
                 .date(date)
@@ -85,6 +108,7 @@ class VehicleRefuelMetricsServiceTest {
                 .currentOdometer(new BigDecimal(odometer))
                 .liters(liters)
                 .fuelType(fuelType)
+                .fullTank(fullTank)
                 .build();
     }
 }

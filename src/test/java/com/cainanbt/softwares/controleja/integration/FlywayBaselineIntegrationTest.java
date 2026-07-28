@@ -240,13 +240,13 @@ class FlywayBaselineIntegrationTest {
     private void assertMigrationAppliedSuccessfully(Flyway flyway, JdbcTemplate jdbc) {
         MigrationInfo current = flyway.info().current();
         assertNotNull(current);
-        assertEquals("3", current.getVersion().getVersion());
+        assertEquals("4", current.getVersion().getVersion());
         assertEquals(MigrationState.SUCCESS, current.getState());
         assertEquals(
-                3,
+                4,
                 jdbc.queryForObject(
                         "SELECT COUNT(*) FROM flyway_schema_history "
-                                + "WHERE version IN ('1', '2', '3') AND success = true",
+                                + "WHERE version IN ('1', '2', '3', '4') AND success = true",
                         Integer.class
                 )
         );
@@ -603,6 +603,7 @@ class FlywayBaselineIntegrationTest {
                 "efficiency",
                 "enabled",
                 "fixed",
+                "full_tank",
                 "liters",
                 "paid",
                 "created_at",

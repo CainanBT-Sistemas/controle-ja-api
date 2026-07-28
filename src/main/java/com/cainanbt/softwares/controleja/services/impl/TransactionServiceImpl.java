@@ -22,7 +22,6 @@ import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.services.AccountsService;
 import com.cainanbt.softwares.controleja.services.CategoryService;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
-import com.cainanbt.softwares.controleja.services.GasStationRankingService;
 import com.cainanbt.softwares.controleja.services.InstallmentPlanService;
 import com.cainanbt.softwares.controleja.services.InvoicesService;
 import com.cainanbt.softwares.controleja.services.RecurrenceRuleService;
@@ -34,6 +33,7 @@ import com.cainanbt.softwares.controleja.services.processors.TransactionProcesso
 import com.cainanbt.softwares.controleja.services.processors.TransactionProcessorFactory;
 import com.cainanbt.softwares.controleja.services.vehicles.VehicleOdometerTimelineService;
 import com.cainanbt.softwares.controleja.services.vehicles.VehicleRefuelMetricsService;
+import com.cainanbt.softwares.controleja.services.vehicles.VehicleTransactionRules;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
@@ -78,7 +78,6 @@ public class TransactionServiceImpl implements TransactionService {
     private final RecurrenceRuleService recurrenceRuleService;
     private final TransactionProcessorFactory processorFactory;
     private final TransactionHelper helper;
-    private final GasStationRankingService gasStationRankingService;
     private final VehicleService vehicleService;
     private final VehicleOdometerTimelineService odometerTimelineService;
     private final VehicleRefuelMetricsService refuelMetricsService;
@@ -98,6 +97,8 @@ public class TransactionServiceImpl implements TransactionService {
         Category category;
         if (dto.getType() == TransactionType.TRANSFERENCIA) {
             category = categoryService.findTransferCategory(user);
+        } else if (shouldResolveVehicleTechnicalCategory(dto)) {
+            category = categoryService.ensureVehicleEntryCategory(user, VehicleTransactionRules.isRefuel(dto));
         } else {
             category = categoryService.findById(dto.getCategoryId())
                     .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.CATEGORY_NOT_FOUND));
@@ -110,10 +111,9 @@ public class TransactionServiceImpl implements TransactionService {
         // Salva a transação atual e a regra de recorrência
         Transactions savedTransaction = processor.process(dto, account, category, user);
 
-        if (savedTransaction.getVehicle() != null && savedTransaction.getCurrentOdometer() != null) {
+        if (VehicleTransactionRules.isRefuel(savedTransaction)) {
             odometerTimelineService.recalculateCurrentOdometer(savedTransaction.getVehicle());
             refuelMetricsService.recalculate(savedTransaction.getVehicle());
-            rebuildGasStationRankingsIfApplicable(savedTransaction);
         }
 
         // CORREÇÃO: Roda na mesma thread. É tão rápido (5ms) que não vai travar o celular.
@@ -126,13 +126,10 @@ public class TransactionServiceImpl implements TransactionService {
         return savedTransaction;
     }
 
-    private void rebuildGasStationRankingsIfApplicable(Transactions transaction) {
-        if (transaction.getUser() != null
-                && transaction.getGasStation() != null
-                && transaction.getLiters() != null
-                && transaction.getLiters() > 0) {
-            gasStationRankingService.rebuildRankings(transaction.getUser().getId());
-        }
+    private boolean shouldResolveVehicleTechnicalCategory(TransactionDTO dto) {
+        return dto.getType() == TransactionType.DESPESA
+                && dto.getVehicleId() != null
+                && dto.getCategoryId() == null;
     }
 
     @Override
@@ -1471,6 +1468,8 @@ public class TransactionServiceImpl implements TransactionService {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.ENTITY_ALREADY_DELETED);
         }
 
+        validateRefuelDeletionAllowed(transaction);
+
         if (scope == OperationScope.FROM_THIS_FORWARD) {
             if (transaction.getRecurrenceRule() != null) {
                 RecurrenceRule rule = transaction.getRecurrenceRule();
@@ -1511,9 +1510,26 @@ public class TransactionServiceImpl implements TransactionService {
         if (transaction.getVehicle() != null && transaction.getCurrentOdometer() != null) {
             recalculateVehicleCurrentOdometer(transaction.getVehicle());
             refuelMetricsService.recalculate(transaction.getVehicle());
-            if (transaction.getUser() != null) {
-                gasStationRankingService.rebuildRankings(transaction.getUser().getId());
+        }
+    }
+
+    private void validateRefuelDeletionAllowed(Transactions transaction) {
+        if (!VehicleTransactionRules.isRefuel(transaction) || transaction.getVehicle() == null) {
+            return;
+        }
+        List<Transactions> refuels = repository.findActiveRefuelsByVehicleOrdered(transaction.getVehicle().getId());
+        int index = -1;
+        for (int i = 0; i < refuels.size(); i++) {
+            if (refuels.get(i).getId().equals(transaction.getId())) {
+                index = i;
+                break;
             }
+        }
+        if (index >= 0 && index < refuels.size() - 1) {
+            throw new BadRequestException(
+                    ConstsMessages.ERROR_TITLE,
+                    "Não é possível excluir este abastecimento porque isso afetaria o histórico e os cálculos do veículo. Exclua os abastecimentos em sequência, do último até o desejado."
+            );
         }
     }
 
@@ -1611,7 +1627,8 @@ public class TransactionServiceImpl implements TransactionService {
         BigDecimal oldAmount = transaction.getAmount();
         boolean wasPaid = transaction.getPaid();
         TransactionType oldType = transaction.getType();
-        boolean affectedGasStationRanking = transaction.getGasStation() != null;
+        Vehicle oldVehicle = transaction.getVehicle();
+        boolean oldWasRefuel = VehicleTransactionRules.isRefuel(transaction);
 
         if (wasPaid && oldAccount.getType() != AccountType.CREDIT_CARD) {
             if (oldType == TransactionType.DESPESA) oldAccount.credit(oldAmount);
@@ -1719,16 +1736,19 @@ public class TransactionServiceImpl implements TransactionService {
         transaction = repository.save(transaction);
         final Transactions savedTransaction = transaction;
 
+        if (oldWasRefuel
+                && oldVehicle != null
+                && (savedTransaction.getVehicle() == null
+                || !oldVehicle.getId().equals(savedTransaction.getVehicle().getId()))) {
+            recalculateVehicleCurrentOdometer(oldVehicle);
+            refuelMetricsService.recalculate(oldVehicle);
+        }
         if (shouldRecalculateVehicleOdometer && savedTransaction.getVehicle() != null) {
             recalculateVehicleCurrentOdometer(savedTransaction.getVehicle());
-        }
-        if (savedTransaction.getVehicle() != null) {
             refuelMetricsService.recalculate(savedTransaction.getVehicle());
         }
-
-        if (savedTransaction.getUser() != null
-                && (affectedGasStationRanking || savedTransaction.getGasStation() != null)) {
-            gasStationRankingService.rebuildRankings(savedTransaction.getUser().getId());
+        if (!shouldRecalculateVehicleOdometer && VehicleTransactionRules.isRefuel(savedTransaction)) {
+            refuelMetricsService.recalculate(savedTransaction.getVehicle());
         }
 
         // 2. AGORA SIM GERA AS PROJEÇÕES (O banco já consegue enxergar a transação do passo 1)
@@ -1810,7 +1830,15 @@ public class TransactionServiceImpl implements TransactionService {
         if (transaction.getType() != TransactionType.DESPESA) {
             return false;
         }
+        boolean wasRefuel = VehicleTransactionRules.isRefuel(transaction);
         Vehicle vehicle = transaction.getVehicle();
+        boolean vehiclePayloadPresent = dto.getVehicleId() != null
+                || dto.getCurrentOdometer() != null
+                || dto.getLiters() != null
+                || dto.getFuelType() != null
+                || dto.getFullTank() != null
+                || dto.getOdometerJumpConfirmed() != null;
+
         if (dto.getVehicleId() != null) {
             vehicle = vehicleService.findById(dto.getVehicleId());
             if (!vehicle.getUser().getId().equals(currentUser.getId())) {
@@ -1823,39 +1851,71 @@ public class TransactionServiceImpl implements TransactionService {
             return false;
         }
 
+        Double targetLiters = vehiclePayloadPresent ? dto.getLiters() : transaction.getLiters();
+        var targetFuelType = vehiclePayloadPresent ? dto.getFuelType() : transaction.getFuelType();
+        BigDecimal targetOdometer = dto.getCurrentOdometer() != null
+                ? dto.getCurrentOdometer()
+                : transaction.getCurrentOdometer();
+        boolean targetRefuel = targetLiters != null
+                && targetLiters > 0
+                && targetOdometer != null
+                && targetOdometer.signum() > 0;
+        boolean targetFullTank = dto.getFullTank() != null
+                ? Boolean.TRUE.equals(dto.getFullTank())
+                : Boolean.TRUE.equals(transaction.getFullTank());
+
+        if (targetFullTank && !targetRefuel) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Tanque cheio só pode ser informado em abastecimentos.");
+        }
+
+        if (!targetRefuel) {
+            transaction.setCurrentOdometer(null);
+            transaction.setLiters(null);
+            transaction.setFuelType(null);
+            transaction.setGasStation(null);
+            transaction.setEfficiency(null);
+            transaction.setFullTank(false);
+            if (dto.getDrivingPredominance() != null) {
+                transaction.setDrivingPredominance(dto.getDrivingPredominance());
+            }
+            return wasRefuel;
+        }
+
+        if (targetOdometer == null) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Informe o odômetro do abastecimento.");
+        }
+
         boolean shouldValidateOdometer = dto.getCurrentOdometer() != null
-                || (dto.getDate() != null && transaction.getCurrentOdometer() != null);
-        boolean shouldRecalculateVehicleOdometer = false;
+                || dto.getDate() != null
+                || !wasRefuel;
+        boolean shouldRecalculateVehicleOdometer = !wasRefuel
+                || dto.getLiters() != null
+                || dto.getFuelType() != null
+                || dto.getFullTank() != null;
         if (shouldValidateOdometer) {
-            BigDecimal targetOdometer = dto.getCurrentOdometer() != null
-                    ? dto.getCurrentOdometer()
-                    : transaction.getCurrentOdometer();
             odometerTimelineService.validateReading(
                     vehicle,
                     transaction.getDate(),
                     targetOdometer,
                     transaction.getId(),
-                    transaction.getCreatedAt()
+                    transaction.getCreatedAt(),
+                    Boolean.TRUE.equals(dto.getOdometerJumpConfirmed())
             );
             shouldRecalculateVehicleOdometer = transaction.getCurrentOdometer() == null
                     || targetOdometer.compareTo(transaction.getCurrentOdometer()) != 0
-                    || dto.getDate() != null;
-            if (dto.getCurrentOdometer() != null) {
-                transaction.setCurrentOdometer(targetOdometer);
-            }
+                    || dto.getDate() != null
+                    || shouldRecalculateVehicleOdometer;
         }
-        if (dto.getLiters() != null) {
-            transaction.setLiters(dto.getLiters());
-        }
-        if (dto.getFuelType() != null) {
-            transaction.setFuelType(dto.getFuelType());
-        }
+
+        transaction.setCurrentOdometer(targetOdometer);
+        transaction.setLiters(targetLiters);
+        transaction.setFuelType(targetFuelType);
+        transaction.setFullTank(targetFullTank);
+        transaction.setGasStation(null);
         if (dto.getDrivingPredominance() != null) {
             transaction.setDrivingPredominance(dto.getDrivingPredominance());
         }
-        if (dto.getEfficiency() != null) {
-            transaction.setEfficiency(dto.getEfficiency());
-        }
+        transaction.setEfficiency(null);
         return shouldRecalculateVehicleOdometer;
     }
 
@@ -1951,8 +2011,7 @@ public class TransactionServiceImpl implements TransactionService {
 
     private void validateVehicleOdometerOnCreate(TransactionDTO dto, Users user) {
         if (dto.getType() != TransactionType.DESPESA
-                || dto.getVehicleId() == null
-                || dto.getCurrentOdometer() == null) {
+                || dto.getVehicleId() == null) {
             return;
         }
 
@@ -1961,12 +2020,23 @@ public class TransactionServiceImpl implements TransactionService {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_VEHICLE);
         }
 
+        if (Boolean.TRUE.equals(dto.getFullTank()) && !VehicleTransactionRules.isRefuel(dto)) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Tanque cheio só pode ser informado em abastecimentos.");
+        }
+        if (!VehicleTransactionRules.isRefuel(dto)) {
+            return;
+        }
+        if (dto.getCurrentOdometer() == null) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Informe o odômetro do abastecimento.");
+        }
+
         odometerTimelineService.validateReading(
                 vehicle,
                 dto.getDate(),
                 dto.getCurrentOdometer(),
                 null,
-                Long.MAX_VALUE
+                Long.MAX_VALUE,
+                Boolean.TRUE.equals(dto.getOdometerJumpConfirmed())
         );
     }
 

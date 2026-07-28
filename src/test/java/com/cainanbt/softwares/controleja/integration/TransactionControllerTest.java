@@ -44,6 +44,7 @@ public class TransactionControllerTest extends BaseTest {
     private JdbcTemplate jdbcTemplate;
 
     private String token;
+    private UUID userId;
     private UUID walletId;
     private UUID bankId;
     private UUID categoryId;
@@ -56,7 +57,9 @@ public class TransactionControllerTest extends BaseTest {
         user.setUsername("Tester " + unique);
         user.setEmail(email);
         user.setPassword("123456");
-        given().contentType(ContentType.JSON).body(user).post("/users/register").then().statusCode(200);
+        userId = UUID.fromString(given().contentType(ContentType.JSON).body(user).post("/users/register")
+                .then().statusCode(200)
+                .extract().path("id"));
 
         UserLoginDTO login = UserLoginDTO.builder().email(email).password("123456").build();
         token = given().contentType(ContentType.JSON).body(login).post("/auth").then().extract().path("tokens.accessToken");
@@ -258,8 +261,9 @@ public class TransactionControllerTest extends BaseTest {
         );
         jdbcTemplate.update(
                 "UPDATE category SET deleted_at = ? "
-                        + "WHERE category_type = 'TRANSFERENCIA' AND is_default = true",
-                DateUtils.getEpochNow()
+                        + "WHERE category_type = 'TRANSFERENCIA' AND is_default = true AND user_id = ?",
+                DateUtils.getEpochNow(),
+                userId
         );
 
         TransactionDTO dto = transferUpdateDto(

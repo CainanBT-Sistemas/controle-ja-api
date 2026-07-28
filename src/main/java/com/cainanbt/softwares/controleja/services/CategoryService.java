@@ -58,4 +58,9 @@ public interface CategoryService {
      * Resolve a categoria tecnica obrigatoria de transferencia do usuario.
      */
     Category findTransferCategory(Users user);
+
+    /**
+     * Garante a categoria tecnica usada internamente pelo modulo veicular.
+     */
+    Category ensureVehicleEntryCategory(Users user, boolean refuel);
 }

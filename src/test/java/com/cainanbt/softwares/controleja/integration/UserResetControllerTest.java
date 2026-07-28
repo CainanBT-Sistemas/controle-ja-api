@@ -96,6 +96,7 @@ public class UserResetControllerTest extends BaseTest {
         assertTrue(count("SELECT COUNT(*) FROM installment_plan WHERE id = ?", seeded.installmentId()) > 0);
         assertTrue(count("SELECT COUNT(*) FROM invoicess WHERE id = ?", seeded.invoiceId()) > 0);
         assertTrue(count("SELECT COUNT(*) FROM gas_station_rankings WHERE gas_station_id = ?", seeded.gasStationId()) > 0);
+        assertTrue(count("SELECT COUNT(*) FROM vehicle_logs WHERE id = ?", seeded.vehicleLogId()) > 0);
     }
 
     @Test
@@ -142,6 +143,7 @@ public class UserResetControllerTest extends BaseTest {
         UUID mirrorAccountId = UUID.randomUUID();
         UUID cardId = UUID.randomUUID();
         UUID vehicleId = UUID.randomUUID();
+        UUID vehicleLogId = UUID.randomUUID();
         UUID gasStationId = UUID.randomUUID();
         UUID invoiceId = UUID.randomUUID();
         UUID purchaseId = UUID.randomUUID();
@@ -167,6 +169,11 @@ public class UserResetControllerTest extends BaseTest {
                 INSERT INTO vehicles (current_odometer, initial_odometer, year, created_at, id, user_id, brand, model, name)
                 VALUES (1000.00, 0.00, 2024, ?, ?, ?, 'Marca', 'Modelo', 'Veiculo Reset')
                 """, now, vehicleId, userId);
+        createVehicleLogsTableIfNeeded();
+        jdbc.update("""
+                INSERT INTO vehicle_logs (id, vehicle_id, created_at, description)
+                VALUES (?, ?, ?, 'Log Reset')
+                """, vehicleLogId, vehicleId, now);
         jdbc.update("""
                 INSERT INTO gas_stations (created_at, id, user_id, name)
                 VALUES (?, ?, ?, 'Posto Reset')
@@ -210,7 +217,7 @@ public class UserResetControllerTest extends BaseTest {
                 """, now, now, defaultAccountId, transferCategoryId, transferOutId, transferInId, userId);
 
         assertNotEquals(0, count("SELECT COUNT(*) FROM transactions WHERE user_id = ?", userId));
-        return new SeededData(invoiceId, installmentId, gasStationId);
+        return new SeededData(invoiceId, installmentId, gasStationId, vehicleLogId);
     }
 
     private UUID findDefaultAccount(UUID userId) {
@@ -244,6 +251,7 @@ public class UserResetControllerTest extends BaseTest {
         assertEquals(0, count("SELECT COUNT(*) FROM recurrence_rules WHERE user_id = ?", userId));
         assertEquals(0, count("SELECT COUNT(*) FROM credit_cards WHERE user_id = ?", userId));
         assertEquals(0, count("SELECT COUNT(*) FROM vehicles WHERE user_id = ?", userId));
+        assertEquals(0, count("SELECT COUNT(*) FROM vehicle_logs WHERE id = ?", seeded.vehicleLogId()));
         assertEquals(0, count("SELECT COUNT(*) FROM gas_stations WHERE user_id = ?", userId));
         assertEquals(0, count("SELECT COUNT(*) FROM gas_station_rankings WHERE gas_station_id = ?", seeded.gasStationId()));
         assertEquals(0, count("SELECT COUNT(*) FROM installment_plan WHERE id = ?", seeded.installmentId()));
@@ -268,9 +276,22 @@ public class UserResetControllerTest extends BaseTest {
         return result == null ? 0 : result;
     }
 
+    private void createVehicleLogsTableIfNeeded() {
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS vehicle_logs (
+                    id uuid PRIMARY KEY,
+                    vehicle_id uuid NOT NULL,
+                    created_at bigint,
+                    description varchar(255),
+                    CONSTRAINT fk_vehicle_logs_vehicle
+                        FOREIGN KEY (vehicle_id) REFERENCES vehicles (id)
+                )
+                """);
+    }
+
     private record RegisteredUser(UUID userId, String token) {
     }
 
-    private record SeededData(UUID invoiceId, UUID installmentId, UUID gasStationId) {
+    private record SeededData(UUID invoiceId, UUID installmentId, UUID gasStationId, UUID vehicleLogId) {
     }
 }

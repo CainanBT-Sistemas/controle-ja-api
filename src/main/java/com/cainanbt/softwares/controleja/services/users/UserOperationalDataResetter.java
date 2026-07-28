@@ -24,6 +24,7 @@ public class UserOperationalDataResetter {
         deleteGasStations(userId);
         deleteRecurrenceRules(userId);
         deleteCreditCards(userId);
+        deleteVehicleLogs(userId);
         deleteVehicles(userId);
         deleteCategories(userId);
         deleteAccounts(userId);
@@ -76,6 +77,18 @@ public class UserOperationalDataResetter {
         execute("DELETE FROM credit_cards WHERE user_id = CAST(:userId AS uuid)", userId);
     }
 
+    private void deleteVehicleLogs(UUID userId) {
+        if (!tableExists("vehicle_logs")) {
+            return;
+        }
+        execute("""
+                DELETE FROM vehicle_logs log
+                 USING vehicles vehicle
+                 WHERE log.vehicle_id = vehicle.id
+                   AND vehicle.user_id = CAST(:userId AS uuid)
+                """, userId);
+    }
+
     private void deleteVehicles(UUID userId) {
         execute("DELETE FROM vehicles WHERE user_id = CAST(:userId AS uuid)", userId);
     }
@@ -97,5 +110,17 @@ public class UserOperationalDataResetter {
         entityManager.createNativeQuery(sql)
                 .setParameter("userId", userId)
                 .executeUpdate();
+    }
+
+    private boolean tableExists(String tableName) {
+        Number count = (Number) entityManager.createNativeQuery("""
+                        SELECT COUNT(*)
+                          FROM information_schema.tables
+                         WHERE table_schema = current_schema()
+                           AND table_name = :tableName
+                        """)
+                .setParameter("tableName", tableName)
+                .getSingleResult();
+        return count.longValue() > 0;
     }
 }

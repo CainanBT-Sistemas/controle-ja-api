@@ -5,7 +5,6 @@ import com.cainanbt.softwares.controleja.entities.Vehicle;
 import com.cainanbt.softwares.controleja.enums.FuelType;
 import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.repositories.VehicleRepository;
-import com.cainanbt.softwares.controleja.utils.DateUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -18,7 +17,7 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class VehicleRefuelMetricsService {
-    private final VehicleConsumptionCalculator consumptionCalculator = new VehicleConsumptionCalculator();
+    private final VehicleRefuelCycleCalculator refuelCycleCalculator = new VehicleRefuelCycleCalculator();
 
     private final TransactionRepository transactionRepository;
     private final VehicleRepository vehicleRepository;
@@ -30,38 +29,32 @@ public class VehicleRefuelMetricsService {
         List<Transactions> refuels = transactionRepository
                 .findValidRefuelsByVehicleUpToDate(vehicle.getId(), Long.MAX_VALUE)
                 .stream()
-                .sorted(Comparator.<Transactions, java.time.LocalDate>comparing(
-                                transaction -> DateUtils.epochToLocalDate(transaction.getDate()))
+                .filter(transaction -> transaction.getDate() != null)
+                .sorted(Comparator.comparing(Transactions::getDate)
                         .thenComparing(transaction -> transaction.getCreatedAt() != null
                                 ? transaction.getCreatedAt()
                                 : 0L))
                 .toList();
 
-        Transactions previous = null;
+        refuels.forEach(refuel -> refuel.setEfficiency(null));
+
         double gasolineTotal = 0.0;
         int gasolineCount = 0;
         double ethanolTotal = 0.0;
         int ethanolCount = 0;
 
-        for (Transactions refuel : refuels) {
-            Double efficiency = previous == null
-                    ? null
-                    : consumptionCalculator.calculateConsumption(
-                    previous.getCurrentOdometer(),
-                    refuel.getCurrentOdometer(),
-                    refuel.getLiters());
-            refuel.setEfficiency(efficiency);
-
-            if (efficiency != null && efficiency > 0) {
-                if (refuel.getFuelType() == FuelType.GASOLINA) {
-                    gasolineTotal += efficiency;
+        for (VehicleRefuelCycleCalculator.VehicleRefuelCycle cycle : refuelCycleCalculator.buildReliableCycles(refuels, vehicle)) {
+            Transactions closingFullTank = cycle.closingFullTank();
+            closingFullTank.setEfficiency(cycle.kml());
+            if (cycle.kml() > 0) {
+                if (closingFullTank.getFuelType() == FuelType.GASOLINA) {
+                    gasolineTotal += cycle.kml();
                     gasolineCount++;
-                } else if (refuel.getFuelType() == FuelType.ETANOL) {
-                    ethanolTotal += efficiency;
+                } else if (closingFullTank.getFuelType() == FuelType.ETANOL) {
+                    ethanolTotal += cycle.kml();
                     ethanolCount++;
                 }
             }
-            previous = refuel;
         }
 
         if (!refuels.isEmpty()) {
