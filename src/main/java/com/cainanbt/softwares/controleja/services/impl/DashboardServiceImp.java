@@ -180,8 +180,20 @@ public class DashboardServiceImp implements DashboardService {
         DashboardAlertBuckets buckets = new DashboardAlertBuckets();
         invoices.stream()
                 .filter(invoice -> shouldExposeInvoice(invoice, today))
-                .forEach(invoice -> buckets.add(alertMapper.fromInvoice(invoice), todayEpoch));
+                .forEach(invoice -> buckets.add(alertMapper.fromInvoice(invoice, canonicalInvoiceDueDate(invoice)), todayEpoch));
         return buckets;
+    }
+
+    private Long canonicalInvoiceDueDate(Invoices invoice) {
+        if (invoice.getCreditCard() == null || invoice.getMonth() == null || invoice.getYear() == null) {
+            return invoice.getExpirationDate();
+        }
+        LocalDate expirationDate = invoiceDateService.calculateExpirationDate(
+                invoice.getCreditCard(),
+                invoice.getMonth(),
+                invoice.getYear()
+        );
+        return DateUtils.localDateToEpoch(expirationDate);
     }
 
     /**

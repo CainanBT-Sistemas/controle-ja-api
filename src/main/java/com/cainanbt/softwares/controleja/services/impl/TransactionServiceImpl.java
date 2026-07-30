@@ -160,7 +160,7 @@ public class TransactionServiceImpl implements TransactionService {
             dto.setName("Fatura " + inv.getCreditCard().getName() + " - " + formattedMonth);
 
             dto.setAmount(inv.getAmount());
-            dto.setDate(inv.getExpirationDate());
+            dto.setDate(canonicalInvoiceExpirationDate(inv));
             dto.setPaid(inv.getPaid());
             dto.setType(TransactionType.DESPESA);
 
@@ -170,6 +170,21 @@ public class TransactionServiceImpl implements TransactionService {
 
             responseList.add(dto);
         }
+    }
+
+    private Long canonicalInvoiceExpirationDate(Invoices invoice) {
+        if (invoice == null
+                || invoice.getCreditCard() == null
+                || invoice.getMonth() == null
+                || invoice.getYear() == null) {
+            return invoice != null ? invoice.getExpirationDate() : null;
+        }
+        LocalDate expirationDate = invoiceDateService.calculateExpirationDate(
+                invoice.getCreditCard(),
+                invoice.getMonth(),
+                invoice.getYear()
+        );
+        return DateUtils.localDateToEpoch(expirationDate);
     }
 
     @Override
@@ -194,7 +209,7 @@ public class TransactionServiceImpl implements TransactionService {
             resp.setId(inv.getId());
             resp.setName("Fatura " + inv.getCreditCard().getName());
             resp.setAmount(inv.getAmount());
-            resp.setDate(inv.getExpirationDate());
+            resp.setDate(canonicalInvoiceExpirationDate(inv));
             resp.setPaid(inv.getPaid());
             resp.setType(TransactionType.DESPESA);
             return resp;

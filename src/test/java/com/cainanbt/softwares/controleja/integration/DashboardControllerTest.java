@@ -247,15 +247,15 @@ public class DashboardControllerTest extends BaseTest {
         LocalDate today = LocalDate.now(DateUtils.zoneId);
         long start = DateUtils.localDateToEpoch(today.minusDays(1));
         long end = DateUtils.localDateToEpoch(today.plusDays(60));
-        UUID cardId = createCard("Dashboard Card");
+        UUID cardId = createCard("Dashboard Card", 25, 10);
 
         Users user = usersRepository.findByEmailIgnoreCase(email).orElseThrow();
         CreditCard card = creditCardRepository.findByIdAndNotDeleted(cardId).orElseThrow();
 
-        createInvoice(user, card, YearMonth.from(today.minusMonths(1)), new BigDecimal("70.00"), today.minusDays(1), false);
-        createInvoice(user, card, YearMonth.from(today), new BigDecimal("80.00"), today.plusDays(7), false);
-        createInvoice(user, card, YearMonth.from(today.plusMonths(1)), new BigDecimal("90.00"), today.plusDays(40), false);
-        createInvoice(user, card, YearMonth.from(today), new BigDecimal("100.00"), today.plusDays(8), true);
+        createInvoice(user, card, YearMonth.from(today), new BigDecimal("70.00"), today.minusDays(1), false);
+        createInvoice(user, card, YearMonth.from(today.plusMonths(1)), new BigDecimal("80.00"), today.plusDays(7), false);
+        createInvoice(user, card, YearMonth.from(today.plusMonths(2)), new BigDecimal("90.00"), today.plusDays(40), false);
+        createInvoice(user, card, YearMonth.from(today.plusMonths(1)), new BigDecimal("100.00"), today.plusDays(8), true);
 
         given().header("Authorization", "Bearer " + token).param("start", start).param("end", end)
                 .when().get("/dashboard/full-summary")
@@ -268,11 +268,15 @@ public class DashboardControllerTest extends BaseTest {
     }
 
     private UUID createCard(String name) {
+        return createCard(name, 1, 28);
+    }
+
+    private UUID createCard(String name, int closeDay, int bestDay) {
         CreditCardDTO dto = new CreditCardDTO();
         dto.setName(name);
         dto.setTotalLimit(new BigDecimal("5000.00"));
-        dto.setCloseDay(1);
-        dto.setBestDay(28);
+        dto.setCloseDay(closeDay);
+        dto.setBestDay(bestDay);
 
         String id = given().header("Authorization", "Bearer " + token)
                 .contentType(ContentType.JSON)
