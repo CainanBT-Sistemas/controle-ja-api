@@ -280,13 +280,25 @@ public class TransactionServiceImpl implements TransactionService {
     }
 
     private boolean hasStandardInstallmentNonPaidChange(Transactions current, TransactionDTO dto) {
-        return (dto.getDate() != null && !Objects.equals(dto.getDate(), current.getDate()))
-                || (dto.getName() != null && !Objects.equals(removeInstallmentSuffix(dto.getName()), removeInstallmentSuffix(current.getName())))
+        return hasStandardInstallmentDateChange(current, dto)
+                || hasStandardInstallmentNonDateChange(current, dto, null);
+    }
+
+    private boolean hasStandardInstallmentDateChange(Transactions current, TransactionDTO dto) {
+        return dto.getDate() != null && !Objects.equals(dto.getDate(), current.getDate());
+    }
+
+    private boolean hasStandardInstallmentNonDateChange(Transactions current, TransactionDTO dto, Integer totalInstallments) {
+        return (dto.getName() != null && !Objects.equals(removeInstallmentSuffix(dto.getName()), removeInstallmentSuffix(current.getName())))
                 || (dto.getDescription() != null && !Objects.equals(normalizeText(dto.getDescription()), normalizeText(current.getDescription())))
                 || (dto.getAmount() != null && current.getAmount() != null && dto.getAmount().compareTo(current.getAmount()) != 0)
                 || (dto.getType() != null && dto.getType() != current.getType())
                 || (dto.getAccountId() != null && (current.getAccount() == null || !dto.getAccountId().equals(current.getAccount().getId())))
-                || (dto.getCategoryId() != null && (current.getCategory() == null || !dto.getCategoryId().equals(current.getCategory().getId())));
+                || (dto.getCategoryId() != null && (current.getCategory() == null || !dto.getCategoryId().equals(current.getCategory().getId())))
+                || (dto.getInstallments() != null && totalInstallments != null && !dto.getInstallments().equals(totalInstallments))
+                || (dto.getIsFixed() != null && !Objects.equals(dto.getIsFixed(), current.getFixed()))
+                || dto.getRecurrenceFrequency() != null
+                || dto.getRecurrenceEndDate() != null;
     }
 
     private TransactionResponseDTO updateStandardInstallmentSeries(
@@ -302,8 +314,10 @@ public class TransactionServiceImpl implements TransactionService {
         }
 
         boolean paidChanged = hasStandardInstallmentPaidChange(reference, dto);
-        boolean nonPaidChanged = hasStandardInstallmentNonPaidChange(reference, dto);
-        validateSupportedStandardInstallmentSeriesUpdate(reference, dto, scope, paidChanged, nonPaidChanged);
+        boolean dateChanged = hasStandardInstallmentDateChange(reference, dto);
+        boolean nonDateChanged = hasStandardInstallmentNonDateChange(reference, dto, series.size());
+        boolean nonPaidChanged = dateChanged || nonDateChanged;
+        validateSupportedStandardInstallmentSeriesUpdate(reference, dto, scope, paidChanged, dateChanged, nonDateChanged, nonPaidChanged);
 
         List<Transactions> scoped = paidChanged
                 ? selectStandardInstallmentsForScope(series, OperationScope.ONLY_THIS, reference)
@@ -361,12 +375,25 @@ public class TransactionServiceImpl implements TransactionService {
             TransactionDTO dto,
             OperationScope scope,
             boolean paidChanged,
+            boolean dateChanged,
+            boolean nonDateChanged,
             boolean nonPaidChanged) {
         if (scope == OperationScope.ALL) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Alteração em todas as parcelas comuns não está disponível. Use somente esta parcela ou esta e as próximas.");
         }
+        if (paidChanged && scope != OperationScope.ONLY_THIS) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Alteração de pagamento em parcelas comuns deve ser feita somente na parcela selecionada.");
+        }
+        boolean allowedSettlementDateChange = paidChanged
+                && Boolean.FALSE.equals(reference.getPaid())
+                && Boolean.TRUE.equals(dto.getPaid())
+                && scope == OperationScope.ONLY_THIS
+                && dateChanged
+                && !nonDateChanged;
         if (paidChanged && nonPaidChanged) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Altere o status de pagamento separadamente dos demais campos da parcela.");
+            if (!allowedSettlementDateChange) {
+                throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Altere o status de pagamento separadamente dos demais campos da parcela.");
+            }
         }
         if (paidChanged) {
             return;
