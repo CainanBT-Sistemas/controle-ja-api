@@ -327,6 +327,21 @@ public class TransactionServiceImpl implements TransactionService {
         int totalInstallments = series.size();
         Integer referenceInstallment = resolveInstallmentNumber(reference);
         Integer targetDay = dto.getDate() != null ? DateUtils.epochToLocalDate(dto.getDate()).getDayOfMonth() : null;
+        Accounts targetAccount = null;
+        if (dto.getAccountId() != null) {
+            targetAccount = accountsService.findByIdOrThrow(dto.getAccountId());
+            if (targetAccount.getUser() == null || !targetAccount.getUser().getId().equals(currentUser.getId())) {
+                throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_ACCOUNT);
+            }
+            if (targetAccount.getType() == AccountType.CREDIT_CARD) {
+                throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Parcelamento comum não pode ser convertido para cartão de crédito neste fluxo.");
+            }
+        }
+        Category targetCategory = null;
+        if (dto.getCategoryId() != null) {
+            targetCategory = categoryService.findByIdOrThrow(dto.getCategoryId());
+            validateCategoryForTransaction(targetCategory);
+        }
 
         for (Transactions tx : scoped) {
             Accounts oldAccount = tx.getAccount();
@@ -334,15 +349,30 @@ public class TransactionServiceImpl implements TransactionService {
             TransactionType oldType = tx.getType();
             boolean wasPaid = Boolean.TRUE.equals(tx.getPaid());
 
+            if (wasPaid && !paidChanged) {
+                reverseTransactionBalance(oldAccount, oldType, oldAmount);
+            }
             if (dto.getName() != null) {
                 tx.setName(buildInstallmentName(baseName, resolveInstallmentNumber(tx), totalInstallments));
             }
             if (dto.getDescription() != null) {
                 tx.setDescription(dto.getDescription());
             }
+            if (dto.getType() != null) {
+                tx.setType(dto.getType());
+            }
+            if (dto.getAmount() != null) {
+                tx.setAmount(dto.getAmount());
+            }
             if (dto.getDate() != null) {
                 int monthsToAdd = resolveInstallmentNumber(tx) - referenceInstallment;
                 tx.setDate(recalculateInstallmentDate(dto.getDate(), monthsToAdd, targetDay));
+            }
+            if (targetAccount != null) {
+                tx.setAccount(targetAccount);
+            }
+            if (targetCategory != null) {
+                tx.setCategory(targetCategory);
             }
             if (paidChanged) {
                 tx.setPaid(dto.getPaid());
@@ -355,6 +385,9 @@ public class TransactionServiceImpl implements TransactionService {
                 if (Boolean.TRUE.equals(tx.getPaid())) {
                     applyTransactionBalance(tx.getAccount(), tx.getType(), tx.getAmount());
                 }
+            }
+            if (wasPaid && !paidChanged) {
+                applyTransactionBalance(tx.getAccount(), tx.getType(), tx.getAmount());
             }
             tx.setUpdatedAt(dateNow);
         }
@@ -404,18 +437,6 @@ public class TransactionServiceImpl implements TransactionService {
         if (scope == OperationScope.ONLY_THIS) {
             return;
         }
-        if (dto.getAmount() != null && reference.getAmount() != null && dto.getAmount().compareTo(reference.getAmount()) != 0) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Alteração em massa de valor de parcelas comuns não está disponível neste momento.");
-        }
-        if (dto.getType() != null && dto.getType() != reference.getType()) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Alteração em massa de tipo de parcelas comuns não está disponível neste momento.");
-        }
-        if (dto.getAccountId() != null && (reference.getAccount() == null || !dto.getAccountId().equals(reference.getAccount().getId()))) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Alteração em massa de conta de parcelas comuns não está disponível neste momento.");
-        }
-        if (dto.getCategoryId() != null && (reference.getCategory() == null || !dto.getCategoryId().equals(reference.getCategory().getId()))) {
-            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Alteração em massa de categoria de parcelas comuns não está disponível neste momento.");
-        }
     }
 
     private void validateEditableStandardInstallmentScope(List<Transactions> scoped, Transactions reference, boolean paidChanged) {
@@ -427,7 +448,7 @@ public class TransactionServiceImpl implements TransactionService {
                 throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Alteração de parcelas anteriores não é permitida.");
             }
             if (Boolean.TRUE.equals(tx.getPaid())) {
-                throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Existem parcelas pagas neste parcelamento. Cancele ou ajuste essas parcelas antes de alterar as próximas.");
+                throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Não é possível alterar parcelas pagas neste escopo.");
             }
         }
     }
@@ -1512,6 +1533,12 @@ public class TransactionServiceImpl implements TransactionService {
 
         validateRefuelDeletionAllowed(transaction);
 
+        List<Transactions> standardInstallmentSeries = findStandardInstallmentSeries(transaction);
+        if (!standardInstallmentSeries.isEmpty()) {
+            deleteStandardInstallmentSeries(transaction, standardInstallmentSeries, scope, dateNow, currentUser);
+            return;
+        }
+
         if (scope == OperationScope.FROM_THIS_FORWARD) {
             if (transaction.getRecurrenceRule() != null) {
                 RecurrenceRule rule = transaction.getRecurrenceRule();
@@ -1573,6 +1600,36 @@ public class TransactionServiceImpl implements TransactionService {
                     "Não é possível excluir este abastecimento porque isso afetaria o histórico e os cálculos do veículo. Exclua os abastecimentos em sequência, do último até o desejado."
             );
         }
+    }
+
+    private void deleteStandardInstallmentSeries(
+            Transactions reference,
+            List<Transactions> series,
+            OperationScope scope,
+            long dateNow,
+            Users currentUser) {
+        if (scope == OperationScope.ALL) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Exclusão em todas as parcelas comuns não está disponível. Use somente esta parcela ou esta e as próximas.");
+        }
+
+        for (Transactions tx : series) {
+            validateTransactionOwner(tx, currentUser);
+        }
+
+        List<Transactions> scoped = selectStandardInstallmentsForScope(series, scope, reference);
+        if (scoped.isEmpty()) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.TRANSACTION_NOT_FOUND);
+        }
+
+        for (Transactions tx : scoped) {
+            if (Boolean.TRUE.equals(tx.getPaid())) {
+                reverseTransactionBalance(tx.getAccount(), tx.getType(), tx.getAmount());
+            }
+            tx.setDeletedAt(dateNow);
+            tx.setUpdatedAt(dateNow);
+        }
+
+        repository.saveAll(scoped);
     }
 
     private void deleteScopedInstallments(InstallmentPlan reference, OperationScope scope, long dateNow) {

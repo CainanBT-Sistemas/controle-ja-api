@@ -775,6 +775,44 @@ public class TransactionControllerTest extends BaseTest {
     }
 
     @Test
+    @DisplayName("Despesa parcelada fora do cartão exclui somente a parcela selecionada")
+    void shouldDeleteOnlySelectedBankInstallment() {
+        String firstId = createBankInstallmentPurchase("Despesa Parcelada Delete Uma", LocalDate.of(2026, 1, 25), 3, false);
+        String secondId = jdbcTemplate.queryForObject(
+                "SELECT id FROM transactions WHERE parent_transaction_id = ? ORDER BY date LIMIT 1",
+                String.class,
+                UUID.fromString(firstId)
+        );
+
+        given().header("Authorization", "Bearer " + token)
+                .queryParam("operationScope", "ONLY_THIS")
+                .delete("/transactions/" + secondId)
+                .then().statusCode(200);
+
+        assertActiveInstallmentNames(firstId,
+                "Despesa Parcelada Delete Uma (1/3)",
+                "Despesa Parcelada Delete Uma (3/3)");
+    }
+
+    @Test
+    @DisplayName("Despesa parcelada fora do cartão exclui da parcela selecionada em diante")
+    void shouldDeleteBankInstallmentsFromThisForward() {
+        String firstId = createBankInstallmentPurchase("Despesa Parcelada Delete Frente", LocalDate.of(2026, 1, 25), 4, false);
+        String secondId = jdbcTemplate.queryForObject(
+                "SELECT id FROM transactions WHERE parent_transaction_id = ? ORDER BY date LIMIT 1",
+                String.class,
+                UUID.fromString(firstId)
+        );
+
+        given().header("Authorization", "Bearer " + token)
+                .queryParam("operationScope", "FROM_THIS_FORWARD")
+                .delete("/transactions/" + secondId)
+                .then().statusCode(200);
+
+        assertActiveInstallmentNames(firstId, "Despesa Parcelada Delete Frente (1/4)");
+    }
+
+    @Test
     @DisplayName("Despesa parcelada fora do cartão aplica nova data deste lançamento em diante")
     void shouldUpdateBankInstallmentDatesFromThisForward() {
         String firstId = createBankInstallmentPurchase("Curso", LocalDate.of(2026, 1, 25), 6, false);
@@ -1153,19 +1191,29 @@ public class TransactionControllerTest extends BaseTest {
     }
 
     @Test
-    @DisplayName("Despesa parcelada fora do cartão bloqueia valor em massa para não retornar sucesso parcial")
-    void shouldRejectMassAmountChangeForBankInstallments() {
+    @DisplayName("Despesa parcelada fora do cartão aplica novo valor deste lançamento em diante")
+    void shouldUpdateBankInstallmentAmountsFromThisForward() {
         String firstId = createBankInstallmentPurchase("Despesa Parcelada Valor", LocalDate.of(2026, 1, 25), 3, false);
+        String secondId = jdbcTemplate.queryForObject(
+                "SELECT id FROM transactions WHERE parent_transaction_id = ? ORDER BY date LIMIT 1",
+                String.class,
+                UUID.fromString(firstId)
+        );
 
-        TransactionDTO update = bankInstallmentUpdate("Despesa Parcelada Valor", LocalDate.of(2026, 1, 25));
-        update.setAmount(new BigDecimal("999.99"));
+        TransactionDTO update = bankInstallmentUpdate("Despesa Parcelada Valor (2/3)", LocalDate.of(2026, 2, 25), new BigDecimal("150.00"));
 
         given().header("Authorization", "Bearer " + token)
                 .queryParam("operationScope", "FROM_THIS_FORWARD")
                 .contentType(ContentType.JSON).body(update)
-                .put("/transactions/" + firstId)
-                .then().statusCode(400)
-                .body("message", containsString("valor de parcelas comuns"));
+                .put("/transactions/" + secondId)
+                .then().statusCode(200)
+                .body("currentInstallment", is(2))
+                .body("totalInstallmentsPlan", is(3));
+
+        assertInstallmentAmounts(firstId,
+                new BigDecimal("200.00"),
+                new BigDecimal("150.00"),
+                new BigDecimal("150.00"));
     }
 
     @Test
@@ -1340,6 +1388,31 @@ public class TransactionControllerTest extends BaseTest {
         );
 
         assertEquals(List.of(expectedPaidStates), paidStates);
+    }
+
+    private void assertInstallmentAmounts(String firstId, BigDecimal... expectedAmounts) {
+        List<BigDecimal> amounts = jdbcTemplate.queryForList(
+                "SELECT amount FROM transactions WHERE (id = ? OR parent_transaction_id = ?) AND deleted_at IS NULL ORDER BY date",
+                BigDecimal.class,
+                UUID.fromString(firstId),
+                UUID.fromString(firstId)
+        );
+
+        assertEquals(expectedAmounts.length, amounts.size());
+        for (int index = 0; index < expectedAmounts.length; index++) {
+            assertEquals(0, expectedAmounts[index].compareTo(amounts.get(index)));
+        }
+    }
+
+    private void assertActiveInstallmentNames(String firstId, String... expectedNames) {
+        List<String> names = jdbcTemplate.queryForList(
+                "SELECT name FROM transactions WHERE (id = ? OR parent_transaction_id = ?) AND deleted_at IS NULL ORDER BY date",
+                String.class,
+                UUID.fromString(firstId),
+                UUID.fromString(firstId)
+        );
+
+        assertEquals(List.of(expectedNames), names);
     }
 
     private void markBankInstallmentSeriesPaid(String firstId) {
