@@ -880,6 +880,75 @@ public class TransactionControllerTest extends BaseTest {
     }
 
     @Test
+    @DisplayName("Despesa à vista fora do cartão rejeita conversão para parcelada")
+    void shouldRejectChangingSingleBankExpenseToInstallment() {
+        String txId = createBankSingleExpense("Despesa À Vista", LocalDate.of(2026, 1, 25), false);
+
+        TransactionDTO update = bankInstallmentUpdate("Despesa À Vista", LocalDate.of(2026, 1, 25), new BigDecimal("300.00"));
+        update.setInstallments(3);
+
+        given().header("Authorization", "Bearer " + token)
+                .queryParam("operationScope", "ONLY_THIS")
+                .contentType(ContentType.JSON).body(update)
+                .put("/transactions/" + txId)
+                .then().statusCode(400)
+                .body("message", containsString("condição do lançamento não pode ser alterada"));
+
+        Integer children = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM transactions WHERE parent_transaction_id = ?",
+                Integer.class,
+                UUID.fromString(txId)
+        );
+        assertEquals(0, children);
+    }
+
+    @Test
+    @DisplayName("Despesa parcelada fora do cartão rejeita conversão para fixa")
+    void shouldRejectChangingBankInstallmentToFixed() {
+        String firstId = createBankInstallmentPurchase("Parcelada Não Vira Fixa", LocalDate.of(2026, 1, 25), 3, false);
+
+        TransactionDTO update = bankInstallmentUpdate("Parcelada Não Vira Fixa", LocalDate.of(2026, 1, 25), new BigDecimal("200.00"));
+        update.setIsFixed(true);
+        update.setRecurrenceFrequency(RecurrenceFrequency.MONTHLY);
+
+        given().header("Authorization", "Bearer " + token)
+                .queryParam("operationScope", "FROM_THIS_FORWARD")
+                .contentType(ContentType.JSON).body(update)
+                .put("/transactions/" + firstId)
+                .then().statusCode(400)
+                .body("message", containsString("condição do lançamento não pode ser alterada"));
+
+        assertInstallmentDates(firstId,
+                LocalDate.of(2026, 1, 25),
+                LocalDate.of(2026, 2, 25),
+                LocalDate.of(2026, 3, 25));
+    }
+
+    @Test
+    @DisplayName("Despesa fixa fora do cartão rejeita conversão para à vista")
+    void shouldRejectChangingFixedBankExpenseToSingle() {
+        String txId = createBankFixedExpense("Despesa Fixa", LocalDate.of(2026, 1, 25));
+
+        TransactionDTO update = bankInstallmentUpdate("Despesa Fixa", LocalDate.of(2026, 1, 25), new BigDecimal("100.00"));
+        update.setInstallments(1);
+        update.setIsFixed(false);
+
+        given().header("Authorization", "Bearer " + token)
+                .queryParam("operationScope", "ONLY_THIS")
+                .contentType(ContentType.JSON).body(update)
+                .put("/transactions/" + txId)
+                .then().statusCode(400)
+                .body("message", containsString("condição do lançamento não pode ser alterada"));
+
+        Boolean fixed = jdbcTemplate.queryForObject(
+                "SELECT fixed FROM transactions WHERE id = ?",
+                Boolean.class,
+                UUID.fromString(txId)
+        );
+        assertEquals(Boolean.TRUE, fixed);
+    }
+
+    @Test
     @DisplayName("Despesa parcelada fora do cartão bloqueia edição por outro usuário")
     void shouldBlockAnotherUserFromUpdatingBankInstallmentDate() {
         String firstId = createBankInstallmentPurchase("Notebook", LocalDate.of(2026, 1, 25), 3);
@@ -1287,6 +1356,45 @@ public class TransactionControllerTest extends BaseTest {
 
     private String createBankInstallmentPurchase(String name, LocalDate date, int installments, boolean paid) {
         return createBankInstallmentPurchase(name, date, installments, paid, TransactionType.DESPESA, categoryId);
+    }
+
+    private String createBankSingleExpense(String name, LocalDate date, boolean paid) {
+        TransactionDTO dto = new TransactionDTO();
+        dto.setName(name);
+        dto.setType(TransactionType.DESPESA);
+        dto.setAmount(new BigDecimal("300.00"));
+        dto.setDate(DateUtils.localDateToEpoch(date));
+        dto.setPaid(paid);
+        dto.setAccountId(bankId);
+        dto.setCategoryId(categoryId);
+        dto.setIsFixed(false);
+        dto.setInstallments(1);
+
+        return given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(dto).post("/transactions")
+                .then().statusCode(200)
+                .body("id", notNullValue())
+                .extract().path("id");
+    }
+
+    private String createBankFixedExpense(String name, LocalDate date) {
+        TransactionDTO dto = new TransactionDTO();
+        dto.setName(name);
+        dto.setType(TransactionType.DESPESA);
+        dto.setAmount(new BigDecimal("100.00"));
+        dto.setDate(DateUtils.localDateToEpoch(date));
+        dto.setPaid(false);
+        dto.setAccountId(bankId);
+        dto.setCategoryId(categoryId);
+        dto.setIsFixed(true);
+        dto.setInstallments(1);
+        dto.setRecurrenceFrequency(RecurrenceFrequency.MONTHLY);
+
+        return given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(dto).post("/transactions")
+                .then().statusCode(200)
+                .body("id", notNullValue())
+                .extract().path("id");
     }
 
     private String createBankInstallmentPurchase(

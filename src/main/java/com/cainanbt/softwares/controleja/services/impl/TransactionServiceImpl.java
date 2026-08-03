@@ -68,6 +68,14 @@ import java.util.stream.Collectors;
 @Slf4j
 public class TransactionServiceImpl implements TransactionService {
     private static final Pattern INSTALLMENT_SUFFIX = Pattern.compile(".*\\((\\d+)/(\\d+)\\)$");
+    private static final String STRUCTURAL_CONDITION_EDIT_BLOCKED =
+            "A condição do lançamento não pode ser alterada em uma edição. Para trocar entre à vista, parcelado ou fixo, exclua este lançamento e crie outro.";
+
+    private enum StructuralCondition {
+        SINGLE,
+        INSTALLMENT,
+        FIXED
+    }
 
     private final TransactionRepository repository;
     private final AccountsService accountsService;
@@ -431,12 +439,25 @@ public class TransactionServiceImpl implements TransactionService {
         if (paidChanged) {
             return;
         }
+        if (requestsStandardInstallmentConditionChange(dto, reference)) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, STRUCTURAL_CONDITION_EDIT_BLOCKED);
+        }
         if (dto.getPaid() != null) {
             dto.setPaid(reference.getPaid());
         }
         if (scope == OperationScope.ONLY_THIS) {
             return;
         }
+    }
+
+    private boolean requestsStandardInstallmentConditionChange(TransactionDTO dto, Transactions reference) {
+        boolean requestedFixed = Boolean.TRUE.equals(dto.getIsFixed())
+                || dto.getRecurrenceFrequency() != null
+                || dto.getRecurrenceEndDate() != null;
+        if (requestedFixed) {
+            return true;
+        }
+        return dto.getInstallments() != null && dto.getInstallments() != resolveTotalInstallments(reference);
     }
 
     private void validateEditableStandardInstallmentScope(List<Transactions> scoped, Transactions reference, boolean paidChanged) {
@@ -503,6 +524,17 @@ public class TransactionServiceImpl implements TransactionService {
             }
         }
         return transaction.getParentTransaction() == null ? 1 : Integer.MAX_VALUE;
+    }
+
+    private int resolveTotalInstallments(Transactions transaction) {
+        String name = transaction.getName();
+        if (name != null) {
+            Matcher matcher = INSTALLMENT_SUFFIX.matcher(name.trim());
+            if (matcher.matches()) {
+                return Integer.parseInt(matcher.group(2));
+            }
+        }
+        return 1;
     }
 
     private long recalculateInstallmentDate(Long referenceDateEpoch, int monthsToAdd, int targetDay) {
@@ -1712,6 +1744,7 @@ public class TransactionServiceImpl implements TransactionService {
         if (transaction.getType() == TransactionType.PAGAMENTO_FATURA || dto.getType() == TransactionType.PAGAMENTO_FATURA) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.INVOICE_PAYMENT_EDIT_BLOCKED);
         }
+        validateCommonTransactionStructuralConditionUnchanged(transaction, dto);
 
         boolean recurringTransaction = transaction.getRecurrenceRule() != null;
         if (recurringTransaction && scope == OperationScope.ALL) {
@@ -1861,6 +1894,54 @@ public class TransactionServiceImpl implements TransactionService {
         }
 
         return transaction;
+    }
+
+    private void validateCommonTransactionStructuralConditionUnchanged(Transactions transaction, TransactionDTO dto) {
+        if (!isCommonFinancialTransaction(transaction)) {
+            return;
+        }
+        StructuralCondition currentCondition = currentStructuralCondition(transaction);
+        StructuralCondition requestedCondition = requestedStructuralCondition(dto, currentCondition);
+        if (currentCondition != requestedCondition) {
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, STRUCTURAL_CONDITION_EDIT_BLOCKED);
+        }
+    }
+
+    private boolean isCommonFinancialTransaction(Transactions transaction) {
+        if (transaction.getType() != TransactionType.DESPESA && transaction.getType() != TransactionType.RECEITA) {
+            return false;
+        }
+        if (transaction.getAccount() == null || transaction.getAccount().getType() == AccountType.CREDIT_CARD) {
+            return false;
+        }
+        return transaction.getCreditCard() == null
+                && transaction.getTargetInvoice() == null
+                && transaction.getVehicle() == null;
+    }
+
+    private StructuralCondition currentStructuralCondition(Transactions transaction) {
+        if (Boolean.TRUE.equals(transaction.getFixed()) || transaction.getRecurrenceRule() != null) {
+            return StructuralCondition.FIXED;
+        }
+        return StructuralCondition.SINGLE;
+    }
+
+    private StructuralCondition requestedStructuralCondition(TransactionDTO dto, StructuralCondition fallback) {
+        if (Boolean.TRUE.equals(dto.getIsFixed())
+                || dto.getRecurrenceFrequency() != null
+                || dto.getRecurrenceEndDate() != null) {
+            return StructuralCondition.FIXED;
+        }
+        if (dto.getIsFixed() != null && Boolean.FALSE.equals(dto.getIsFixed())) {
+            if (dto.getInstallments() != null && dto.getInstallments() > 1) {
+                return StructuralCondition.INSTALLMENT;
+            }
+            return StructuralCondition.SINGLE;
+        }
+        if (dto.getInstallments() != null && dto.getInstallments() > 1) {
+            return StructuralCondition.INSTALLMENT;
+        }
+        return fallback;
     }
 
     private boolean changesRecurrenceSchedule(Transactions transaction, TransactionDTO dto) {
