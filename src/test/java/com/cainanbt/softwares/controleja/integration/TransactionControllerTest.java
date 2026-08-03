@@ -813,6 +813,71 @@ public class TransactionControllerTest extends BaseTest {
     }
 
     @Test
+    @DisplayName("Despesa parcelada fora do cartão retorna metadados confiáveis da série")
+    void shouldReturnBankInstallmentSeriesMetadata() {
+        String firstId = createBankInstallmentPurchase(
+                "Compra 200 em 10x",
+                LocalDate.of(2026, 1, 25),
+                10,
+                false,
+                TransactionType.DESPESA,
+                categoryId,
+                new BigDecimal("200.00")
+        );
+        String secondId = jdbcTemplate.queryForObject(
+                "SELECT id FROM transactions WHERE parent_transaction_id = ? ORDER BY date LIMIT 1",
+                String.class,
+                UUID.fromString(firstId)
+        );
+        jdbcTemplate.update("UPDATE transactions SET paid = true WHERE id = ?", UUID.fromString(firstId));
+
+        given().header("Authorization", "Bearer " + token)
+                .get("/transactions/" + secondId)
+                .then().statusCode(200)
+                .body("installmentSeriesId", is(firstId))
+                .body("currentInstallment", is(2))
+                .body("totalInstallmentsPlan", is(10))
+                .body("amount", is(20.0F))
+                .body("installmentSeriesTotalAmount", is(200.0F))
+                .body("paidInstallments", is(1));
+    }
+
+    @Test
+    @DisplayName("Despesa parcelada fora do cartão preserva total original da numeração após exclusão parcial")
+    void shouldKeepOriginalInstallmentTotalWhenUpdatingAfterPartialDelete() {
+        String firstId = createBankInstallmentPurchase("Despesa Parcelada Numeracao", LocalDate.of(2026, 1, 25), 3, false);
+        String secondId = jdbcTemplate.queryForObject(
+                "SELECT id FROM transactions WHERE parent_transaction_id = ? ORDER BY date LIMIT 1",
+                String.class,
+                UUID.fromString(firstId)
+        );
+
+        given().header("Authorization", "Bearer " + token)
+                .queryParam("operationScope", "ONLY_THIS")
+                .delete("/transactions/" + secondId)
+                .then().statusCode(200);
+
+        TransactionDTO update = bankInstallmentUpdate("Despesa Parcelada Numeracao (3/3)", LocalDate.of(2026, 3, 30), new BigDecimal("250.00"));
+        String thirdId = jdbcTemplate.queryForObject(
+                "SELECT id FROM transactions WHERE parent_transaction_id = ? AND deleted_at IS NULL ORDER BY date DESC LIMIT 1",
+                String.class,
+                UUID.fromString(firstId)
+        );
+
+        given().header("Authorization", "Bearer " + token)
+                .queryParam("operationScope", "ONLY_THIS")
+                .contentType(ContentType.JSON).body(update)
+                .put("/transactions/" + thirdId)
+                .then().statusCode(200)
+                .body("currentInstallment", is(3))
+                .body("totalInstallmentsPlan", is(3));
+
+        assertActiveInstallmentNames(firstId,
+                "Despesa Parcelada Numeracao (1/3)",
+                "Despesa Parcelada Numeracao (3/3)");
+    }
+
+    @Test
     @DisplayName("Despesa parcelada fora do cartão aplica nova data deste lançamento em diante")
     void shouldUpdateBankInstallmentDatesFromThisForward() {
         String firstId = createBankInstallmentPurchase("Curso", LocalDate.of(2026, 1, 25), 6, false);
@@ -1404,10 +1469,29 @@ public class TransactionControllerTest extends BaseTest {
             boolean paid,
             TransactionType type,
             UUID transactionCategoryId) {
+        return createBankInstallmentPurchase(
+                name,
+                date,
+                installments,
+                paid,
+                type,
+                transactionCategoryId,
+                new BigDecimal("600.00")
+        );
+    }
+
+    private String createBankInstallmentPurchase(
+            String name,
+            LocalDate date,
+            int installments,
+            boolean paid,
+            TransactionType type,
+            UUID transactionCategoryId,
+            BigDecimal amount) {
         TransactionDTO dto = new TransactionDTO();
         dto.setName(name);
         dto.setType(type);
-        dto.setAmount(new BigDecimal("600.00"));
+        dto.setAmount(amount);
         dto.setDate(DateUtils.localDateToEpoch(date));
         dto.setPaid(paid);
         dto.setAccountId(bankId);

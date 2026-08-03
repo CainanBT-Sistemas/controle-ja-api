@@ -146,7 +146,7 @@ public class TransactionServiceImpl implements TransactionService {
         if (start == null || end == null) return Collections.emptyList();
 
         List<Transactions> normalTx = repository.findCashFlowTransactionsByMonth(user.getId(), start, end);
-        List<TransactionResponseDTO> responseList = new ArrayList<>(normalTx.stream().map(TransactionResponseDTO::toBasicDTO).toList());
+        List<TransactionResponseDTO> responseList = new ArrayList<>(normalTx.stream().map(this::toBasicDTOWithSeriesInfo).toList());
 
         applyCreditCardInvoices(responseList, user.getId(), start, end);
 
@@ -245,7 +245,7 @@ public class TransactionServiceImpl implements TransactionService {
 
         Transactions transaction = updateTransaction(id, dto, scope);
 
-        return TransactionResponseDTO.toDetailedDTO(transaction);
+        return toDetailedDTOWithSeriesInfo(transaction);
     }
 
     private List<Transactions> findStandardInstallmentSeries(Transactions current) {
@@ -275,6 +275,40 @@ public class TransactionServiceImpl implements TransactionService {
                         resolveInstallmentNumber(left),
                         resolveInstallmentNumber(right)))
                 .toList();
+    }
+
+    private TransactionResponseDTO toBasicDTOWithSeriesInfo(Transactions transaction) {
+        TransactionResponseDTO dto = TransactionResponseDTO.toBasicDTO(transaction);
+        applyStandardInstallmentSeriesInfo(dto, transaction);
+        return dto;
+    }
+
+    private TransactionResponseDTO toDetailedDTOWithSeriesInfo(Transactions transaction) {
+        TransactionResponseDTO dto = TransactionResponseDTO.toDetailedDTO(transaction);
+        applyStandardInstallmentSeriesInfo(dto, transaction);
+        return dto;
+    }
+
+    private void applyStandardInstallmentSeriesInfo(TransactionResponseDTO dto, Transactions transaction) {
+        List<Transactions> series = findStandardInstallmentSeries(transaction);
+        if (series.isEmpty()) {
+            return;
+        }
+
+        Transactions parent = transaction.getParentTransaction() != null ? transaction.getParentTransaction() : transaction;
+        BigDecimal seriesTotal = series.stream()
+                .map(Transactions::getAmount)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        int paidCount = (int) series.stream()
+                .filter(tx -> Boolean.TRUE.equals(tx.getPaid()))
+                .count();
+
+        dto.setInstallmentSeriesId(parent.getId());
+        dto.setInstallmentSeriesTotalAmount(seriesTotal);
+        dto.setPaidInstallments(paidCount);
+        dto.setTotalInstallmentsPlan(resolveTotalInstallments(transaction));
+        dto.setCurrentInstallment(resolveInstallmentNumber(transaction));
     }
 
     private boolean shouldUseStandardInstallmentSeriesUpdate(Transactions current, TransactionDTO dto, OperationScope scope) {
@@ -323,7 +357,8 @@ public class TransactionServiceImpl implements TransactionService {
 
         boolean paidChanged = hasStandardInstallmentPaidChange(reference, dto);
         boolean dateChanged = hasStandardInstallmentDateChange(reference, dto);
-        boolean nonDateChanged = hasStandardInstallmentNonDateChange(reference, dto, series.size());
+        int totalInstallments = resolveTotalInstallments(reference);
+        boolean nonDateChanged = hasStandardInstallmentNonDateChange(reference, dto, totalInstallments);
         boolean nonPaidChanged = dateChanged || nonDateChanged;
         validateSupportedStandardInstallmentSeriesUpdate(reference, dto, scope, paidChanged, dateChanged, nonDateChanged, nonPaidChanged);
 
@@ -332,7 +367,6 @@ public class TransactionServiceImpl implements TransactionService {
                 : selectStandardInstallmentsForScope(series, scope, reference);
         validateEditableStandardInstallmentScope(scoped, reference, paidChanged);
         String baseName = removeInstallmentSuffix(dto.getName() != null ? dto.getName() : reference.getName());
-        int totalInstallments = series.size();
         Integer referenceInstallment = resolveInstallmentNumber(reference);
         Integer targetDay = dto.getDate() != null ? DateUtils.epochToLocalDate(dto.getDate()).getDayOfMonth() : null;
         Accounts targetAccount = null;
@@ -401,7 +435,7 @@ public class TransactionServiceImpl implements TransactionService {
         }
 
         repository.saveAll(scoped);
-        return TransactionResponseDTO.toDetailedDTO(reference);
+        return toDetailedDTOWithSeriesInfo(reference);
     }
 
     private String normalizeText(String value) {
@@ -1728,6 +1762,12 @@ public class TransactionServiceImpl implements TransactionService {
     public Transactions findByIdOrThrow(UUID id) {
         return findById(id)
                 .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.ERROR_TITLE, ConstsMessages.TRANSACTION_NOT_FOUND));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public TransactionResponseDTO findByIdDTO(UUID id) {
+        return toDetailedDTOWithSeriesInfo(findByIdOrThrow(id));
     }
 
     @Override

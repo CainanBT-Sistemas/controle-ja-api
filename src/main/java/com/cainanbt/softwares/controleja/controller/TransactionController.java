@@ -46,7 +46,7 @@ public class TransactionController {
 
     @GetMapping("/{id}")
     public ResponseEntity<TransactionResponseDTO> getById(@PathVariable UUID id) {
-        return ResponseEntity.ok(TransactionResponseDTO.toDetailedDTO(transactionService.findByIdOrThrow(id)));
+        return ResponseEntity.ok(transactionService.findByIdDTO(id));
     }
 
     @PutMapping("/{id}")

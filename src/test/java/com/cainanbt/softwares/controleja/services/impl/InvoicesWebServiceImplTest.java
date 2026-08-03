@@ -161,6 +161,59 @@ public class InvoicesWebServiceImplTest {
     }
 
     @Test
+    public void getInvoiceDetails_whenCreditCardPurchaseIsInstallment_returnsPurchaseProgressFromActivePaidInstallments() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            UUID purchaseId = UUID.randomUUID();
+            CreditCard card = CreditCard.builder().id(UUID.randomUUID()).name("Card").closeDay(5).bestDay(10).build();
+            Invoices invoice = Invoices.builder()
+                    .id(UUID.randomUUID())
+                    .month(7)
+                    .year(2026)
+                    .amount(new BigDecimal("100.00"))
+                    .paid(false)
+                    .creditCard(card)
+                    .user(currentUser)
+                    .build();
+            Transactions purchase = Transactions.builder()
+                    .id(purchaseId)
+                    .name("Compra 1000")
+                    .date(DateUtils.localDateToEpoch(LocalDate.of(2026, 7, 10)))
+                    .fixed(false)
+                    .build();
+            InstallmentPlan current = installment(purchaseId, invoice, 3, 10, "100.00", false);
+            InstallmentPlan paid = installment(purchaseId, invoice, 1, 10, "100.00", true);
+            InstallmentPlan pending = installment(purchaseId, invoice, 2, 10, "100.00", false);
+            InstallmentPlan partialInvoicePayment = installment(purchaseId, invoice, 1, 1, "-50.00", true);
+            InstallmentPlan disabledPaid = installment(purchaseId, invoice, 4, 10, "100.00", true);
+            disabledPaid.setEnabled(false);
+            List<InstallmentPlan> activePurchaseItems = new ArrayList<>();
+            activePurchaseItems.add(paid);
+            activePurchaseItems.add(pending);
+            activePurchaseItems.add(current);
+            activePurchaseItems.addAll(java.util.stream.IntStream.rangeClosed(4, 10)
+                    .mapToObj(index -> installment(purchaseId, invoice, index, 10, "100.00", false))
+                    .toList());
+            activePurchaseItems.add(partialInvoicePayment);
+            activePurchaseItems.add(disabledPaid);
+
+            when(invoicesService.findByCreditCardIdAndMonthAndYear(card.getId(), invoice.getMonth(), invoice.getYear())).thenReturn(Optional.of(invoice));
+            when(installmentPlanService.findByInvoiceIdAndUserId(invoice.getId(), currentUser.getId())).thenReturn(List.of(current));
+            when(transactionRepository.findAllById(anyList())).thenReturn(List.of(purchase));
+            when(installmentPlanService.findActiveByPurchaseIdAndUserId(purchaseId, currentUser.getId())).thenReturn(activePurchaseItems);
+
+            InvoiceDetailsDTO result = service.getInvoiceDetails(card.getId(), invoice.getMonth(), invoice.getYear()).orElseThrow();
+
+            assertEquals(1, result.getItems().size());
+            assertEquals(new BigDecimal("1000.00"), result.getItems().get(0).getPurchaseTotalAmount());
+            assertEquals(1, result.getItems().get(0).getPaidInstallments());
+            assertEquals(3, result.getItems().get(0).getCurrentInstallment());
+            assertEquals(10, result.getItems().get(0).getTotalInstallmentsPlan());
+        }
+    }
+
+    @Test
     public void getInvoiceDetailsById_whenInvoiceBelongsToUser_usesPersistedInvoicePeriod() {
         try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
             mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
@@ -1763,6 +1816,25 @@ public class InvoicesWebServiceImplTest {
                 .totalInstallmentsPlan(1)
                 .paid(paid)
                 .purchaseId(UUID.randomUUID())
+                .user(currentUser)
+                .invoices(invoice)
+                .build();
+    }
+
+    private InstallmentPlan installment(UUID purchaseId, Invoices invoice, int currentInstallment, int totalInstallments, String amount, boolean paid) {
+        return InstallmentPlan.builder()
+                .id(UUID.randomUUID())
+                .date(DateUtils.getEpochNow())
+                .name("Compra (" + currentInstallment + "/" + totalInstallments + ")")
+                .type(TransactionType.DESPESA.name())
+                .amount(new BigDecimal(amount))
+                .currentInstallment(currentInstallment)
+                .totalInstallmentsPlan(totalInstallments)
+                .fixed(false)
+                .paid(paid)
+                .purchaseId(purchaseId)
+                .enabled(true)
+                .createdAt(DateUtils.getEpochNow())
                 .user(currentUser)
                 .invoices(invoice)
                 .build();

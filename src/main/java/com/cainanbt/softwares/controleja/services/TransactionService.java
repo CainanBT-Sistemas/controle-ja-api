@@ -21,6 +21,8 @@ public interface TransactionService {
 
     Transactions findByIdOrThrow(UUID id);
 
+    TransactionResponseDTO findByIdDTO(UUID id);
+
     Transactions updateTransaction(UUID id, TransactionDTO dto, OperationScope operationScope);
 
     void softDelete(UUID id, OperationScope operationScope);
