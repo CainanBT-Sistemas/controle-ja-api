@@ -35,7 +35,6 @@ import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -52,7 +51,6 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class InvoicesWebServiceImpl implements InvoicesWebService {
 
     private final InvoiceDateService invoiceDateService = new InvoiceDateService();
@@ -570,7 +568,6 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         CreditCard card = invoiceDomainValidator.requireInvoiceCard(invoice);
         card.restoreLimit(request.getRefundAmount().abs());
         creditCardService.updateLimit(card);
-        log.info("Invoice refund processed: invoiceId={}, installmentId={}, amount={}", invoiceId, original.getId(), request.getRefundAmount());
     }
 
     /**
@@ -666,7 +663,6 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
 
         currentInvoice.setAmount(invoiceTotalsCalculator.valueOrZero(currentInvoice.getAmount()).add(totalAdvanced));
         invoicesService.save(currentInvoice);
-        log.info("Invoice installments advanced: invoiceId={}, purchaseId={}, quantity={}, netAmount={}", invoiceId, request.getPurchaseId(), futureInstallments.size(), totalAdvanced);
     }
 
     /**
@@ -762,7 +758,6 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
 
         installmentPlanService.saveAll(operationItems);
         invoicesService.saveAll(invoicesToSave.values().stream().toList());
-        log.info("Invoice advance corrected: invoiceId={}, operationId={}, installments={}", invoiceId, operationId, movedInstallments.size());
         return refreshInvoiceDetails(targetInvoice);
     }
 
@@ -776,7 +771,6 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         InstallmentPlan installment = resolveInvoiceInstallment(invoice, installmentId);
 
         transactionService.updateTransactionDTO(installment.getId(), request, operationScope);
-        log.info("Invoice item updated: invoiceId={}, installmentId={}, scope={}", invoiceId, installmentId, operationScope);
         return refreshInvoiceDetails(invoice);
     }
 
@@ -790,7 +784,6 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         InstallmentPlan installment = resolveInvoiceInstallment(invoice, installmentId);
 
         transactionService.softDelete(installment.getId(), operationScope);
-        log.info("Invoice item deleted: invoiceId={}, installmentId={}, scope={}", invoiceId, installmentId, operationScope);
         return refreshInvoiceDetails(invoice);
     }
 
@@ -818,7 +811,6 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
 
         InstallmentPlan reference = installments.get(0);
         transactionService.softDelete(reference.getId(), OperationScope.ALL);
-        log.info("Invoice purchase cancelled: invoiceId={}, purchaseId={}, installments={}", invoiceId, purchaseId, installments.size());
         return refreshInvoiceDetails(invoice);
     }
 
@@ -941,7 +933,6 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
             invoice.setPaid(false);
         }
         invoicesService.save(invoice);
-        log.info("Invoice payment processed: invoiceId={}, accountId={}, amount={}, openAmount={}", invoiceId, sourceAccount.getId(), request.getAmount(), updatedTotals.openAmount());
 
         return getInvoiceDetails(card.getId(), invoice.getMonth(), invoice.getYear())
                 .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Fatura não encontrada."));
@@ -1017,14 +1008,12 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
             }
             invoice.setPaid(totals.openAmount().compareTo(BigDecimal.ZERO) <= 0);
             invoicesService.save(invoice);
-            log.info("Invoice payment cancelled: invoiceId={}, paymentTransactionId={}, openAmount={}", invoice.getId(), payment.getId(), totals.openAmount());
 
             return getInvoiceDetails(invoice.getCreditCard().getId(), invoice.getMonth(), invoice.getYear())
                     .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Fatura não encontrada."));
         } catch (BadRequestException | EntityNotFoundException e) {
             throw e;
         } catch (RuntimeException e) {
-            log.error("Failed to cancel invoice payment: paymentTransactionId={}", paymentTransactionId, e);
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Não foi possível cancelar o pagamento da fatura.");
         }
     }

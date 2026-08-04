@@ -1,8 +1,8 @@
 package com.cainanbt.softwares.controleja.configs;
 
 import com.cainanbt.softwares.controleja.dtos.UserAuthenticateDTO;
-import com.cainanbt.softwares.controleja.repositories.UsersRepository;
 import com.cainanbt.softwares.controleja.exceptions.models.ForbiddenException;
+import com.cainanbt.softwares.controleja.repositories.UsersRepository;
 import com.cainanbt.softwares.controleja.services.ClosedTestAccessPolicy;
 import com.cainanbt.softwares.controleja.services.impl.JwtServiceImp;
 import io.jsonwebtoken.JwtException;
@@ -83,11 +83,11 @@ public class SecurityFilter extends OncePerRequestFilter {
             }
         } catch (ForbiddenException ex) {
             SecurityContextHolder.clearContext();
-            SecurityErrorResponseWriter.writeClosedTestForbidden(response);
+            SecurityErrorResponseWriter.writeClosedTestForbidden(request, response);
             return;
         } catch (Exception ex) {
             SecurityContextHolder.clearContext();
-            SecurityErrorResponseWriter.writeUnauthorized(response);
+            SecurityErrorResponseWriter.writeUnauthorized(request, response);
             return;
         }
         filterChain.doFilter(request,response);

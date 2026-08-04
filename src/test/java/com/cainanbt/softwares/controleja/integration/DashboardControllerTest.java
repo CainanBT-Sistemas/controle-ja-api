@@ -242,7 +242,7 @@ public class DashboardControllerTest extends BaseTest {
     }
 
     @Test
-    @DisplayName("Deve classificar faturas pagas, abertas, pendentes e vencidas no full-summary")
+    @DisplayName("Deve usar vencimento canônico e ignorar faturas pagas ou ainda abertas no full-summary")
     void shouldClassifyInvoicesInFullSummary() {
         LocalDate today = LocalDate.now(DateUtils.zoneId);
         long start = DateUtils.localDateToEpoch(today.minusDays(1));
@@ -260,11 +260,10 @@ public class DashboardControllerTest extends BaseTest {
         given().header("Authorization", "Bearer " + token).param("start", start).param("end", end)
                 .when().get("/dashboard/full-summary")
                 .then().statusCode(200)
-                .body("projectedPayables", is(150.0f))
+                .body("projectedPayables", is(70.0f))
                 .body("pendingInvoices.size()", is(1))
-                .body("pendingInvoices[0].amount", is(80.0f))
-                .body("overdueInvoices.size()", is(1))
-                .body("overdueInvoices[0].amount", is(70.0f));
+                .body("pendingInvoices[0].amount", is(70.0f))
+                .body("overdueInvoices.size()", is(0));
     }
 
     private UUID createCard(String name) {

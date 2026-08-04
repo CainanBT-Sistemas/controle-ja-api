@@ -14,10 +14,10 @@ spring:
           google:
             client-id: 129979310679-1jvva61ptka1qulph59takl8d4g1urb4.apps.googleusercontent.com
   jpa:
-    show-sql: true
+    show-sql: false
     properties:
       hibernate:
-        format_sql: true
+        format_sql: false
   flyway:
     enabled: ${DEV_FLYWAY_ENABLED:false}
 

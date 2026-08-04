@@ -19,7 +19,6 @@ import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,7 +29,6 @@ import java.util.UUID;
 
 @RequiredArgsConstructor
 @Service
-@Slf4j
 public class CreditCardServiceImpl implements CreditCardService {
 
     private final CreditCardDomainValidator creditCardDomainValidator = new CreditCardDomainValidator();
@@ -55,7 +53,6 @@ public class CreditCardServiceImpl implements CreditCardService {
         Accounts savedAccount = accountsRepository.save(creditCardAccountFactory.createInvoiceAccount(dto, user, now));
         CreditCard savedCard = creditCardRepository.save(buildCreditCard(dto, user, savedAccount, now));
 
-        log.info("Credit card created: cardId={}, accountId={}", savedCard.getId(), savedAccount.getId());
         return savedCard;
     }
 
@@ -82,8 +79,6 @@ public class CreditCardServiceImpl implements CreditCardService {
      */
     @Override
     public void updateLimit(CreditCard card) {
-        log.debug("Credit card limit updated: cardId={}, currentLimit={}, totalLimit={}",
-                card.getId(), card.getCurrentLimit(), card.getTotalLimit());
         creditCardRepository.save(card);
     }
 
@@ -125,9 +120,7 @@ public class CreditCardServiceImpl implements CreditCardService {
         applyLinkedAccountChanges(card, dto);
         applyCardFields(card, dto);
 
-        CreditCard updatedCard = creditCardRepository.save(card);
-        log.info("Credit card updated: cardId={}", updatedCard.getId());
-        return updatedCard;
+        return creditCardRepository.save(card);
     }
 
     /**
@@ -144,8 +137,6 @@ public class CreditCardServiceImpl implements CreditCardService {
         softDeleteLinkedAccount(card, now);
         card.setDeletedAt(now);
         creditCardRepository.save(card);
-
-        log.info("Credit card deleted: cardId={}", id);
     }
 
     /**

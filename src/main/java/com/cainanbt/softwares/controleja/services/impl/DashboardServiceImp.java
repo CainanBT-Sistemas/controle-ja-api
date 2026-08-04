@@ -22,7 +22,6 @@ import com.cainanbt.softwares.controleja.services.invoices.InvoiceDateService;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,7 +32,6 @@ import java.util.UUID;
 
 @RequiredArgsConstructor
 @Service
-@Slf4j
 @Transactional(readOnly = true)
 public class DashboardServiceImp implements DashboardService {
     private static final long THREE_MONTHS_IN_MILLIS = 90L * 24 * 60 * 60 * 1000;
@@ -146,8 +144,6 @@ public class DashboardServiceImp implements DashboardService {
         BigDecimal projectedVariables = projectionCalculator.averageLastThreeMonths(totalLast3Months);
         BigDecimal projectedBalance = projectionCalculator.projectedBalance(availableBalance, projectedReceivables, projectedPayables, projectedVariables);
 
-        log.debug("Dashboard full summary calculated: userId={}, pendingPayables={}, pendingInvoices={}",
-                userId, payableBuckets.getPending().size(), invoiceBuckets.getPending().size());
         return DashboardFullSummaryDTO.builder()
                 .availableBalance(availableBalance)
                 .projectedBalance(projectedBalance)
@@ -201,7 +197,6 @@ public class DashboardServiceImp implements DashboardService {
      */
     private boolean shouldExposeInvoice(Invoices invoice, LocalDate today) {
         if (invoice.getCreditCard() == null) {
-            log.debug("Dashboard invoice ignored without credit card: invoiceId={}", invoice.getId());
             return false;
         }
         boolean isPreviousMonth = invoice.getYear() < today.getYear()

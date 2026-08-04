@@ -80,8 +80,10 @@ public class SecurityConfig {
         configuration.setAllowedHeaders(List.of(
                 HttpHeaders.AUTHORIZATION,
                 HttpHeaders.CONTENT_TYPE,
-                HttpHeaders.ACCEPT
+                HttpHeaders.ACCEPT,
+                CorrelationId.HEADER_NAME
         ));
+        configuration.setExposedHeaders(List.of(CorrelationId.HEADER_NAME));
         configuration.setAllowCredentials(false);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
@@ -108,9 +110,9 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .exceptionHandling(exception -> exception
                         .authenticationEntryPoint((request, response, authException) ->
-                                SecurityErrorResponseWriter.writeUnauthorized(response))
+                                SecurityErrorResponseWriter.writeUnauthorized(request, response))
                         .accessDeniedHandler((request, response, accessDeniedException) ->
-                                SecurityErrorResponseWriter.writeForbidden(response)))
+                                SecurityErrorResponseWriter.writeForbidden(request, response)))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(PUBLIC).permitAll()

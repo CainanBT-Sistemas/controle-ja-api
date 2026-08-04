@@ -13,7 +13,6 @@ import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -22,7 +21,6 @@ import java.util.UUID;
 
 @RequiredArgsConstructor
 @Service
-@Slf4j
 public class VehicleServiceImpl implements VehicleService {
     private final VehicleDomainValidator vehicleDomainValidator = new VehicleDomainValidator();
     private final VehicleRepository repository;
@@ -49,9 +47,7 @@ public class VehicleServiceImpl implements VehicleService {
                 .createdAt(DateUtils.getEpochNow())
                 .build();
 
-        Vehicle saved = repository.save(vehicle);
-        log.info("Vehicle created: vehicleId={}, userId={}", saved.getId(), user.getId());
-        return saved;
+        return repository.save(vehicle);
     }
 
     /**
@@ -117,9 +113,7 @@ public class VehicleServiceImpl implements VehicleService {
         }
 
         vehicle.setUpdatedAt(DateUtils.getEpochNow());
-        Vehicle saved = repository.save(vehicle);
-        log.info("Vehicle updated: vehicleId={}, userId={}", saved.getId(), currentUser.getId());
-        return saved;
+        return repository.save(vehicle);
     }
 
     /**
@@ -137,6 +131,5 @@ public class VehicleServiceImpl implements VehicleService {
 
         vehicle.setDeletedAt(DateUtils.getEpochNow());
         repository.save(vehicle);
-        log.info("Vehicle deleted: vehicleId={}, userId={}", vehicle.getId(), currentUser.getId());
     }
 }

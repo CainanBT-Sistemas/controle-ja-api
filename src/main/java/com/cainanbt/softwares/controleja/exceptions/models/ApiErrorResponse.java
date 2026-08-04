@@ -12,4 +12,5 @@ public class ApiErrorResponse {
     private int code;
     private String title;
     private String message;
+    private String correlationId;
 }

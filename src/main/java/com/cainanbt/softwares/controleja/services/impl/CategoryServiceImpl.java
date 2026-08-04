@@ -16,7 +16,6 @@ import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,7 +25,6 @@ import java.util.UUID;
 
 @RequiredArgsConstructor
 @Service
-@Slf4j
 public class CategoryServiceImpl implements CategoryService {
 
     private final CategoryDomainValidator categoryDomainValidator = new CategoryDomainValidator();
@@ -44,9 +42,7 @@ public class CategoryServiceImpl implements CategoryService {
         Users user = SecurityContextUtils.getCurrentUser();
         Category parent = resolveParentForCreate(dto, user);
 
-        Category savedCategory = repository.save(categoryFactory.create(dto, user, parent, DateUtils.getEpochNow()));
-        log.info("Category created: categoryId={}, parentId={}", savedCategory.getId(), parent != null ? parent.getId() : null);
-        return savedCategory;
+        return repository.save(categoryFactory.create(dto, user, parent, DateUtils.getEpochNow()));
     }
 
     /**
@@ -99,9 +95,7 @@ public class CategoryServiceImpl implements CategoryService {
 
         category.setUpdatedAt(DateUtils.getEpochNow());
 
-        Category updatedCategory = repository.save(category);
-        log.info("Category updated: categoryId={}", updatedCategory.getId());
-        return updatedCategory;
+        return repository.save(category);
     }
 
     /**
@@ -120,7 +114,6 @@ public class CategoryServiceImpl implements CategoryService {
 
         category.setDeletedAt(now);
         repository.save(category);
-        log.info("Category deleted: categoryId={}, subCategories={}", id, subCategories.size());
     }
 
     /**

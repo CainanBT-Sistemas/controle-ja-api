@@ -4,7 +4,6 @@ import com.cainanbt.softwares.controleja.dtos.GoogleIdentityDTO;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.services.GoogleIdTokenValidator;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.oauth2.core.OAuth2Error;
@@ -21,7 +20,6 @@ import java.time.Instant;
 import java.util.List;
 
 @Service
-@Slf4j
 public class GoogleIdTokenValidatorImpl implements GoogleIdTokenValidator {
 
     private static final String GOOGLE_JWKS_URI = "https://www.googleapis.com/oauth2/v3/certs";
@@ -134,7 +132,7 @@ public class GoogleIdTokenValidatorImpl implements GoogleIdTokenValidator {
     }
 
     private void logValidationFailure(String reason) {
-        log.warn("Google idToken rejected reason={}", reason);
+        // The caller receives a safe business error; REST error logging is centralized.
     }
 
     private BadRequestException invalidGoogleToken() {

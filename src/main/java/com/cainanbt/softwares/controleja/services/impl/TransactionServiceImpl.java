@@ -39,7 +39,6 @@ import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -65,7 +64,6 @@ import java.util.stream.Collectors;
 
 @RequiredArgsConstructor
 @Service
-@Slf4j
 public class TransactionServiceImpl implements TransactionService {
     private static final Pattern INSTALLMENT_SUFFIX = Pattern.compile(".*\\((\\d+)/(\\d+)\\)$");
     private static final String STRUCTURAL_CONDITION_EDIT_BLOCKED =
@@ -902,12 +900,6 @@ public class TransactionServiceImpl implements TransactionService {
             adjustCreditCardLimitForPurchaseAmountChange(targetCard, selectedTotalBefore, selectedTotalAfter);
         }
 
-        log.info(
-                "Recurring credit card purchase updated: purchaseId={}, recurrenceRuleId={}, occurrences={}",
-                selectedPurchase.getId(),
-                newRule.getId(),
-                affectedPurchases.size()
-        );
         return TransactionResponseDTO.toDetailedDTO(selectedPurchase);
     }
 
