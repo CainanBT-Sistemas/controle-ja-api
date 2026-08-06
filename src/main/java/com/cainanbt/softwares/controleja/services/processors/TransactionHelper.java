@@ -19,6 +19,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.time.DayOfWeek;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Component
@@ -128,10 +129,10 @@ public class TransactionHelper {
         int maxDays = refDate.toLocalDate().lengthOfMonth();
         int finalDay = Math.min(bestDay, maxDays);
 
-        LocalDateTime dueDate = LocalDateTime.of(year, month, finalDay, 23, 59, 59);
+        LocalDate dueDate = LocalDate.of(year, month, finalDay);
         while (dueDate.getDayOfWeek() == DayOfWeek.SATURDAY || dueDate.getDayOfWeek() == DayOfWeek.SUNDAY) {
             dueDate = dueDate.plusDays(1);
         }
-        return dueDate;
+        return dueDate.atStartOfDay();
     }
 }

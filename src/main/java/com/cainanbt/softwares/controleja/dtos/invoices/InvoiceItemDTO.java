@@ -24,6 +24,8 @@ public class InvoiceItemDTO {
     private UUID creditCardId;
     private Integer currentInstallment;
     private Integer totalInstallmentsPlan;
+    private BigDecimal purchaseTotalAmount;
+    private Integer paidInstallments;
     private String type;
     private BigDecimal amount;
     private Boolean paid;

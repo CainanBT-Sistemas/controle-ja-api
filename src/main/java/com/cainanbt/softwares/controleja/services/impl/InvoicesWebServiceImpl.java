@@ -35,7 +35,6 @@ import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -45,13 +44,13 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class InvoicesWebServiceImpl implements InvoicesWebService {
 
     private final InvoiceDateService invoiceDateService = new InvoiceDateService();
@@ -120,6 +119,7 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
 
         List<InstallmentPlan> invoiceItems = installmentPlanService.findByInvoiceIdAndUserId(inv.getId(), currentUser.getId());
         Map<UUID, Transactions> parentTransactions = findParentTransactions(invoiceItems);
+        Map<UUID, PurchaseInstallmentProgress> purchaseProgressById = buildPurchaseInstallmentProgress(invoiceItems, currentUser.getId());
         List<InstallmentPlan> items = invoiceItems.stream()
                 .filter(p -> p.getDeletedAt() == null)
                 .filter(p -> !isInvoiceSummaryItem(p, parentTransactions))
@@ -136,7 +136,12 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         boolean closedOrPaid = invoiceDateService.isClosedOrPaid(status);
 
         List<InvoiceItemDTO> itemDTOs = items.stream()
-                .map(i -> toInvoiceItemDTO(i, findParentTransaction(i, parentTransactions), closedOrPaid))
+                .map(i -> toInvoiceItemDTO(
+                        i,
+                        findParentTransaction(i, parentTransactions),
+                        i.getPurchaseId() != null ? purchaseProgressById.get(i.getPurchaseId()) : null,
+                        closedOrPaid
+                ))
                 .collect(Collectors.toList());
 
         InvoiceDetailsDTO dto = InvoiceDetailsDTO.builder()
@@ -257,7 +262,34 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         return parentTransactions.get(item.getPurchaseId());
     }
 
-    private InvoiceItemDTO toInvoiceItemDTO(InstallmentPlan item, Transactions parentTransaction, boolean closedOrPaid) {
+    private Map<UUID, PurchaseInstallmentProgress> buildPurchaseInstallmentProgress(List<InstallmentPlan> invoiceItems, UUID userId) {
+        List<UUID> purchaseIds = invoiceItems.stream()
+                .map(InstallmentPlan::getPurchaseId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (purchaseIds.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<UUID, PurchaseInstallmentProgress> progressById = new HashMap<>();
+        for (UUID purchaseId : purchaseIds) {
+            List<InstallmentPlan> activePurchaseItems = installmentPlanService.findActiveByPurchaseIdAndUserId(purchaseId, userId).stream()
+                    .filter(item -> Boolean.TRUE.equals(item.getEnabled()))
+                    .filter(item -> item.getAmount() != null && item.getAmount().compareTo(BigDecimal.ZERO) > 0)
+                    .toList();
+            BigDecimal totalAmount = activePurchaseItems.stream()
+                    .map(InstallmentPlan::getAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            int paidInstallments = (int) activePurchaseItems.stream()
+                    .filter(item -> Boolean.TRUE.equals(item.getPaid()))
+                    .count();
+            progressById.put(purchaseId, new PurchaseInstallmentProgress(totalAmount, paidInstallments));
+        }
+        return progressById;
+    }
+
+    private InvoiceItemDTO toInvoiceItemDTO(InstallmentPlan item, Transactions parentTransaction, PurchaseInstallmentProgress purchaseProgress, boolean closedOrPaid) {
         String itemKind = resolveItemKind(item);
         boolean fixed = parentTransaction != null
                 ? Boolean.TRUE.equals(parentTransaction.getFixed())
@@ -278,6 +310,8 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
                 .creditCardId(resolveCreditCardId(parentTransaction, item))
                 .currentInstallment(item.getCurrentInstallment())
                 .totalInstallmentsPlan(item.getTotalInstallmentsPlan())
+                .purchaseTotalAmount(purchaseProgress != null ? purchaseProgress.totalAmount() : null)
+                .paidInstallments(purchaseProgress != null ? purchaseProgress.paidInstallments() : null)
                 .type(item.getType())
                 .amount(item.getAmount())
                 .paid(item.getPaid())
@@ -294,6 +328,9 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
                 .advanceOperationId(item.getAdvanceOperationId())
                 .itemKind(itemKind)
                 .build();
+    }
+
+    private record PurchaseInstallmentProgress(BigDecimal totalAmount, int paidInstallments) {
     }
 
     private String resolveCategoryName(Transactions parentTransaction) {
@@ -531,7 +568,6 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         CreditCard card = invoiceDomainValidator.requireInvoiceCard(invoice);
         card.restoreLimit(request.getRefundAmount().abs());
         creditCardService.updateLimit(card);
-        log.info("Invoice refund processed: invoiceId={}, installmentId={}, amount={}", invoiceId, original.getId(), request.getRefundAmount());
     }
 
     /**
@@ -627,7 +663,6 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
 
         currentInvoice.setAmount(invoiceTotalsCalculator.valueOrZero(currentInvoice.getAmount()).add(totalAdvanced));
         invoicesService.save(currentInvoice);
-        log.info("Invoice installments advanced: invoiceId={}, purchaseId={}, quantity={}, netAmount={}", invoiceId, request.getPurchaseId(), futureInstallments.size(), totalAdvanced);
     }
 
     /**
@@ -723,7 +758,6 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
 
         installmentPlanService.saveAll(operationItems);
         invoicesService.saveAll(invoicesToSave.values().stream().toList());
-        log.info("Invoice advance corrected: invoiceId={}, operationId={}, installments={}", invoiceId, operationId, movedInstallments.size());
         return refreshInvoiceDetails(targetInvoice);
     }
 
@@ -737,7 +771,6 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         InstallmentPlan installment = resolveInvoiceInstallment(invoice, installmentId);
 
         transactionService.updateTransactionDTO(installment.getId(), request, operationScope);
-        log.info("Invoice item updated: invoiceId={}, installmentId={}, scope={}", invoiceId, installmentId, operationScope);
         return refreshInvoiceDetails(invoice);
     }
 
@@ -751,7 +784,6 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         InstallmentPlan installment = resolveInvoiceInstallment(invoice, installmentId);
 
         transactionService.softDelete(installment.getId(), operationScope);
-        log.info("Invoice item deleted: invoiceId={}, installmentId={}, scope={}", invoiceId, installmentId, operationScope);
         return refreshInvoiceDetails(invoice);
     }
 
@@ -779,7 +811,6 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
 
         InstallmentPlan reference = installments.get(0);
         transactionService.softDelete(reference.getId(), OperationScope.ALL);
-        log.info("Invoice purchase cancelled: invoiceId={}, purchaseId={}, installments={}", invoiceId, purchaseId, installments.size());
         return refreshInvoiceDetails(invoice);
     }
 
@@ -902,7 +933,6 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
             invoice.setPaid(false);
         }
         invoicesService.save(invoice);
-        log.info("Invoice payment processed: invoiceId={}, accountId={}, amount={}, openAmount={}", invoiceId, sourceAccount.getId(), request.getAmount(), updatedTotals.openAmount());
 
         return getInvoiceDetails(card.getId(), invoice.getMonth(), invoice.getYear())
                 .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Fatura não encontrada."));
@@ -978,14 +1008,12 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
             }
             invoice.setPaid(totals.openAmount().compareTo(BigDecimal.ZERO) <= 0);
             invoicesService.save(invoice);
-            log.info("Invoice payment cancelled: invoiceId={}, paymentTransactionId={}, openAmount={}", invoice.getId(), payment.getId(), totals.openAmount());
 
             return getInvoiceDetails(invoice.getCreditCard().getId(), invoice.getMonth(), invoice.getYear())
                     .orElseThrow(() -> new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Fatura não encontrada."));
         } catch (BadRequestException | EntityNotFoundException e) {
             throw e;
         } catch (RuntimeException e) {
-            log.error("Failed to cancel invoice payment: paymentTransactionId={}", paymentTransactionId, e);
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Não foi possível cancelar o pagamento da fatura.");
         }
     }

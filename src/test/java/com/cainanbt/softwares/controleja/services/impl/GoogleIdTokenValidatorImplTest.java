@@ -135,12 +135,7 @@ class GoogleIdTokenValidatorImplTest {
 
         try {
             assertThrows(BadRequestException.class, () -> validator.validate(token));
-            assertTrue(
-                    appender.list.stream()
-                            .map(ILoggingEvent::getFormattedMessage)
-                            .anyMatch(message -> message.equals("Google idToken rejected reason=" + expectedReason)),
-                    "Expected diagnostic reason " + expectedReason
-            );
+            assertTrue(appender.list.isEmpty(), "Google idToken rejection must not create an operational log");
         } finally {
             logger.detachAppender(appender);
             appender.stop();

@@ -19,7 +19,6 @@ import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -32,7 +31,6 @@ import java.util.UUID;
 
 @RequiredArgsConstructor
 @Service
-@Slf4j
 public class UserServiceImpl implements UsersService {
 
     private final UsersRepository userRepository;
@@ -114,7 +112,6 @@ public class UserServiceImpl implements UsersService {
         } catch (BadRequestException e) {
             throw e;
         } catch (Exception e) {
-            log.error("Erro ao criar usuario e dados iniciais", e);
             throw new BadRequestException(ConstsMessages.CRITICAL_ERROR_TITLE, ConstsMessages.DATABASE_SAVE_ERROR);
         }
     }
@@ -202,10 +199,8 @@ public class UserServiceImpl implements UsersService {
         if (userOpt.isPresent()) {
             Users u = userOpt.get();
             UUID userId = u.getId();
-            log.warn("Reset operacional iniciado: userId={}", userId);
             operationalDataResetter.deleteOperationalData(userId);
             defaultDataInitializer.initialize(u);
-            log.warn("Reset operacional concluido: userId={}", userId);
             return u;
         }
         throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.FAILURE_TO_FIND_USER);

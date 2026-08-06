@@ -20,7 +20,6 @@ import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -31,7 +30,6 @@ import java.util.List;
 
 @Component
 @RequiredArgsConstructor
-@Slf4j
 public class CreditCardExpenseProcessor implements TransactionProcessor {
 
     private final CreditCardService creditCardService;
@@ -63,8 +61,6 @@ public class CreditCardExpenseProcessor implements TransactionProcessor {
         Transactions purchaseTransaction = repository.save(buildPurchaseTransaction(dto, account, category, user, card, dateNow));
         createInstallments(dto, user, card, purchaseTransaction, dateNow);
 
-        log.info("Credit card purchase created: transactionId={}, cardId={}, amount={}",
-                purchaseTransaction.getId(), card.getId(), dto.getAmount());
         return purchaseTransaction;
     }
 

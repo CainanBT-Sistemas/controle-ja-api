@@ -28,12 +28,16 @@ public class DashboardAlertMapper {
      * Monta alerta de fatura pendente preservando referencia ao cartao.
      */
     public DashboardAlertDTO fromInvoice(Invoices invoice) {
+        return fromInvoice(invoice, invoice.getExpirationDate());
+    }
+
+    public DashboardAlertDTO fromInvoice(Invoices invoice, Long dueDate) {
         return DashboardAlertDTO.builder()
                 .id(invoice.getId())
                 .referenceId(invoice.getCreditCard() != null ? invoice.getCreditCard().getId() : null)
                 .description("Fatura " + (invoice.getCreditCard() != null ? invoice.getCreditCard().getName() : ""))
                 .amount(invoice.getAmount())
-                .dueDate(invoice.getExpirationDate())
+                .dueDate(dueDate)
                 .icon(invoice.getCreditCard() != null ? invoice.getCreditCard().getIcon() : null)
                 .color(invoice.getCreditCard() != null ? invoice.getCreditCard().getColor() : null)
                 .type("FATURA")

@@ -24,21 +24,15 @@ public class RecurrenceWorkerService {
      * Projeta lancamentos futuros para regras ativas, mantendo cada erro isolado por regra.
      */
     public void processProjections() {
-        log.info("Iniciando motor de projecao de recorrencias");
-
         List<RecurrenceRule> activeRules = recurrenceRuleService.findAllActiveRules();
         LocalDate projectionLimit = LocalDate.now(DateUtils.zoneId).plusYears(1);
 
-        int processed = 0;
         for (RecurrenceRule rule : activeRules) {
             try {
                 transactionService.generateProjectionsForRule(rule, projectionLimit);
-                processed++;
             } catch (Exception e) {
-                log.error("Erro ao projetar recorrencia ruleId={}", rule.getId(), e);
+                log.error("worker_error category=recurrence_projection exception={}", e.getClass().getSimpleName(), e);
             }
         }
-
-        log.info("Motor de projecao de recorrencias concluido. rulesProcessed={}", processed);
     }
 }

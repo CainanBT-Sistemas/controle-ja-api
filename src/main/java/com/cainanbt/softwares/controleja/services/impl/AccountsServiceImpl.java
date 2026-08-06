@@ -16,7 +16,6 @@ import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,7 +26,6 @@ import java.util.UUID;
 
 @RequiredArgsConstructor
 @Service
-@Slf4j
 public class AccountsServiceImpl implements AccountsService {
 
     private static final String DEFAULT_CURRENCY = "BRL";
@@ -67,9 +65,7 @@ public class AccountsServiceImpl implements AccountsService {
                 .isDefault(dto.getIsDefault() != null ? dto.getIsDefault() : false)
                 .build();
 
-        Accounts savedAccount = repository.save(newAccount);
-        log.info("Account created: accountId={}, userId={}, type={}", savedAccount.getId(), user.getId(), savedAccount.getType());
-        return savedAccount;
+        return repository.save(newAccount);
     }
 
     /**
@@ -129,9 +125,7 @@ public class AccountsServiceImpl implements AccountsService {
         if (dto.getCalculateBalance() != null) account.setCalculateBalance(dto.getCalculateBalance());
 
         account.setUpdatedAt(DateUtils.getEpochNow());
-        Accounts savedAccount = repository.save(account);
-        log.info("Account updated: accountId={}, userId={}", savedAccount.getId(), currentUser.getId());
-        return savedAccount;
+        return repository.save(account);
     }
 
     /**
@@ -148,7 +142,6 @@ public class AccountsServiceImpl implements AccountsService {
 
         account.setDeletedAt(DateUtils.getEpochNow());
         repository.save(account);
-        log.info("Account deleted: accountId={}, userId={}", account.getId(), currentUser.getId());
     }
 
     /**

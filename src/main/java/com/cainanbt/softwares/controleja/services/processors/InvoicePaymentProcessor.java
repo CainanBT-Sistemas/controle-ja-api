@@ -23,7 +23,6 @@ import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -31,7 +30,6 @@ import java.util.List;
 
 @Component
 @RequiredArgsConstructor
-@Slf4j
 public class InvoicePaymentProcessor implements TransactionProcessor {
 
     private final InvoiceDateService invoiceDateService = new InvoiceDateService();
@@ -152,7 +150,6 @@ public class InvoicePaymentProcessor implements TransactionProcessor {
 
                 invoiceToPay.setTransaction(paymentOut);
                 invoicesService.save(invoiceToPay);
-                log.info("Invoice payment transaction processed: invoiceId={}, transactionId={}, amount={}", invoiceToPay.getId(), paymentOut.getId(), dto.getAmount());
             }
         }
         return paymentOut;

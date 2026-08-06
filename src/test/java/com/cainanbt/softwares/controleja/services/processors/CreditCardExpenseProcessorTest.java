@@ -4,6 +4,7 @@ import com.cainanbt.softwares.controleja.dtos.TransactionDTO;
 import com.cainanbt.softwares.controleja.entities.Accounts;
 import com.cainanbt.softwares.controleja.entities.Category;
 import com.cainanbt.softwares.controleja.entities.CreditCard;
+import com.cainanbt.softwares.controleja.entities.InstallmentPlan;
 import com.cainanbt.softwares.controleja.entities.Invoices;
 import com.cainanbt.softwares.controleja.entities.Transactions;
 import com.cainanbt.softwares.controleja.entities.Users;
@@ -24,6 +25,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -31,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -143,5 +147,65 @@ class CreditCardExpenseProcessorTest {
         ArgumentCaptor<Transactions> transactionCaptor = ArgumentCaptor.forClass(Transactions.class);
         verify(repository).save(transactionCaptor.capture());
         assertEquals(false, transactionCaptor.getValue().getPaid());
+    }
+
+    @Test
+    void process_whenCreatingInvoice_shouldPersistCanonicalDueDateAtStartOfDay() {
+        TransactionDTO dto = new TransactionDTO();
+        dto.setName("Compra setembro");
+        dto.setDescription("Teste timezone");
+        dto.setType(TransactionType.DESPESA);
+        dto.setAmount(new BigDecimal("300.00"));
+        dto.setDate(DateUtils.localDateToEpoch(LocalDate.of(2026, 8, 20)));
+        dto.setPaid(false);
+        dto.setInstallments(1);
+
+        CreditCard card = CreditCard.builder()
+                .id(UUID.randomUUID())
+                .name("Card")
+                .currentLimit(new BigDecimal("1000.00"))
+                .totalLimit(new BigDecimal("1000.00"))
+                .closeDay(25)
+                .bestDay(10)
+                .accounts(cardAccount)
+                .user(user)
+                .build();
+
+        when(creditCardService.findByAccountId(cardAccount.getId())).thenReturn(card);
+        when(helper.createBaseTransactionBuilder(dto, cardAccount, category, user)).thenReturn(Transactions.builder()
+                .id(UUID.randomUUID())
+                .name(dto.getName())
+                .description(dto.getDescription())
+                .type(dto.getType())
+                .amount(dto.getAmount())
+                .date(dto.getDate())
+                .paid(dto.getPaid())
+                .fixed(false)
+                .enabled(true)
+                .account(cardAccount)
+                .category(category)
+                .user(user)
+                .createdAt(DateUtils.getEpochNow()));
+        when(repository.save(any(Transactions.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(helper.calculateInvoiceDate(any(), anyInt(), anyInt()))
+                .thenReturn(LocalDateTime.of(2026, 9, 10, 0, 0));
+        when(invoicesService.findByCreditCardIdAndMonthAndYear(card.getId(), 9, 2026))
+                .thenReturn(Optional.empty());
+        when(invoicesService.save(any(Invoices.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        processor.process(dto, cardAccount, category, user);
+
+        ArgumentCaptor<Invoices> invoiceCaptor = ArgumentCaptor.forClass(Invoices.class);
+        verify(invoicesService, times(2)).save(invoiceCaptor.capture());
+        Invoices invoice = invoiceCaptor.getAllValues().get(0);
+
+        assertEquals(9, invoice.getMonth());
+        assertEquals(2026, invoice.getYear());
+        assertEquals(LocalDate.of(2026, 9, 10), DateUtils.epochToLocalDate(invoice.getExpirationDate()));
+        assertEquals(LocalDateTime.of(2026, 9, 10, 0, 0), DateUtils.epochToLocalDateTime(invoice.getExpirationDate()));
+
+        ArgumentCaptor<InstallmentPlan> installmentCaptor = ArgumentCaptor.forClass(InstallmentPlan.class);
+        verify(installmentPlanService).save(installmentCaptor.capture());
+        assertEquals(invoice.getExpirationDate(), installmentCaptor.getValue().getDate());
     }
 }

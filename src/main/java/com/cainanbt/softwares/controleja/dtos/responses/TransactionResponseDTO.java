@@ -28,6 +28,9 @@ public class TransactionResponseDTO {
     private UUID accountId;
     private String accountName;
     private UUID parentTransactionId;
+    private UUID installmentSeriesId;
+    private BigDecimal installmentSeriesTotalAmount;
+    private Integer paidInstallments;
     private Double efficiency;
     private String vehicleName;
     private UUID vehicleId;

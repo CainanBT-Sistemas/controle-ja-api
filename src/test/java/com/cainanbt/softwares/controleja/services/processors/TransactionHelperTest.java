@@ -11,6 +11,7 @@ import com.cainanbt.softwares.controleja.enums.TransactionType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.services.AccountsService;
 import com.cainanbt.softwares.controleja.services.RecurrenceRuleService;
+import com.cainanbt.softwares.controleja.utils.DateUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -18,6 +19,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -156,6 +159,54 @@ class TransactionHelperTest {
                 .build();
 
         assertEquals(RecurrenceFrequency.BIWEEKLY, legacyRule.getFrequency());
+    }
+
+    @Test
+    void calculateInvoiceDate_shouldReturnStartOfDueDayWithoutTimezoneD1() {
+        LocalDateTime dueDate = helper.calculateInvoiceDate(
+                LocalDateTime.of(2026, 8, 25, 12, 30),
+                25,
+                10
+        );
+
+        assertEquals(LocalDateTime.of(2026, 9, 10, 0, 0), dueDate);
+        assertEquals(LocalDate.of(2026, 9, 10), DateUtils.epochToLocalDate(DateUtils.localDateTimeToEpoch(dueDate)));
+    }
+
+    @Test
+    void calculateInvoiceDate_shouldReturnNinthDayWithoutTimezoneD1() {
+        LocalDateTime dueDate = helper.calculateInvoiceDate(
+                LocalDateTime.of(2026, 8, 25, 12, 30),
+                25,
+                9
+        );
+
+        assertEquals(LocalDateTime.of(2026, 9, 9, 0, 0), dueDate);
+        assertEquals(LocalDate.of(2026, 9, 9), DateUtils.epochToLocalDate(DateUtils.localDateTimeToEpoch(dueDate)));
+    }
+
+    @Test
+    void calculateInvoiceDate_shouldKeepWeekendBusinessDayAdjustmentWithoutExtraD1() {
+        LocalDateTime dueDate = helper.calculateInvoiceDate(
+                LocalDateTime.of(2026, 8, 25, 12, 30),
+                25,
+                12
+        );
+
+        assertEquals(LocalDateTime.of(2026, 9, 14, 0, 0), dueDate);
+        assertEquals(LocalDate.of(2026, 9, 14), DateUtils.epochToLocalDate(DateUtils.localDateTimeToEpoch(dueDate)));
+    }
+
+    @Test
+    void calculateInvoiceDate_shouldNotMoveLastDayOfMonthToNextMonthByTime() {
+        LocalDateTime dueDate = helper.calculateInvoiceDate(
+                LocalDateTime.of(2026, 8, 25, 12, 30),
+                25,
+                30
+        );
+
+        assertEquals(LocalDateTime.of(2026, 9, 30, 0, 0), dueDate);
+        assertEquals(LocalDate.of(2026, 9, 30), DateUtils.epochToLocalDate(DateUtils.localDateTimeToEpoch(dueDate)));
     }
 
     private TransactionDTO recurrenceDto(RecurrenceFrequency frequency) {

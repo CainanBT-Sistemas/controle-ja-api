@@ -15,7 +15,6 @@ import com.cainanbt.softwares.controleja.services.vehicles.VehicleTransactionRul
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -32,7 +31,6 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class VehicleDashboardServiceImpl implements VehicleDashboardService {
     private static final double MAX_REFUEL_LITERS_WITHOUT_TANK_CAPACITY = 200.0;
     private static final double TANK_CAPACITY_TOLERANCE_FACTOR = 1.5;
