@@ -1540,6 +1540,7 @@ public class TransactionServiceImpl implements TransactionService {
             }
         }
         if (purchase != null) {
+            response.setParentTransactionId(purchase.getId());
             if (purchase.getCategory() != null) {
                 response.setCategoryId(purchase.getCategory().getId());
                 response.setCategoryName(purchase.getCategory().getName());
