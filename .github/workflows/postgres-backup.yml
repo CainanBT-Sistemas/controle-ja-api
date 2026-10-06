@@ -40,12 +40,40 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           sudo apt-get update
+
           sudo apt-get install --yes --no-install-recommends \
-            postgresql-client-18 \
+            ca-certificates \
+            curl \
             age \
             rclone
 
+          sudo install -d -m 0755 \
+            /usr/share/postgresql-common/pgdg
+
+          sudo curl \
+            --fail \
+            --silent \
+            --show-error \
+            --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+
+          source /etc/os-release
+
+          printf '%s\n' \
+            "Types: deb" \
+            "URIs: https://apt.postgresql.org/pub/repos/apt" \
+            "Suites: ${VERSION_CODENAME}-pgdg" \
+            "Components: main" \
+            "Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.sources >/dev/null
+
+          sudo apt-get update
+
+          sudo apt-get install --yes --no-install-recommends \
+            postgresql-client-18
+
           echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
+
           /usr/lib/postgresql/18/bin/pg_dump --version
           /usr/lib/postgresql/18/bin/pg_restore --version
 
@@ -76,12 +104,13 @@ jobs:
           script: |
             const title = "[OPS-004] Backup automatizado falhou";
 
-            const { data: issues } = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: "open",
-              per_page: 100
-            });
+            const { data: issues } =
+              await github.rest.issues.listForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: "open",
+                per_page: 100
+              });
 
             if (issues.some((issue) => issue.title === title)) {
               core.notice(
@@ -97,9 +126,7 @@ jobs:
               body: [
                 "O backup PostgreSQL da OPS-004 falhou.",
                 "",
-                "Verifique a execucao do workflow sem copiar secrets",
-                "ou dados sensiveis para esta issue.",
-                "",
+                "Verifique a execucao do workflow sem copiar secrets ou dados sensiveis para esta issue.",
                 `Execucao: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
               ].join("\n")
             });
