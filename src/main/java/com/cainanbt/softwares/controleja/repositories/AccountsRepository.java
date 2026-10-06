@@ -15,7 +15,7 @@ public interface AccountsRepository extends JpaRepository<Accounts, UUID> {
     /**
      * Lista as contas financeiras do usuário que aparecem nas telas de saldo e lançamento.
      */
-    @Query("SELECT a FROM Accounts a WHERE a.user.id = :userId AND a.deletedAt IS NULL AND a.type <> com.cainanbt.softwares.controleja.enums.AccountType.CREDIT_CARD")
+    @Query("SELECT a FROM Accounts a WHERE a.user.id = :userId AND a.deletedAt IS NULL AND a.type <> com.cainanbt.softwares.controleja.enums.AccountType.CREDIT_CARD ORDER BY a.createdAt DESC")
     List<Accounts> findByUserId(UUID userId);
 
     /**

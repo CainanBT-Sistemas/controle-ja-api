@@ -82,14 +82,12 @@ public interface InstallmentPlanRepository extends JpaRepository<InstallmentPlan
     /**
      * Busca parcelas de cartão que representam custo mensal de veículo pela compra pai.
      */
-    @Query("SELECT i FROM InstallmentPlan i, Transactions t LEFT JOIN t.category.subCategory parentCategory " +
+    @Query("SELECT i FROM InstallmentPlan i, Transactions t " +
             "WHERE i.purchaseId = t.id " +
             "AND i.user.id = :userId " +
             "AND t.vehicle IS NOT NULL " +
             "AND i.date BETWEEN :start AND :end " +
-            "AND i.deletedAt IS NULL AND t.deletedAt IS NULL " +
-            "AND (LOWER(t.category.name) IN ('veículo', 'veículos') " +
-            "OR LOWER(parentCategory.name) IN ('veículo', 'veículos'))")
+            "AND i.deletedAt IS NULL AND t.deletedAt IS NULL")
     List<InstallmentPlan> findVehicleInstallmentsByUserAndDateBetween(@Param("userId") UUID userId, @Param("start") Long start, @Param("end") Long end);
 
     /**
