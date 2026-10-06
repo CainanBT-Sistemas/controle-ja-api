@@ -658,12 +658,14 @@ public class TransactionServiceImpl implements TransactionService {
         int referenceInstallment = reference != null
                 ? reference.getCurrentInstallment()
                 : activeInstallments.get(0).getCurrentInstallment();
+        boolean amountChangeRequested = dto.getAmount() != null
+                && (reference == null || dto.getAmount().compareTo(reference.getAmount()) != 0);
 
         for (InstallmentPlan inst : scopedInstallments) {
             BigDecimal oldAmount = inst.getAmount();
             boolean changed = false;
 
-            if (dto.getAmount() != null && dto.getAmount().compareTo(oldAmount) != 0) {
+            if (amountChangeRequested && dto.getAmount().compareTo(oldAmount) != 0) {
                 inst.setAmount(dto.getAmount());
                 changed = true;
 
@@ -705,7 +707,7 @@ public class TransactionServiceImpl implements TransactionService {
             if (purchase.getUser() == null || !purchase.getUser().getId().equals(currentUser.getId())) {
                 throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_TRANSACTION);
             }
-            if (!installmentsToUpdate.isEmpty() && dto.getAmount() != null) {
+            if (!installmentsToUpdate.isEmpty() && amountChangeRequested) {
                 BigDecimal activeTotal = installments.stream()
                         .filter(inst -> inst.getDeletedAt() == null)
                         .map(InstallmentPlan::getAmount)
@@ -733,7 +735,7 @@ public class TransactionServiceImpl implements TransactionService {
                 purchase.setUpdatedAt(dateNow);
                 purchase = repository.save(purchase);
             }
-            if (!installmentsToUpdate.isEmpty() && dto.getAmount() != null && purchase.getCreditCard() != null) {
+            if (!installmentsToUpdate.isEmpty() && amountChangeRequested && purchase.getCreditCard() != null) {
                 BigDecimal activeTotal = installments.stream()
                         .filter(inst -> inst.getDeletedAt() == null)
                         .map(InstallmentPlan::getAmount)

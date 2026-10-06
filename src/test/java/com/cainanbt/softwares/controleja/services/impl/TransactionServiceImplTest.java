@@ -154,6 +154,54 @@ class TransactionServiceImplTest {
     }
 
     @Test
+    void updateTransactionDTO_whenOnlyNameChanges_doesNotRecalculateInstallmentsOrConsumeLimit() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            UUID purchaseId = UUID.randomUUID();
+            CreditCard card = CreditCard.builder()
+                    .id(UUID.randomUUID())
+                    .totalLimit(new BigDecimal("100.00"))
+                    .currentLimit(new BigDecimal("0.01"))
+                    .user(currentUser)
+                    .build();
+            Invoices firstInvoice = invoice(false, "33.34", card, 5, 2026);
+            Invoices secondInvoice = invoice(false, "33.33", card, 6, 2026);
+            Invoices thirdInvoice = invoice(false, "33.33", card, 7, 2026);
+            InstallmentPlan first = installment(purchaseId, firstInvoice, 1, 3, "33.34", false);
+            InstallmentPlan second = installment(purchaseId, secondInvoice, 2, 3, "33.33", false);
+            InstallmentPlan third = installment(purchaseId, thirdInvoice, 3, 3, "33.33", false);
+            Transactions purchase = Transactions.builder()
+                    .id(purchaseId)
+                    .name("Compra original")
+                    .type(TransactionType.DESPESA)
+                    .amount(new BigDecimal("100.00"))
+                    .creditCard(card)
+                    .user(currentUser)
+                    .build();
+
+            TransactionDTO dto = new TransactionDTO();
+            dto.setName("Compra renomeada");
+            dto.setAmount(new BigDecimal("33.34"));
+
+            when(invoicesService.findById(first.getId())).thenReturn(Optional.empty());
+            when(installmentPlanService.findById(first.getId())).thenReturn(Optional.of(first));
+            when(repository.findById(purchaseId)).thenReturn(Optional.of(purchase));
+            when(installmentPlanService.findByPurchaseId(purchaseId)).thenReturn(List.of(first, second, third));
+            when(repository.save(purchase)).thenReturn(purchase);
+
+            service.updateTransactionDTO(first.getId(), dto, OperationScope.ALL);
+
+            assertEquals(new BigDecimal("33.34"), first.getAmount());
+            assertEquals(new BigDecimal("33.33"), second.getAmount());
+            assertEquals(new BigDecimal("33.33"), third.getAmount());
+            assertEquals(new BigDecimal("100.00"), purchase.getAmount());
+            assertEquals(new BigDecimal("0.01"), card.getCurrentLimit());
+            verify(creditCardService, never()).updateLimit(any());
+        }
+    }
+
+    @Test
     void updateTransactionDTO_fromThisForwardUpdatesRecurringPurchasesAndIgnoresUnchangedInstallmentCount() {
         try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
             mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
@@ -519,6 +567,131 @@ class TransactionServiceImplTest {
             assertEquals(new BigDecimal("70.00"), purchase.getAmount());
             assertEquals(new BigDecimal("430.00"), card.getCurrentLimit());
             verify(creditCardService).updateLimit(card);
+        }
+    }
+
+    @Test
+    void updateTransactionDTO_whenCreditCardPurchaseAmountIncreases_shouldConsumeOnlyDifference() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            UUID purchaseId = UUID.randomUUID();
+            CreditCard card = CreditCard.builder()
+                    .id(UUID.randomUUID())
+                    .currentLimit(new BigDecimal("50.00"))
+                    .totalLimit(new BigDecimal("500.00"))
+                    .build();
+            Invoices openInvoice = invoice(false, "100.00", card, 5, 2026);
+            InstallmentPlan installment = installment(purchaseId, openInvoice, 1, "100.00", false);
+            Transactions purchase = Transactions.builder()
+                    .id(purchaseId)
+                    .name("Compra")
+                    .type(TransactionType.DESPESA)
+                    .amount(new BigDecimal("100.00"))
+                    .creditCard(card)
+                    .user(currentUser)
+                    .build();
+            TransactionDTO dto = new TransactionDTO();
+            dto.setAmount(new BigDecimal("120.00"));
+
+            when(invoicesService.findById(installment.getId())).thenReturn(Optional.empty());
+            when(installmentPlanService.findById(installment.getId())).thenReturn(Optional.of(installment));
+            when(repository.findById(purchaseId)).thenReturn(Optional.of(purchase));
+            when(installmentPlanService.findByPurchaseId(purchaseId)).thenReturn(List.of(installment));
+            when(repository.save(purchase)).thenReturn(purchase);
+
+            service.updateTransactionDTO(installment.getId(), dto, OperationScope.ONLY_THIS);
+
+            assertEquals(new BigDecimal("120.00"), openInvoice.getAmount());
+            assertEquals(new BigDecimal("120.00"), purchase.getAmount());
+            assertEquals(new BigDecimal("30.00"), card.getCurrentLimit());
+            verify(creditCardService).updateLimit(card);
+        }
+    }
+
+    @Test
+    void updateTransactionDTO_whenAllCreditCardInstallmentAmountsChange_shouldAdjustTotalAndLimit() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            UUID purchaseId = UUID.randomUUID();
+            CreditCard card = CreditCard.builder()
+                    .id(UUID.randomUUID())
+                    .currentLimit(new BigDecimal("100.00"))
+                    .totalLimit(new BigDecimal("500.00"))
+                    .build();
+            Invoices firstInvoice = invoice(false, "100.00", card, 5, 2026);
+            Invoices secondInvoice = invoice(false, "100.00", card, 6, 2026);
+            Invoices thirdInvoice = invoice(false, "100.00", card, 7, 2026);
+            InstallmentPlan first = installment(purchaseId, firstInvoice, 1, 3, "100.00", false);
+            InstallmentPlan second = installment(purchaseId, secondInvoice, 2, 3, "100.00", false);
+            InstallmentPlan third = installment(purchaseId, thirdInvoice, 3, 3, "100.00", false);
+            Transactions purchase = Transactions.builder()
+                    .id(purchaseId)
+                    .name("Compra")
+                    .type(TransactionType.DESPESA)
+                    .amount(new BigDecimal("300.00"))
+                    .creditCard(card)
+                    .user(currentUser)
+                    .build();
+            TransactionDTO dto = new TransactionDTO();
+            dto.setAmount(new BigDecimal("120.00"));
+
+            when(invoicesService.findById(first.getId())).thenReturn(Optional.empty());
+            when(installmentPlanService.findById(first.getId())).thenReturn(Optional.of(first));
+            when(repository.findById(purchaseId)).thenReturn(Optional.of(purchase));
+            when(installmentPlanService.findByPurchaseId(purchaseId)).thenReturn(List.of(first, second, third));
+            when(repository.save(purchase)).thenReturn(purchase);
+
+            service.updateTransactionDTO(first.getId(), dto, OperationScope.ALL);
+
+            assertEquals(new BigDecimal("120.00"), first.getAmount());
+            assertEquals(new BigDecimal("120.00"), second.getAmount());
+            assertEquals(new BigDecimal("120.00"), third.getAmount());
+            assertEquals(new BigDecimal("360.00"), purchase.getAmount());
+            assertEquals(new BigDecimal("40.00"), card.getCurrentLimit());
+            verify(creditCardService).updateLimit(card);
+        }
+    }
+
+    @Test
+    void updateTransactionDTO_whenCreditCardPurchaseAmountExceedsAvailableLimit_shouldThrow() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            UUID purchaseId = UUID.randomUUID();
+            CreditCard card = CreditCard.builder()
+                    .id(UUID.randomUUID())
+                    .currentLimit(new BigDecimal("50.00"))
+                    .totalLimit(new BigDecimal("500.00"))
+                    .build();
+            Invoices openInvoice = invoice(false, "100.00", card, 5, 2026);
+            InstallmentPlan installment = installment(purchaseId, openInvoice, 1, "100.00", false);
+            Transactions purchase = Transactions.builder()
+                    .id(purchaseId)
+                    .name("Compra")
+                    .type(TransactionType.DESPESA)
+                    .amount(new BigDecimal("100.00"))
+                    .creditCard(card)
+                    .user(currentUser)
+                    .build();
+            TransactionDTO dto = new TransactionDTO();
+            dto.setAmount(new BigDecimal("160.00"));
+
+            when(invoicesService.findById(installment.getId())).thenReturn(Optional.empty());
+            when(installmentPlanService.findById(installment.getId())).thenReturn(Optional.of(installment));
+            when(repository.findById(purchaseId)).thenReturn(Optional.of(purchase));
+            when(installmentPlanService.findByPurchaseId(purchaseId)).thenReturn(List.of(installment));
+            when(repository.save(purchase)).thenReturn(purchase);
+
+            BadRequestException exception = assertThrows(
+                    BadRequestException.class,
+                    () -> service.updateTransactionDTO(installment.getId(), dto, OperationScope.ONLY_THIS)
+            );
+
+            assertEquals("Limite insuficiente.", exception.getDetail());
+            assertEquals(new BigDecimal("50.00"), card.getCurrentLimit());
+            verify(creditCardService, never()).updateLimit(any());
         }
     }
 
