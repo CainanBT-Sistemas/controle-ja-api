@@ -5,8 +5,10 @@ on:
     branches:
       - dev
       - main
+
   schedule:
     - cron: "0 6 * * *"
+
   workflow_dispatch:
     inputs:
       retention_dry_run:
@@ -33,12 +35,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install PostgreSQL client, age and rclone
+      - name: Install PostgreSQL 18 client, age and rclone
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends postgresql-client-16 age rclone
+          sudo apt-get install --yes --no-install-recommends \
+            postgresql-client-18 \
+            age \
+            rclone
+
+          echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
+          /usr/lib/postgresql/18/bin/pg_dump --version
+          /usr/lib/postgresql/18/bin/pg_restore --version
 
       - name: Create, validate, encrypt and upload backup
         env:
@@ -56,6 +65,7 @@ jobs:
     if: ${{ always() && needs.backup.result == 'failure' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+
     permissions:
       issues: write
 
@@ -65,6 +75,7 @@ jobs:
         with:
           script: |
             const title = "[OPS-004] Backup automatizado falhou";
+
             const { data: issues } = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -73,7 +84,9 @@ jobs:
             });
 
             if (issues.some((issue) => issue.title === title)) {
-              core.notice("Ja existe uma issue aberta para a falha de backup.");
+              core.notice(
+                "Ja existe uma issue aberta para a falha de backup."
+              );
               return;
             }
 
@@ -84,7 +97,9 @@ jobs:
               body: [
                 "O backup PostgreSQL da OPS-004 falhou.",
                 "",
-                "Verifique a execucao do workflow sem copiar secrets ou dados sensiveis para esta issue.",
+                "Verifique a execucao do workflow sem copiar secrets",
+                "ou dados sensiveis para esta issue.",
+                "",
                 `Execucao: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
               ].join("\n")
             });
