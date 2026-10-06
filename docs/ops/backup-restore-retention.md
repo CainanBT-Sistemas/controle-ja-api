@@ -27,12 +27,25 @@ processo:
 O workflow não usa GitHub Artifact ou cache para armazenar backups. Falhas abrem uma issue operacional genérica, sem
 copiar logs ou secrets.
 
-O agendamento do GitHub Actions só passa a executar depois que o workflow estiver na branch padrão do repositório. Antes
-do merge, selecione explicitamente a branch correta na execução manual.
+O workflow aceita `push` em `dev` e `main`, mas o job só executa na branch definida pela variável de repositório
+`BACKUP_ACTIVE_BRANCH`. Quando a variável não está configurada, o valor padrão é `dev`, que representa o ambiente de
+homologação atual. Ao publicar o ambiente de produção, altere a variável para `main`; não é necessário modificar o YAML.
+
+O agendamento do GitHub Actions só é disparado a partir da branch padrão do repositório. Portanto, enquanto `main` for a
+branch padrão e o workflow existir somente em `dev`, os backups de homologação ocorrerão após pushes/merges em `dev`.
+Quando o workflow estiver em `main` e `BACKUP_ACTIVE_BRANCH=main`, o agendamento diário e os pushes em `main` executarão
+o backup de produção.
 
 ## Secrets do GitHub
 
 Configure em `Settings > Secrets and variables > Actions`:
+
+Variável de repositório:
+
+- `BACKUP_ACTIVE_BRANCH`: use `dev` em homologação e altere para `main` na entrada em produção. Se ausente, assume
+  `dev`.
+
+Secrets:
 
 - `RAILWAY_DB_URL`: conexão pública do PostgreSQL usada exclusivamente pelo job;
 - `AGE_PUBLIC_KEY`: chave pública de criptografia;
