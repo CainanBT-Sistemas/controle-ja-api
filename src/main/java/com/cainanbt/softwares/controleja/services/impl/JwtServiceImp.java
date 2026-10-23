@@ -51,7 +51,13 @@ public class JwtServiceImp implements JwtService {
     @Override
     public boolean validateToken(String token, UserAuthenticateDTO userAuthenticate) {
         final String username = extractUsername(token);
-        return (username.equals(userAuthenticate.getUsername()) && !isTokenExpired(token));
+        Long tokenSessionVersion = extractAllClaims(token).get("sessionVersion", Long.class);
+        long currentSessionVersion = userAuthenticate.getUsers().getSessionVersion() == null
+                ? 0L
+                : userAuthenticate.getUsers().getSessionVersion();
+        return username.equals(userAuthenticate.getUsername())
+                && !isTokenExpired(token)
+                && (tokenSessionVersion == null ? 0L : tokenSessionVersion) == currentSessionVersion;
     }
 
     @Override
@@ -126,6 +132,9 @@ public class JwtServiceImp implements JwtService {
                 .signWith(secret, SignatureAlgorithm.HS256)
                 .claim("id", userAuthenticate.getUsers().getId())
                 .claim("username", userAuthenticate.getUsername())
+                .claim("sessionVersion", userAuthenticate.getUsers().getSessionVersion() == null
+                        ? 0L
+                        : userAuthenticate.getUsers().getSessionVersion())
                 .compact();
     }
 

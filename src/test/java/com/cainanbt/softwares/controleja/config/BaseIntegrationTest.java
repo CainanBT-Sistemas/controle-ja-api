@@ -38,5 +38,10 @@ public abstract class BaseIntegrationTest {
                 "app.config.jwt.secret",
                 () -> "integration-test-jwt-secret-that-is-long-enough"
         );
+        registry.add("app.config.account-action.pepper", () -> "integration-test-account-action-pepper");
+        registry.add("app.config.account-action.cooldown-seconds", () -> "0");
+        registry.add("app.config.account-action.ip-max-requests", () -> "1000");
+        registry.add("app.config.account-action.email-enabled", () -> "true");
+        registry.add("app.config.account-action.sender", () -> "no-reply@controleja.test");
     }
 }

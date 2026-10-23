@@ -3,6 +3,7 @@ package com.cainanbt.softwares.controleja.services.impl;
 import com.cainanbt.softwares.controleja.dtos.GoogleIdentityDTO;
 import com.cainanbt.softwares.controleja.dtos.GoogleLoginDTO;
 import com.cainanbt.softwares.controleja.dtos.InsertUpdateUserDTO;
+import com.cainanbt.softwares.controleja.dtos.UserLoginDTO;
 import com.cainanbt.softwares.controleja.dtos.UserUpdateTokenDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.UserResponseDTO;
 import com.cainanbt.softwares.controleja.entities.Users;
@@ -84,6 +85,51 @@ class AuthServiceImpTest {
         lenient().when(jwtService.getRefreshExpiration()).thenReturn(123456L);
         lenient().when(usersService.updateTokens(any())).thenAnswer(invocation -> userWithGoogleIdentity());
         lenient().when(entitlementService.buildForUser(any())).thenReturn(null);
+        lenient().when(usersService.getAnyUserByEmail(anyString())).thenReturn(Optional.empty());
+    }
+
+    @Test
+    void shouldGuideDeletedPasswordUserToAccountRecoveryWhenPasswordMatches() {
+        Users deletedUser = userWithoutGoogleIdentity();
+        deletedUser.setDeletedAt(DateUtils.getEpochNow());
+        when(usersService.getAnyUserByEmail("google@test.com")).thenReturn(Optional.of(deletedUser));
+        when(passwordEncoder.matches("123456", "encoded-password")).thenReturn(true);
+
+        UserLoginDTO login = UserLoginDTO.builder()
+                .email("google@test.com")
+                .password("123456")
+                .build();
+
+        BadRequestException ex = assertThrows(
+                BadRequestException.class,
+                () -> authService.login(login, request)
+        );
+
+        assertEquals(ConstsMessages.ACCOUNT_DELETED_TITLE, ex.getTitle());
+        assertEquals(ConstsMessages.ACCOUNT_DELETED, ex.getDetail());
+        verify(authenticationManager, never()).authenticate(any());
+        verify(jwtService, never()).generateAccessToken(any());
+    }
+
+    @Test
+    void shouldNotRevealDeletedPasswordAccountWhenPasswordDoesNotMatch() {
+        Users deletedUser = userWithoutGoogleIdentity();
+        deletedUser.setDeletedAt(DateUtils.getEpochNow());
+        when(usersService.getAnyUserByEmail("google@test.com")).thenReturn(Optional.of(deletedUser));
+        when(passwordEncoder.matches("wrong-password", "encoded-password")).thenReturn(false);
+
+        UserLoginDTO login = UserLoginDTO.builder()
+                .email("google@test.com")
+                .password("wrong-password")
+                .build();
+
+        BadRequestException ex = assertThrows(
+                BadRequestException.class,
+                () -> authService.login(login, request)
+        );
+
+        assertEquals(ConstsMessages.WRONG_LOGIN_CREDENTIALS, ex.getDetail());
+        verify(authenticationManager, never()).authenticate(any());
     }
 
     @Test
@@ -152,6 +198,26 @@ class AuthServiceImpTest {
 
         assertEquals(ConstsMessages.GOOGLE_EMAIL_CONFLICT, ex.getDetail());
         verify(jwtService, never()).generateAccessToken(any());
+    }
+
+    @Test
+    void shouldNotCreateDuplicateGoogleUserWhenEmailBelongsToDeletedAccount() {
+        Users deletedUser = userWithGoogleIdentity();
+        deletedUser.setDeletedAt(DateUtils.getEpochNow());
+        when(googleIdTokenValidator.validate("valid-id-token")).thenReturn(GOOGLE_IDENTITY);
+        when(usersService.getAnyUserByEmail("google@test.com")).thenReturn(Optional.of(deletedUser));
+
+        BadRequestException ex = assertThrows(
+                BadRequestException.class,
+                () -> authService.loginGoogle(
+                        request("google@test.com", "google-subject", "valid-id-token"),
+                        request
+                )
+        );
+
+        assertEquals(ConstsMessages.ACCOUNT_DELETED_TITLE, ex.getTitle());
+        assertEquals(ConstsMessages.ACCOUNT_DELETED, ex.getDetail());
+        verify(usersService, never()).createNewUser(any(), any());
     }
 
     @Test

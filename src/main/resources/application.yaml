@@ -21,6 +21,18 @@ spring:
     baseline-on-migrate: false
     locations: classpath:db/migration
 
+  mail:
+    host: ${SMTP_HOST:localhost}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: ${SMTP_AUTH:true}
+          starttls:
+            enable: ${SMTP_STARTTLS:true}
+
   security:
     oauth2:
       client:
@@ -52,6 +64,16 @@ app:
       issue: controle_ja_api
     closed-test:
       enabled: ${CLOSED_TEST_ENABLED:false}
+    account-action:
+      pepper: ${ACCOUNT_ACTION_TOKEN_PEPPER:}
+      expiry-minutes: ${ACCOUNT_ACTION_EXPIRY_MINUTES:15}
+      max-attempts: ${ACCOUNT_ACTION_MAX_ATTEMPTS:5}
+      cooldown-seconds: ${ACCOUNT_ACTION_COOLDOWN_SECONDS:60}
+      ip-window-minutes: ${ACCOUNT_ACTION_IP_WINDOW_MINUTES:15}
+      ip-max-requests: ${ACCOUNT_ACTION_IP_MAX_REQUESTS:10}
+      reactivation-days: ${ACCOUNT_REACTIVATION_DAYS:60}
+      email-enabled: ${ACCOUNT_ACTION_EMAIL_ENABLED:false}
+      sender: ${ACCOUNT_ACTION_EMAIL_SENDER:}
 
 springdoc:
   api-docs:

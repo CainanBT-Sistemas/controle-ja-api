@@ -56,7 +56,8 @@ class FlywayBaselineIntegrationTest {
             "transactions",
             "invoicess",
             "installment_plan",
-            "closed_test_testers"
+            "closed_test_testers",
+            "account_action_tokens"
     );
 
     private static final Map<String, Set<String>> EXPECTED_COLUMNS = expectedColumns();
@@ -88,7 +89,8 @@ class FlywayBaselineIntegrationTest {
             "fk_transactions_target_invoice",
             "fk_installment_plan_invoice",
             "fk_installment_plan_user",
-            "fk_installment_advanced_from_invoice"
+            "fk_installment_advanced_from_invoice",
+            "fk_account_action_tokens_user"
     );
 
     private static final Set<String> EXPECTED_INDEXES = Set.of(
@@ -126,7 +128,9 @@ class FlywayBaselineIntegrationTest {
             "idx_installments_user_date_deleted",
             "idx_installments_invoice_paid_amount",
             "idx_installments_advance_operation",
-            "idx_closed_test_testers_normalized_enabled"
+            "idx_closed_test_testers_normalized_enabled",
+            "idx_account_action_email_purpose_created",
+            "idx_account_action_ip_created"
     );
 
     @BeforeAll
@@ -240,13 +244,13 @@ class FlywayBaselineIntegrationTest {
     private void assertMigrationAppliedSuccessfully(Flyway flyway, JdbcTemplate jdbc) {
         MigrationInfo current = flyway.info().current();
         assertNotNull(current);
-        assertEquals("4", current.getVersion().getVersion());
+        assertEquals("5", current.getVersion().getVersion());
         assertEquals(MigrationState.SUCCESS, current.getState());
         assertEquals(
-                4,
+                5,
                 jdbc.queryForObject(
                         "SELECT COUNT(*) FROM flyway_schema_history "
-                                + "WHERE version IN ('1', '2', '3', '4') AND success = true",
+                                + "WHERE version IN ('1', '2', '3', '4', '5') AND success = true",
                         Integer.class
                 )
         );
@@ -272,7 +276,8 @@ class FlywayBaselineIntegrationTest {
                         "Transactions",
                         "Invoices",
                         "InstallmentPlan",
-                        "ClosedTestTester"
+                        "ClosedTestTester",
+                        "AccountActionToken"
                 ),
                 entityNames
         );
@@ -467,6 +472,8 @@ class FlywayBaselineIntegrationTest {
                 "credentials_non_expired",
                 "enabled",
                 "oauth2user",
+                "local_password_enabled",
+                "session_version",
                 "created_at",
                 "deleted_at",
                 "refresh_token_expiry",
@@ -481,6 +488,21 @@ class FlywayBaselineIntegrationTest {
                 "refresh_token",
                 "role",
                 "username"
+        ));
+        columns.put("account_action_tokens", Set.of(
+                "attempts",
+                "max_attempts",
+                "consumed_at",
+                "created_at",
+                "expires_at",
+                "invalidated_at",
+                "version",
+                "id",
+                "user_id",
+                "code_digest",
+                "email_hash",
+                "ip_hash",
+                "purpose"
         ));
         columns.put("accounts", Set.of(
                 "calculate_balance",
