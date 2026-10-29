@@ -29,6 +29,9 @@ public class SecurityFilter extends OncePerRequestFilter {
             "/controle_ja_api/v1/auth",
             "/controle_ja_api/v1/auth/google",
             "/controle_ja_api/v1/auth/auto-login",
+            "/controle_ja_api/v1/auth/recovery/request",
+            "/controle_ja_api/v1/auth/password-reset/confirm",
+            "/controle_ja_api/v1/auth/reactivation/confirm",
             "/controle_ja_api/v1/users/register",
             "/controle_ja_api/v1/health",
             "/health",
@@ -69,7 +72,8 @@ public class SecurityFilter extends OncePerRequestFilter {
                         .orElseThrow(() -> new JwtException("User not found or inactive"));
                 UserAuthenticateDTO userAuthenticateDTO = new UserAuthenticateDTO(user);
 
-                if (!isValidUser(userAuthenticateDTO)) {
+                if (!isValidUser(userAuthenticateDTO)
+                        || !tokenService.validateToken(token, userAuthenticateDTO)) {
                     throw new JwtException("User not found or inactive");
                 }
                 closedTestAccessPolicy.requireAccess(user.getEmail());

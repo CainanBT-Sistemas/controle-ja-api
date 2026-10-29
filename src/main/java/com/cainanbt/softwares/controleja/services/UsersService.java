@@ -23,6 +23,8 @@ public interface UsersService extends UserDetailsService {
      */
     Optional<Users> getUserByEmail(String email);
 
+    Optional<Users> getAnyUserByEmail(String email);
+
     /**
      * Persiste o refresh token vigente do usuario autenticado.
      */

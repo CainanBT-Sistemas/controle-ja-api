@@ -26,6 +26,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Locale;
 import java.util.Optional;
 
 @RequiredArgsConstructor
@@ -46,12 +47,28 @@ public class AuthServiceImp implements AuthService {
     @Override
     @Transactional
     public UserResponseDTO login(UserLoginDTO loginAdapter, HttpServletRequest request) {
-        String email = loginAdapter.getEmail().trim().toLowerCase();
-        Optional<Users> userOptional = usersService.getUserByEmail(email);
-        if (userOptional.isEmpty() || !passwordEncoder.matches(loginAdapter.getPassword(), userOptional.get().getPassword())) {
+        String email = loginAdapter.getEmail().trim().toLowerCase(Locale.ROOT);
+        Optional<Users> userOptional = usersService.getAnyUserByEmail(email);
+        if (userOptional.isEmpty()) {
             throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.WRONG_LOGIN_CREDENTIALS);
         }
         Users user = userOptional.get();
+        boolean passwordMatches = passwordEncoder.matches(
+                loginAdapter.getPassword(),
+                user.getPassword()
+        );
+        if (user.getDeletedAt() != null) {
+            if (passwordMatches) {
+                throw new BadRequestException(
+                        ConstsMessages.ACCOUNT_DELETED_TITLE,
+                        ConstsMessages.ACCOUNT_DELETED
+                );
+            }
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.WRONG_LOGIN_CREDENTIALS);
+        }
+        if (!passwordMatches) {
+            throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.WRONG_LOGIN_CREDENTIALS);
+        }
         closedTestAccessPolicy.requireAccess(user.getEmail());
         validateActiveUser(user);
 
@@ -72,6 +89,13 @@ public class AuthServiceImp implements AuthService {
         GoogleIdentityDTO googleIdentity = googleIdTokenValidator.validate(dto.getIdToken());
         String email = googleIdentity.email();
         closedTestAccessPolicy.requireAccess(email);
+        Optional<Users> anyUserByEmail = usersService.getAnyUserByEmail(email);
+        if (anyUserByEmail.isPresent() && anyUserByEmail.get().getDeletedAt() != null) {
+            throw new BadRequestException(
+                    ConstsMessages.ACCOUNT_DELETED_TITLE,
+                    ConstsMessages.ACCOUNT_DELETED
+            );
+        }
         Optional<Users> userByEmail = usersService.getUserByEmail(email);
         if (userByEmail.isPresent()) {
             user = userByEmail.get();
@@ -83,6 +107,7 @@ public class AuthServiceImp implements AuthService {
             newUserDto.setPassword(java.util.UUID.randomUUID().toString());
             user = usersService.createNewUser(newUserDto, request);
             user.setOauth2User(true);
+            user.setLocalPasswordEnabled(false);
             user.setOauth2Provider("GOOGLE");
             user.setOauth2ProviderId(googleIdentity.subject());
         }

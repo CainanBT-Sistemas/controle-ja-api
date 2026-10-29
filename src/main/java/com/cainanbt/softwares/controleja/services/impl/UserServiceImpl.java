@@ -10,6 +10,7 @@ import com.cainanbt.softwares.controleja.enums.RoleEnum;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.repositories.UsersRepository;
 import com.cainanbt.softwares.controleja.services.ClosedTestAccessPolicy;
+import com.cainanbt.softwares.controleja.services.AccountDeletionService;
 import com.cainanbt.softwares.controleja.services.UsersService;
 import com.cainanbt.softwares.controleja.services.users.UserDefaultDataInitializer;
 import com.cainanbt.softwares.controleja.services.users.UserOperationalDataResetter;
@@ -26,6 +27,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -38,6 +40,7 @@ public class UserServiceImpl implements UsersService {
     private final UserDefaultDataInitializer defaultDataInitializer;
     private final UserOperationalDataResetter operationalDataResetter;
     private final ClosedTestAccessPolicy closedTestAccessPolicy;
+    private final AccountDeletionService accountDeletionService;
 
     /**
      * Busca usuario pelo email e id, usada para validacoes que exigem os dois identificadores.
@@ -55,6 +58,12 @@ public class UserServiceImpl implements UsersService {
     @Transactional(readOnly = true)
     public Optional<Users> getUserByEmail(String email) {
         return userRepository.findByEmailIgnoreCase(email);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<Users> getAnyUserByEmail(String email) {
+        return userRepository.findAnyByEmail(email.trim().toLowerCase(Locale.ROOT));
     }
 
     /**
@@ -86,9 +95,9 @@ public class UserServiceImpl implements UsersService {
     @Override
     @Transactional
     public Users createNewUser(InsertUpdateUserDTO userDTO, HttpServletRequest request) {
-        String normalizedEmail = userDTO.getEmail().trim().toLowerCase();
+        String normalizedEmail = userDTO.getEmail().trim().toLowerCase(Locale.ROOT);
         closedTestAccessPolicy.requireAccess(normalizedEmail);
-        if (userRepository.findByEmailIgnoreCase(normalizedEmail).isPresent()) {
+        if (userRepository.findAnyByEmail(normalizedEmail).isPresent()) {
             throw new BadRequestException(ConstsMessages.REGISTRATION_ERROR_TITLE, ConstsMessages.EMAIL_IN_USE);
         }
         try {
@@ -103,6 +112,7 @@ public class UserServiceImpl implements UsersService {
                     .credentialsNonExpired(true)
                     .role(RoleEnum.ROLE_USER.getValue())
                     .oauth2User(false)
+                    .localPasswordEnabled(true)
                     .createdAt(DateUtils.getEpochNow())
                     .build();
 
@@ -175,10 +185,7 @@ public class UserServiceImpl implements UsersService {
         Optional<Users> userOpt = userRepository.findById(id);
         if (userOpt.isPresent()) {
             Users u = userOpt.get();
-            u.setDeletedAt(DateUtils.getEpochNow());
-            u.setEnabled(false);
-            u.setAccountNonLocked(false);
-            u.setRefreshToken(null);
+            accountDeletionService.deactivate(u);
             userRepository.save(u);
             return true;
         }

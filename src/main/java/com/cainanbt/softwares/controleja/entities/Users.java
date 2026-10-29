@@ -53,6 +53,12 @@ public class Users {
     private String role;
     @Column(nullable = false)
     private Boolean oauth2User;
+    @Column(nullable = false)
+    @Builder.Default
+    private Boolean localPasswordEnabled = true;
+    @Column(nullable = false)
+    @Builder.Default
+    private Long sessionVersion = 0L;
     @Column(nullable = true, columnDefinition = "TEXT")
     private String oauth2Provider;
     @Column(nullable = true, columnDefinition = "TEXT")

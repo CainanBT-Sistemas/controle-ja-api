@@ -4,6 +4,7 @@ public class ConstsMessages {
     // --- TÍTULOS PADRÕES (Para usar no Front-end) ---
     public static final String ERROR_TITLE = "Erro";
     public static final String ACCESS_DENIED_TITLE = "Acesso negado";
+    public static final String ACCOUNT_DELETED_TITLE = "Conta excluída";
     public static final String CRITICAL_ERROR_TITLE = "Falha crítica";
     public static final String OOPS_TITLE = "OOPS";
     public static final String REGISTRATION_ERROR_TITLE = "Erro de Cadastro";
@@ -16,6 +17,7 @@ public class ConstsMessages {
     public static final String EMAIL_USER_NOT_FOUND = "Email de Usuário não encotrado";
     public static final String WRONG_LOGIN_CREDENTIALS = "Email ou senha incorretos. Tente novamente";
     public static final String BLOCKED_USER = "Sua conta está inativa ou bloqueada.";
+    public static final String ACCOUNT_DELETED = "Esta conta foi excluída. Para acessar novamente, use Recuperar acesso e reative sua conta.";
     public static final String FALHA_ATUALIZAR_USUARIO = "Falha ao atualizar Usuário.";
     public static final String INVALID_TOKEN = "Sessão expirada. Faça login novamente.";
     public static final String INVALID_GOOGLE_TOKEN = "Não foi possível validar sua conta Google. Faça login novamente.";
