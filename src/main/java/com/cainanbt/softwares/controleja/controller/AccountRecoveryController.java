@@ -3,6 +3,7 @@ package com.cainanbt.softwares.controleja.controller;
 import com.cainanbt.softwares.controleja.dtos.AccountRecoveryRequestDTO;
 import com.cainanbt.softwares.controleja.dtos.PasswordResetConfirmDTO;
 import com.cainanbt.softwares.controleja.dtos.ReactivationConfirmDTO;
+import com.cainanbt.softwares.controleja.dtos.responses.AccountRecoveryRequestResponseDTO;
 import com.cainanbt.softwares.controleja.services.AccountReactivationService;
 import com.cainanbt.softwares.controleja.services.AccountRecoveryService;
 import com.cainanbt.softwares.controleja.services.PasswordRecoveryService;
@@ -22,20 +23,17 @@ import java.util.Map;
 @RequiredArgsConstructor
 @RequestMapping("controle_ja_api/v1/auth")
 public class AccountRecoveryController {
-    private static final String REQUEST_MESSAGE =
-            "Se os dados forem elegíveis, você receberá as orientações por e-mail.";
-
     private final AccountRecoveryService accountRecoveryService;
     private final PasswordRecoveryService passwordRecoveryService;
     private final AccountReactivationService accountReactivationService;
 
     @PostMapping("/recovery/request")
-    public ResponseEntity<Map<String, String>> request(
+    public ResponseEntity<AccountRecoveryRequestResponseDTO> request(
             @RequestBody @Valid AccountRecoveryRequestDTO body,
             HttpServletRequest request
     ) {
-        accountRecoveryService.request(body, request.getRemoteAddr());
-        return ResponseEntity.status(HttpStatus.ACCEPTED).body(Map.of("message", REQUEST_MESSAGE));
+        AccountRecoveryRequestResponseDTO response = accountRecoveryService.request(body, request.getRemoteAddr());
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
     }
 
     @PostMapping("/password-reset/confirm")

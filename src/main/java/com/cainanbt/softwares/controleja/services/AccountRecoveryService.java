@@ -2,6 +2,7 @@ package com.cainanbt.softwares.controleja.services;
 
 import com.cainanbt.softwares.controleja.configs.AccountActionProperties;
 import com.cainanbt.softwares.controleja.dtos.AccountRecoveryRequestDTO;
+import com.cainanbt.softwares.controleja.dtos.responses.AccountRecoveryRequestResponseDTO;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.enums.AccountActionPurpose;
 import com.cainanbt.softwares.controleja.repositories.UsersRepository;
@@ -16,12 +17,15 @@ import java.util.Optional;
 @Service
 @RequiredArgsConstructor
 public class AccountRecoveryService {
+    private static final String REQUEST_MESSAGE =
+            "Solicitação recebida. Se houver uma conta elegível, enviaremos um e-mail com o código de confirmação.";
+
     private final UsersRepository usersRepository;
     private final AccountActionTokenService tokenService;
     private final AccountActionEmailSender emailSender;
     private final AccountActionProperties properties;
 
-    public void request(AccountRecoveryRequestDTO request, String remoteAddress) {
+    public AccountRecoveryRequestResponseDTO request(AccountRecoveryRequestDTO request, String remoteAddress) {
         String email = normalize(request.getEmail());
         Optional<Users> user = usersRepository.findAnyByEmail(email);
         Users eligibleUser = isEligible(user, request.getPurpose()) ? user.orElseThrow() : null;
@@ -32,7 +36,7 @@ public class AccountRecoveryService {
                 eligibleUser == null ? null : eligibleUser.getId()
         );
         if (code.isEmpty() || eligibleUser == null) {
-            return;
+            return response();
         }
 
         try {
@@ -49,6 +53,15 @@ public class AccountRecoveryService {
                     exception.getClass().getSimpleName()
             );
         }
+        return response();
+    }
+
+    private AccountRecoveryRequestResponseDTO response() {
+        String sender = properties.getSender();
+        return new AccountRecoveryRequestResponseDTO(
+                REQUEST_MESSAGE,
+                sender == null || sender.isBlank() ? null : sender.trim()
+        );
     }
 
     private boolean isEligible(Optional<Users> user, AccountActionPurpose purpose) {

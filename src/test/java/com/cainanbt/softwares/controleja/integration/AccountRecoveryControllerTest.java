@@ -77,12 +77,26 @@ class AccountRecoveryControllerTest extends BaseTest {
     @Test
     void requestDoesNotRevealWhetherAccountExists() {
         String email = register("known");
-        String knownMessage = request(email, "PASSWORD_RESET")
-                .statusCode(202).extract().path("message");
-        String unknownMessage = request("unknown-" + UUID.randomUUID() + "@test.com", "PASSWORD_RESET")
-                .statusCode(202).extract().path("message");
+        Map<String, Object> knownResponse = request(email, "PASSWORD_RESET")
+                .statusCode(202).extract().as(Map.class);
+        Map<String, Object> unknownResponse = request(
+                "unknown-" + UUID.randomUUID() + "@test.com",
+                "PASSWORD_RESET"
+        ).statusCode(202).extract().as(Map.class);
+        Map<String, Object> reactivationResponse = request(
+                "unknown-" + UUID.randomUUID() + "@test.com",
+                "ACCOUNT_REACTIVATION"
+        ).statusCode(202).extract().as(Map.class);
 
-        assertEquals(knownMessage, unknownMessage);
+        Map<String, Object> expected = Map.of(
+                "message",
+                "Solicitação recebida. Se houver uma conta elegível, enviaremos um e-mail com o código de confirmação.",
+                "senderEmail",
+                "no-reply@controleja.test"
+        );
+        assertEquals(expected, knownResponse);
+        assertEquals(expected, unknownResponse);
+        assertEquals(expected, reactivationResponse);
     }
 
     @Test
