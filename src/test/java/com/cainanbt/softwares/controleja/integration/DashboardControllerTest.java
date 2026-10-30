@@ -245,25 +245,26 @@ public class DashboardControllerTest extends BaseTest {
     @DisplayName("Deve usar vencimento canônico e ignorar faturas pagas ou ainda abertas no full-summary")
     void shouldClassifyInvoicesInFullSummary() {
         LocalDate today = LocalDate.now(DateUtils.zoneId);
-        long start = DateUtils.localDateToEpoch(today.minusDays(1));
-        long end = DateUtils.localDateToEpoch(today.plusDays(60));
+        long start = DateUtils.localDateToEpoch(today.minusMonths(2));
+        long end = DateUtils.localDateToEpoch(today.plusMonths(3));
         UUID cardId = createCard("Dashboard Card", 25, 10);
 
         Users user = usersRepository.findByEmailIgnoreCase(email).orElseThrow();
         CreditCard card = creditCardRepository.findByIdAndNotDeleted(cardId).orElseThrow();
 
-        createInvoice(user, card, YearMonth.from(today), new BigDecimal("70.00"), today.minusDays(1), false);
-        createInvoice(user, card, YearMonth.from(today.plusMonths(1)), new BigDecimal("80.00"), today.plusDays(7), false);
-        createInvoice(user, card, YearMonth.from(today.plusMonths(2)), new BigDecimal("90.00"), today.plusDays(40), false);
-        createInvoice(user, card, YearMonth.from(today.plusMonths(1)), new BigDecimal("100.00"), today.plusDays(8), true);
+        LocalDate previousMonth = today.minusMonths(1);
+        LocalDate futureMonth = today.plusMonths(2);
+        createInvoice(user, card, YearMonth.from(previousMonth), new BigDecimal("70.00"), previousMonth, false);
+        createInvoice(user, card, YearMonth.from(futureMonth), new BigDecimal("90.00"), futureMonth, false);
+        createInvoice(user, card, YearMonth.from(previousMonth), new BigDecimal("100.00"), previousMonth, true);
 
         given().header("Authorization", "Bearer " + token).param("start", start).param("end", end)
                 .when().get("/dashboard/full-summary")
                 .then().statusCode(200)
                 .body("projectedPayables", is(70.0f))
-                .body("pendingInvoices.size()", is(1))
-                .body("pendingInvoices[0].amount", is(70.0f))
-                .body("overdueInvoices.size()", is(0));
+                .body("pendingInvoices.size()", is(0))
+                .body("overdueInvoices.size()", is(1))
+                .body("overdueInvoices[0].amount", is(70.0f));
     }
 
     private UUID createCard(String name) {

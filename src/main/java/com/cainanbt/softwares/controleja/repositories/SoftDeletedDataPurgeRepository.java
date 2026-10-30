@@ -59,6 +59,18 @@ public class SoftDeletedDataPurgeRepository {
             }
         } while (changed);
 
+        EnumMap<PurgeTable, List<UUID>> permanentlyBlocked = new EnumMap<>(PurgeTable.class);
+        for (PurgeTable table : PurgeTable.values()) {
+            Set<UUID> processable = new LinkedHashSet<>(candidates.get(table));
+            List<UUID> blocked = considered.get(table).stream()
+                    .filter(id -> !processable.contains(id))
+                    .toList();
+            permanentlyBlocked.put(
+                    table,
+                    findPermanentlyBlocked(table, blocked, cutoff)
+            );
+        }
+
         int rankingCount = countByForeignKey(
                 "gas_station_rankings",
                 "gas_station_id",
@@ -67,7 +79,13 @@ public class SoftDeletedDataPurgeRepository {
         int vehicleLogCount = tableExists("vehicle_logs")
                 ? countByForeignKey("vehicle_logs", "vehicle_id", candidates.get(PurgeTable.VEHICLES))
                 : 0;
-        return new PurgePlan(candidates, considered, rankingCount, vehicleLogCount);
+        return new PurgePlan(
+                candidates,
+                considered,
+                permanentlyBlocked,
+                rankingCount,
+                vehicleLogCount
+        );
     }
 
     public boolean tryAdvisoryLock(Connection connection) throws SQLException {
@@ -182,6 +200,42 @@ public class SoftDeletedDataPurgeRepository {
         }
         sql.append(" ORDER BY candidate.deleted_at, candidate.id");
         return namedJdbc.query(sql.toString(), parameters, (rs, rowNum) -> rs.getObject("id", UUID.class));
+    }
+
+    private List<UUID> findPermanentlyBlocked(
+            PurgeTable target,
+            List<UUID> blockedIds,
+            long cutoff
+    ) {
+        List<Dependency> dependencies = DEPENDENCIES.getOrDefault(target, List.of());
+        if (blockedIds.isEmpty() || dependencies.isEmpty()) {
+            return List.of();
+        }
+
+        StringBuilder sql = new StringBuilder("SELECT candidate.id FROM ")
+                .append(target.tableName())
+                .append(" candidate WHERE candidate.id IN (:blockedIds) AND (");
+        MapSqlParameterSource parameters = new MapSqlParameterSource()
+                .addValue("blockedIds", blockedIds)
+                .addValue("cutoff", cutoff);
+
+        for (int index = 0; index < dependencies.size(); index++) {
+            if (index > 0) {
+                sql.append(" OR ");
+            }
+            Dependency dependency = dependencies.get(index);
+            sql.append("EXISTS (SELECT 1 FROM ")
+                    .append(dependency.source().tableName())
+                    .append(" dependent WHERE dependent.")
+                    .append(dependency.foreignKeyColumn())
+                    .append(" = candidate.id AND (dependent.deleted_at IS NULL OR dependent.deleted_at > :cutoff))");
+        }
+        sql.append(") ORDER BY candidate.deleted_at, candidate.id");
+        return namedJdbc.query(
+                sql.toString(),
+                parameters,
+                (result, row) -> result.getObject("id", UUID.class)
+        );
     }
 
     private int countByForeignKey(String table, String column, Collection<UUID> parentIds) {

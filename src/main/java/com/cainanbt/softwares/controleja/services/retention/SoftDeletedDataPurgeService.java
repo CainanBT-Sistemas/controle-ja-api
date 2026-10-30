@@ -8,6 +8,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -22,10 +23,15 @@ public class SoftDeletedDataPurgeService {
         validateLimits(batchSize, maxBatches);
         Map<String, Long> totals = emptyCounts();
         EnumMap<PurgeTable, Set<UUID>> virtuallyRemoved = emptyIdSets();
-        EnumMap<PurgeTable, Set<UUID>> selectionExcluded = emptyIdSets();
+        EnumMap<PurgeTable, Set<UUID>> permanentlyExcluded = emptyIdSets();
+        EnumMap<PurgeTable, Set<UUID>> temporarilyExcluded = emptyIdSets();
         int completedBatches = 0;
 
         while (completedBatches < maxBatches) {
+            EnumMap<PurgeTable, Set<UUID>> selectionExcluded = mergeExcluded(
+                    permanentlyExcluded,
+                    temporarilyExcluded
+            );
             BatchExecution execution = transactionTemplate.execute(status -> {
                 PurgePlan currentPlan = repository.planBatch(
                         cutoff,
@@ -43,7 +49,9 @@ public class SoftDeletedDataPurgeService {
             }
 
             PurgePlan plan = execution.plan();
-            excludeConsidered(plan, selectionExcluded);
+            addExcluded(plan.allIds(), permanentlyExcluded);
+            addExcluded(plan.permanentlyBlockedIds(), permanentlyExcluded);
+            addExcluded(plan.temporarilyBlockedIds(), temporarilyExcluded);
             if (plan.isEmpty()) {
                 continue;
             }
@@ -53,6 +61,7 @@ public class SoftDeletedDataPurgeService {
             }
             mergeCounts(totals, execution.counts());
             completedBatches++;
+            clearExcluded(temporarilyExcluded);
         }
 
         return new PurgeRunResult(dryRun, completedBatches, totals);
@@ -110,11 +119,27 @@ public class SoftDeletedDataPurgeService {
         return counts;
     }
 
-    private void excludeConsidered(
-            PurgePlan plan,
-            Map<PurgeTable, Set<UUID>> selectionExcluded
+    private void addExcluded(
+            Map<PurgeTable, List<UUID>> idsByTable,
+            Map<PurgeTable, Set<UUID>> excluded
     ) {
-        plan.consideredIds().forEach((table, ids) -> selectionExcluded.get(table).addAll(ids));
+        idsByTable.forEach((table, ids) -> excluded.get(table).addAll(ids));
+    }
+
+    private EnumMap<PurgeTable, Set<UUID>> mergeExcluded(
+            Map<PurgeTable, Set<UUID>> permanent,
+            Map<PurgeTable, Set<UUID>> temporary
+    ) {
+        EnumMap<PurgeTable, Set<UUID>> merged = emptyIdSets();
+        for (PurgeTable table : PurgeTable.values()) {
+            merged.get(table).addAll(permanent.get(table));
+            merged.get(table).addAll(temporary.get(table));
+        }
+        return merged;
+    }
+
+    private void clearExcluded(Map<PurgeTable, Set<UUID>> excluded) {
+        excluded.values().forEach(Set::clear);
     }
 
     private void markVirtuallyRemoved(

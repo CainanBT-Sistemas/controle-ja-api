@@ -5,25 +5,34 @@ import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public final class PurgePlan {
     private final EnumMap<PurgeTable, List<UUID>> ids;
     private final EnumMap<PurgeTable, List<UUID>> consideredIds;
+    private final EnumMap<PurgeTable, List<UUID>> permanentlyBlockedIds;
     private final int gasStationRankingCount;
     private final int vehicleLogCount;
 
     public PurgePlan(
             Map<PurgeTable, List<UUID>> ids,
             Map<PurgeTable, List<UUID>> consideredIds,
+            Map<PurgeTable, List<UUID>> permanentlyBlockedIds,
             int gasStationRankingCount,
             int vehicleLogCount
     ) {
         this.ids = new EnumMap<>(PurgeTable.class);
         this.consideredIds = new EnumMap<>(PurgeTable.class);
+        this.permanentlyBlockedIds = new EnumMap<>(PurgeTable.class);
         for (PurgeTable table : PurgeTable.values()) {
             this.ids.put(table, List.copyOf(ids.getOrDefault(table, List.of())));
             this.consideredIds.put(table, List.copyOf(consideredIds.getOrDefault(table, List.of())));
+            this.permanentlyBlockedIds.put(
+                    table,
+                    List.copyOf(permanentlyBlockedIds.getOrDefault(table, List.of()))
+            );
         }
         this.gasStationRankingCount = gasStationRankingCount;
         this.vehicleLogCount = vehicleLogCount;
@@ -39,6 +48,25 @@ public final class PurgePlan {
 
     public Map<PurgeTable, List<UUID>> consideredIds() {
         return Collections.unmodifiableMap(consideredIds);
+    }
+
+    public Map<PurgeTable, List<UUID>> permanentlyBlockedIds() {
+        return Collections.unmodifiableMap(permanentlyBlockedIds);
+    }
+
+    public Map<PurgeTable, List<UUID>> temporarilyBlockedIds() {
+        EnumMap<PurgeTable, List<UUID>> temporary = new EnumMap<>(PurgeTable.class);
+        for (PurgeTable table : PurgeTable.values()) {
+            Set<UUID> excluded = ids(table).stream().collect(Collectors.toSet());
+            excluded.addAll(permanentlyBlockedIds.get(table));
+            temporary.put(
+                    table,
+                    consideredIds.get(table).stream()
+                            .filter(id -> !excluded.contains(id))
+                            .toList()
+            );
+        }
+        return Collections.unmodifiableMap(temporary);
     }
 
     public boolean isEmpty() {

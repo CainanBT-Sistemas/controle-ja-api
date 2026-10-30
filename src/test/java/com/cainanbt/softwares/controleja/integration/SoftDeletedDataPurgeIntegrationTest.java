@@ -6,6 +6,7 @@ import com.cainanbt.softwares.controleja.services.retention.PurgeRunResult;
 import com.cainanbt.softwares.controleja.services.retention.SoftDeletedDataPurgeService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -146,6 +147,7 @@ class SoftDeletedDataPurgeIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
+    @Timeout(5)
     void shouldKeepParentWhenChildIsActive() {
         TransactionHierarchy hierarchy = insertTransactionHierarchy(OLD, (Long) null);
 
@@ -209,16 +211,39 @@ class SoftDeletedDataPurgeIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
+    void shouldProcessEligibleHierarchyFromLeafToRootAcrossSmallBatches() {
+        UUID userId = insertUser();
+        UUID accountId = insertAccount(userId, null);
+        UUID categoryId = insertCategory(userId, null, null);
+        UUID rootId = insertTransaction(
+                userId, accountId, categoryId, null, null, null, null, null, OLD - 20
+        );
+        UUID childId = insertTransaction(
+                userId, accountId, categoryId, null, rootId, null, null, null, OLD - 10
+        );
+        UUID leafId = insertTransaction(
+                userId, accountId, categoryId, null, childId, null, null, null, OLD
+        );
+
+        PurgeRunResult result = service.purge(CUTOFF, false, 1, 10);
+
+        assertFalse(exists("transactions", leafId));
+        assertFalse(exists("transactions", childId));
+        assertFalse(exists("transactions", rootId));
+        assertEquals(3L, result.getCounts().get("transactions"));
+    }
+
+    @Test
     void shouldProjectHierarchyWithoutDeletingDuringDryRun() {
         TransactionHierarchy hierarchy = insertTransactionHierarchy(OLD, OLD, OLD);
 
-        PurgeRunResult projection = service.purge(CUTOFF, true, 100, 20);
+        PurgeRunResult projection = service.purge(CUTOFF, true, 1, 20);
 
         assertTrue(exists("transactions", hierarchy.parentId()));
         hierarchy.childIds().forEach(id -> assertTrue(exists("transactions", id)));
         assertEquals(3L, projection.getCounts().get("transactions"));
 
-        PurgeRunResult execution = service.purge(CUTOFF, false, 100, 20);
+        PurgeRunResult execution = service.purge(CUTOFF, false, 1, 20);
 
         assertFalse(exists("transactions", hierarchy.parentId()));
         hierarchy.childIds().forEach(id -> assertFalse(exists("transactions", id)));
