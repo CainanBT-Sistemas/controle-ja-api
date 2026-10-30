@@ -139,7 +139,8 @@ class FlywayBaselineIntegrationTest {
             "idx_credit_cards_purge_deleted_id",
             "idx_vehicles_purge_deleted_id",
             "idx_category_purge_deleted_id",
-            "idx_accounts_purge_deleted_id"
+            "idx_accounts_purge_deleted_id",
+            "idx_users_deleted_id"
     );
 
     @BeforeAll
@@ -254,13 +255,13 @@ class FlywayBaselineIntegrationTest {
     private void assertMigrationAppliedSuccessfully(Flyway flyway, JdbcTemplate jdbc) {
         MigrationInfo current = flyway.info().current();
         assertNotNull(current);
-        assertEquals("6", current.getVersion().getVersion());
+        assertEquals("7", current.getVersion().getVersion());
         assertEquals(MigrationState.SUCCESS, current.getState());
         assertEquals(
-                6,
+                7,
                 jdbc.queryForObject(
                         "SELECT COUNT(*) FROM flyway_schema_history "
-                                + "WHERE version IN ('1', '2', '3', '4', '5', '6') AND success = true",
+                                + "WHERE version IN ('1', '2', '3', '4', '5', '6', '7') AND success = true",
                         Integer.class
                 )
         );

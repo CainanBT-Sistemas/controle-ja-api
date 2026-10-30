@@ -1,7 +1,10 @@
 package com.cainanbt.softwares.controleja.workers;
 
+import com.cainanbt.softwares.controleja.configs.AccountActionProperties;
 import com.cainanbt.softwares.controleja.configs.DataRetentionProperties;
 import com.cainanbt.softwares.controleja.repositories.SoftDeletedDataPurgeRepository;
+import com.cainanbt.softwares.controleja.services.retention.PendingAccountPurgeResult;
+import com.cainanbt.softwares.controleja.services.retention.PendingAccountPurgeService;
 import com.cainanbt.softwares.controleja.services.retention.PurgeRunResult;
 import com.cainanbt.softwares.controleja.services.retention.SoftDeletedDataPurgeService;
 import lombok.RequiredArgsConstructor;
@@ -23,8 +26,10 @@ import java.util.Optional;
 public class DataRetentionWorker {
     private final DataSource dataSource;
     private final DataRetentionProperties properties;
+    private final AccountActionProperties accountActionProperties;
     private final SoftDeletedDataPurgeRepository repository;
     private final SoftDeletedDataPurgeService purgeService;
+    private final PendingAccountPurgeService pendingAccountPurgeService;
 
     @Scheduled(
             cron = "${app.config.data-retention.cron:0 30 4 * * *}",
@@ -35,6 +40,10 @@ public class DataRetentionWorker {
     }
 
     public Optional<PurgeRunResult> runOnce() {
+        if (properties.getDays() != accountActionProperties.getReactivationDays()) {
+            log.error("data_retention_policy_mismatch");
+            return Optional.empty();
+        }
         long startedAt = System.currentTimeMillis();
         long cutoff = startedAt - Duration.ofDays(properties.getDays()).toMillis();
 
@@ -50,13 +59,22 @@ public class DataRetentionWorker {
                         properties.getBatchSize(),
                         properties.getMaxBatchesPerRun()
                 );
+                PendingAccountPurgeResult accountResult = pendingAccountPurgeService.purge(
+                        cutoff,
+                        properties.isDryRun(),
+                        properties.getBatchSize(),
+                        properties.getMaxBatchesPerRun()
+                );
                 log.info(
-                        "data_retention_finished durationMs={} cutoff={} dryRun={} batches={} counts={}",
+                        "data_retention_finished durationMs={} cutoff={} dryRun={} batches={} counts={} accountBatches={} accountCount={} tokenCount={}",
                         System.currentTimeMillis() - startedAt,
                         cutoff,
                         properties.isDryRun(),
                         result.getBatches(),
-                        result.getCounts()
+                        result.getCounts(),
+                        accountResult.batches(),
+                        accountResult.users(),
+                        accountResult.accountActionTokens()
                 );
                 return Optional.of(result);
             } catch (RuntimeException exception) {

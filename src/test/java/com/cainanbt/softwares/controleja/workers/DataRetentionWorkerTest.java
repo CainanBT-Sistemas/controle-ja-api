@@ -3,8 +3,12 @@ package com.cainanbt.softwares.controleja.workers;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import com.cainanbt.softwares.controleja.configs.AccountActionProperties;
 import com.cainanbt.softwares.controleja.configs.DataRetentionProperties;
 import com.cainanbt.softwares.controleja.repositories.SoftDeletedDataPurgeRepository;
+import com.cainanbt.softwares.controleja.services.retention.PendingAccountPurgeResult;
+import com.cainanbt.softwares.controleja.services.retention.PendingAccountPurgeService;
+import com.cainanbt.softwares.controleja.services.retention.PurgeRunResult;
 import com.cainanbt.softwares.controleja.services.retention.SoftDeletedDataPurgeService;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
@@ -12,13 +16,17 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 
 import javax.sql.DataSource;
+import java.lang.reflect.Constructor;
 import java.sql.Connection;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -30,7 +38,9 @@ class DataRetentionWorkerTest {
         Connection connection = mock(Connection.class);
         SoftDeletedDataPurgeRepository repository = mock(SoftDeletedDataPurgeRepository.class);
         SoftDeletedDataPurgeService service = mock(SoftDeletedDataPurgeService.class);
+        PendingAccountPurgeService accountPurgeService = mock(PendingAccountPurgeService.class);
         DataRetentionProperties properties = new DataRetentionProperties();
+        AccountActionProperties accountActionProperties = accountActionProperties();
         properties.setDryRun(true);
         when(dataSource.getConnection()).thenReturn(connection);
         when(repository.tryAdvisoryLock(connection)).thenReturn(true);
@@ -49,8 +59,10 @@ class DataRetentionWorkerTest {
             DataRetentionWorker worker = new DataRetentionWorker(
                     dataSource,
                     properties,
+                    accountActionProperties,
                     repository,
-                    service
+                    service,
+                    accountPurgeService
             );
             assertTrue(worker.runOnce().isEmpty());
         } finally {
@@ -66,6 +78,76 @@ class DataRetentionWorkerTest {
         assertFalse(logs.contains("999.99"));
         assertFalse(logs.contains("DELETE"));
         verify(repository).releaseAdvisoryLock(connection);
+    }
+
+    @Test
+    void shouldPurgeFunctionalDataBeforeAccountsAndReleaseLock() throws Exception {
+        DataSource dataSource = mock(DataSource.class);
+        Connection connection = mock(Connection.class);
+        SoftDeletedDataPurgeRepository repository = mock(SoftDeletedDataPurgeRepository.class);
+        SoftDeletedDataPurgeService functionalPurge = mock(SoftDeletedDataPurgeService.class);
+        PendingAccountPurgeService accountPurge = mock(PendingAccountPurgeService.class);
+        DataRetentionProperties properties = new DataRetentionProperties();
+        AccountActionProperties accountActionProperties = accountActionProperties();
+        PurgeRunResult functionalResult = purgeRunResult();
+
+        when(dataSource.getConnection()).thenReturn(connection);
+        when(repository.tryAdvisoryLock(connection)).thenReturn(true);
+        when(repository.releaseAdvisoryLock(connection)).thenReturn(true);
+        when(functionalPurge.purge(anyLong(), org.mockito.ArgumentMatchers.eq(true),
+                org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(functionalResult);
+        when(accountPurge.purge(anyLong(), org.mockito.ArgumentMatchers.eq(true),
+                org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(new PendingAccountPurgeResult(true, 0, 0, 0));
+
+        DataRetentionWorker worker = new DataRetentionWorker(
+                dataSource,
+                properties,
+                accountActionProperties,
+                repository,
+                functionalPurge,
+                accountPurge
+        );
+
+        assertTrue(worker.runOnce().isPresent());
+        var ordered = inOrder(functionalPurge, accountPurge, repository);
+        ordered.verify(functionalPurge).purge(anyLong(), org.mockito.ArgumentMatchers.eq(true),
+                org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt());
+        ordered.verify(accountPurge).purge(anyLong(), org.mockito.ArgumentMatchers.eq(true),
+                org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt());
+        ordered.verify(repository).releaseAdvisoryLock(connection);
+    }
+
+    @Test
+    void shouldFailSafeWhenRetentionAndReactivationDaysDiverge() throws Exception {
+        DataSource dataSource = mock(DataSource.class);
+        SoftDeletedDataPurgeRepository repository = mock(SoftDeletedDataPurgeRepository.class);
+        SoftDeletedDataPurgeService functionalPurge = mock(SoftDeletedDataPurgeService.class);
+        PendingAccountPurgeService accountPurge = mock(PendingAccountPurgeService.class);
+        DataRetentionProperties properties = new DataRetentionProperties();
+        AccountActionProperties accountActionProperties = accountActionProperties();
+        accountActionProperties.setReactivationDays(61);
+
+        DataRetentionWorker worker = new DataRetentionWorker(
+                dataSource,
+                properties,
+                accountActionProperties,
+                repository,
+                functionalPurge,
+                accountPurge
+        );
+
+        assertTrue(worker.runOnce().isEmpty());
+        verify(dataSource, never()).getConnection();
+        verify(functionalPurge, never()).purge(anyLong(),
+                org.mockito.ArgumentMatchers.anyBoolean(),
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyInt());
+        verify(accountPurge, never()).purge(anyLong(),
+                org.mockito.ArgumentMatchers.anyBoolean(),
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyInt());
     }
 
     @Test
@@ -86,5 +168,22 @@ class DataRetentionWorkerTest {
         Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
 
         assertFalse(validator.validate(properties).isEmpty());
+    }
+
+    private AccountActionProperties accountActionProperties() {
+        AccountActionProperties properties = new AccountActionProperties();
+        properties.setPepper("test-pepper");
+        properties.setReactivationDays(60);
+        return properties;
+    }
+
+    private PurgeRunResult purgeRunResult() throws Exception {
+        Constructor<PurgeRunResult> constructor = PurgeRunResult.class.getDeclaredConstructor(
+                boolean.class,
+                int.class,
+                Map.class
+        );
+        constructor.setAccessible(true);
+        return constructor.newInstance(true, 0, Map.of());
     }
 }
