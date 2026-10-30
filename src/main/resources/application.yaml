@@ -74,6 +74,14 @@ app:
       reactivation-days: ${ACCOUNT_REACTIVATION_DAYS:60}
       email-enabled: ${ACCOUNT_ACTION_EMAIL_ENABLED:false}
       sender: ${ACCOUNT_ACTION_EMAIL_SENDER:}
+    data-retention:
+      enabled: ${DATA_RETENTION_ENABLED:false}
+      dry-run: ${DATA_RETENTION_DRY_RUN:true}
+      cron: ${DATA_RETENTION_CRON:0 30 4 * * *}
+      zone: ${DATA_RETENTION_ZONE:America/Sao_Paulo}
+      days: ${DATA_RETENTION_DAYS:60}
+      batch-size: ${DATA_RETENTION_BATCH_SIZE:100}
+      max-batches-per-run: ${DATA_RETENTION_MAX_BATCHES_PER_RUN:20}
 
 springdoc:
   api-docs:
