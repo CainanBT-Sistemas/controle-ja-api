@@ -123,6 +123,9 @@ Este workflow não troca conexões e não restaura sobre banco ativo. Em inciden
 
 O primeiro restore isolado aprovado é bloqueador para liberar `MAN-OPS-005-api`.
 
+Depois dessa aprovação, siga `docs/ops/data-retention-purge.md` para executar primeiro o dry-run e somente então avaliar
+a ativação controlada do expurgo.
+
 ## Rotação e responsabilidades
 
 - GitHub Actions: execução diária e manual, validação, criptografia, upload e retenção.

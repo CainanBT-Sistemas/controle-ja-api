@@ -130,7 +130,17 @@ class FlywayBaselineIntegrationTest {
             "idx_installments_advance_operation",
             "idx_closed_test_testers_normalized_enabled",
             "idx_account_action_email_purpose_created",
-            "idx_account_action_ip_created"
+            "idx_account_action_ip_created",
+            "idx_installment_plan_purge_deleted_id",
+            "idx_transactions_purge_deleted_id",
+            "idx_invoicess_purge_deleted_id",
+            "idx_gas_stations_purge_deleted_id",
+            "idx_recurrence_rules_purge_deleted_id",
+            "idx_credit_cards_purge_deleted_id",
+            "idx_vehicles_purge_deleted_id",
+            "idx_category_purge_deleted_id",
+            "idx_accounts_purge_deleted_id",
+            "idx_users_deleted_id"
     );
 
     @BeforeAll
@@ -230,7 +240,8 @@ class FlywayBaselineIntegrationTest {
                         "--DB_PASSWORD=" + POSTGRES.getPassword(),
                         "--GOOGLE_CLIENT_ID=test-client.apps.googleusercontent.com",
                         "--GOOGLE_CLIENT_SECRET=test-secret",
-                        "--JWT_SECRET=flyway-test-secret-that-is-long-enough-for-hmac"
+                        "--JWT_SECRET=flyway-test-secret-that-is-long-enough-for-hmac",
+                        "--app.config.account-action.pepper=flyway-test-pepper"
                 );
     }
 
@@ -244,13 +255,13 @@ class FlywayBaselineIntegrationTest {
     private void assertMigrationAppliedSuccessfully(Flyway flyway, JdbcTemplate jdbc) {
         MigrationInfo current = flyway.info().current();
         assertNotNull(current);
-        assertEquals("5", current.getVersion().getVersion());
+        assertEquals("7", current.getVersion().getVersion());
         assertEquals(MigrationState.SUCCESS, current.getState());
         assertEquals(
-                5,
+                7,
                 jdbc.queryForObject(
                         "SELECT COUNT(*) FROM flyway_schema_history "
-                                + "WHERE version IN ('1', '2', '3', '4', '5') AND success = true",
+                                + "WHERE version IN ('1', '2', '3', '4', '5', '6', '7') AND success = true",
                         Integer.class
                 )
         );
