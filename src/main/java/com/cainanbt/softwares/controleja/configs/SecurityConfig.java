@@ -31,6 +31,8 @@ public class SecurityConfig {
     private final String URL_ACCOUNT_RECOVERY = URL_LOGIN_API + "/recovery/request";
     private final String URL_PASSWORD_RESET = URL_LOGIN_API + "/password-reset/confirm";
     private final String URL_REACTIVATION = URL_LOGIN_API + "/reactivation/confirm";
+    private final String URL_EMAIL_VERIFICATION_REQUEST = URL_LOGIN_API + "/email-verification/request";
+    private final String URL_EMAIL_VERIFICATION_CONFIRM = URL_LOGIN_API + "/email-verification/confirm";
     private final String URL_REGISTER_API = URL_API+"/users/register";
     private final String URL_HEALTH_API = URL_API + "/health";
     private final String URL_HEALTH = "/health";
@@ -56,6 +58,8 @@ public class SecurityConfig {
             URL_ACCOUNT_RECOVERY,
             URL_PASSWORD_RESET,
             URL_REACTIVATION,
+            URL_EMAIL_VERIFICATION_REQUEST,
+            URL_EMAIL_VERIFICATION_CONFIRM,
             URL_HEALTH_API,
             URL_HEALTH,
             URL_ACTUATOR_HEALTH,

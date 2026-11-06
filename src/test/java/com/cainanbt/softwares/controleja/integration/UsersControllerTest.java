@@ -37,6 +37,7 @@ public class UsersControllerTest extends BaseTest {
                 .when().post("/users/register")
                 .then().statusCode(200)
                 .extract().path("id");
+        verifyEmail(email);
 
         UserLoginDTO login = UserLoginDTO.builder().email(email).password("123456").build();
         token = given().contentType(ContentType.JSON).body(login).post("/auth").then().extract().path("tokens.accessToken");

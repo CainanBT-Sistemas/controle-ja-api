@@ -22,9 +22,11 @@ public class SmtpAccountActionEmailSender implements AccountActionEmailSender {
     public void sendCode(String recipient, String code, AccountActionPurpose purpose, int expiryMinutes) {
         try {
             requireEnabled();
-            String action = purpose == AccountActionPurpose.PASSWORD_RESET
-                    ? "redefinir sua senha"
-                    : "reativar sua conta";
+            String action = switch (purpose) {
+                case PASSWORD_RESET -> "redefinir sua senha";
+                case ACCOUNT_REACTIVATION -> "reativar sua conta";
+                case EMAIL_VERIFICATION -> "confirmar seu e-mail";
+            };
             SimpleMailMessage message = baseMessage(recipient);
             message.setSubject("Controle Já - código de acesso");
             message.setText("Use o código " + code + " para " + action +

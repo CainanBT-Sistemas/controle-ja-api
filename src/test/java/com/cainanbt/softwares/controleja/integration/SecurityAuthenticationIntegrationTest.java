@@ -101,6 +101,7 @@ public class SecurityAuthenticationIntegrationTest extends BaseTest {
         given().contentType(ContentType.JSON).body(buildUser(email, username))
                 .post("/users/register")
                 .then().statusCode(200);
+        verifyEmail(email);
 
         UserLoginDTO login = UserLoginDTO.builder()
                 .email(email)

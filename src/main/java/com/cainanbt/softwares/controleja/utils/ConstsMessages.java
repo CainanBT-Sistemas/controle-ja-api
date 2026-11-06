@@ -10,6 +10,7 @@ public class ConstsMessages {
     public static final String REGISTRATION_ERROR_TITLE = "Erro de Cadastro";
     public static final String LIMIT_REACHED_TITLE = "Limite Atingido";
     public static final String CLOSED_TEST_TITLE = "Teste fechado";
+    public static final String EMAIL_NOT_VERIFIED_TITLE = "E-mail não verificado";
 
     // --- AUTENTICAÇÃO E USUÁRIOS ---
     public static final String FAILURE_TO_FIND_USER = "Falha ao encontrar Usuário";
@@ -31,6 +32,7 @@ public class ConstsMessages {
     public static final String MISSING_TOKEN_CLAIMS = "Refresh token não contém dados válidos de identificação.";
     public static final String INVALID_UUID_TOKEN = "ID no refresh token não é um formato válido.";
     public static final String CLOSED_TEST_ACCESS_DENIED = "Este aplicativo está em teste fechado. Este e-mail ainda não possui acesso.";
+    public static final String EMAIL_NOT_VERIFIED = "Confirme seu e-mail ou solicite o reenvio do código para entrar.";
 
     // --- NÃO ENCONTRADO (404) ---
     public static final String ACCOUNT_NOT_FOUND = "Conta não encontrada ou já foi excluída.";

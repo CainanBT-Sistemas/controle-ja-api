@@ -2,9 +2,12 @@ package com.cainanbt.softwares.controleja.integration;
 
 import com.cainanbt.softwares.controleja.config.BaseTest;
 import com.cainanbt.softwares.controleja.dtos.InsertUpdateUserDTO;
+import com.cainanbt.softwares.controleja.dtos.UserAuthenticateDTO;
 import com.cainanbt.softwares.controleja.dtos.UserLoginDTO;
 import com.cainanbt.softwares.controleja.enums.AccountActionPurpose;
+import com.cainanbt.softwares.controleja.repositories.UsersRepository;
 import com.cainanbt.softwares.controleja.services.AccountActionEmailSender;
+import com.cainanbt.softwares.controleja.services.impl.JwtServiceImp;
 import io.restassured.http.ContentType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,6 +35,10 @@ class AccountRecoveryControllerTest extends BaseTest {
     private FakeAccountActionEmailSender emailSender;
     @Autowired
     private JdbcTemplate jdbcTemplate;
+    @Autowired
+    private UsersRepository usersRepository;
+    @Autowired
+    private JwtServiceImp jwtService;
 
     @BeforeEach
     void clearMessages() {
@@ -151,6 +158,7 @@ class AccountRecoveryControllerTest extends BaseTest {
                 "UPDATE users SET oauth2user = true, oauth2provider = 'GOOGLE', local_password_enabled = false WHERE email = ?",
                 email
         );
+        emailSender.clear();
 
         request(email, "PASSWORD_RESET").statusCode(202);
 
@@ -203,6 +211,7 @@ class AccountRecoveryControllerTest extends BaseTest {
                 System.currentTimeMillis() - 61L * 86_400_000L,
                 userId
         );
+        emailSender.clear();
 
         request(email, "ACCOUNT_REACTIVATION").statusCode(202);
 
@@ -231,7 +240,131 @@ class AccountRecoveryControllerTest extends BaseTest {
         }
     }
 
+    @Test
+    void localRegistrationRequiresEmailVerificationBeforeLogin() {
+        String email = registerPending("pending-login");
+
+        login(email, "wrong-password")
+                .statusCode(400)
+                .body("title", is("Acesso negado"));
+        login(email, "123456")
+                .statusCode(403)
+                .body("title", is("E-mail não verificado"));
+
+        String code = emailSender.codeFor(email);
+        assertNotNull(code);
+        given().contentType(ContentType.JSON)
+                .body(Map.of("email", email, "code", code))
+                .post("/auth/email-verification/confirm")
+                .then().statusCode(200)
+                .body("message", is("E-mail confirmado. Entre na sua conta."));
+
+        login(email, "123456").statusCode(200);
+        given().contentType(ContentType.JSON)
+                .body(Map.of("email", email, "code", code))
+                .post("/auth/email-verification/confirm")
+                .then().statusCode(400)
+                .body("message", is("Código inválido ou expirado."));
+    }
+
+    @Test
+    void pendingLocalAccountCannotUseOldAccessTokenOnPrivateRoute() {
+        String email = registerPending("pending-private-route");
+        var user = usersRepository.findAnyByEmail(email).orElseThrow();
+        String accessToken = jwtService.generateAccessToken(new UserAuthenticateDTO(user));
+
+        given().header("Authorization", "Bearer " + accessToken)
+                .get("/accounts")
+                .then().statusCode(403)
+                .body("title", is("E-mail não verificado"));
+    }
+
+    @Test
+    void deletedAccountDoesNotReceiveEmailVerificationCode() {
+        String email = register("deleted-verification");
+        String session = login(email, "123456").statusCode(200).extract().path("tokens.accessToken");
+        String userId = usersRepository.findAnyByEmail(email).orElseThrow().getId().toString();
+        given().header("Authorization", "Bearer " + session)
+                .delete("/users/" + userId)
+                .then().statusCode(200);
+        emailSender.clear();
+
+        emailVerificationRequest(email).statusCode(202);
+
+        assertEquals(null, emailSender.codeFor(email));
+    }
+
+    @Test
+    void concurrentEmailVerificationHasSingleWinner() throws Exception {
+        String email = registerPending("concurrent-verification");
+        String code = emailSender.codeFor(email);
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            var task = (java.util.concurrent.Callable<Integer>) () -> given()
+                    .contentType(ContentType.JSON)
+                    .body(Map.of("email", email, "code", code))
+                    .post("/auth/email-verification/confirm")
+                    .statusCode();
+            var firstResult = executor.submit(task);
+            var secondResult = executor.submit(task);
+            int first = firstResult.get();
+            int second = secondResult.get();
+            assertTrue((first == 200 && second == 400) || (first == 400 && second == 200));
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void emailVerificationRequestDoesNotRevealAccountStateAndResendInvalidatesPreviousCode() {
+        String email = registerPending("verification-request");
+        String firstCode = emailSender.codeFor(email);
+
+        Map<String, Object> eligible = emailVerificationRequest(email)
+                .statusCode(202).extract().as(Map.class);
+        String secondCode = emailSender.codeFor(email);
+        Map<String, Object> unknown = emailVerificationRequest(
+                "unknown-" + UUID.randomUUID() + "@test.com"
+        ).statusCode(202).extract().as(Map.class);
+
+        assertEquals(eligible, unknown);
+        given().contentType(ContentType.JSON)
+                .body(Map.of("email", email, "code", firstCode))
+                .post("/auth/email-verification/confirm")
+                .then().statusCode(400);
+        given().contentType(ContentType.JSON)
+                .body(Map.of("email", email, "code", secondCode))
+                .post("/auth/email-verification/confirm")
+                .then().statusCode(200);
+    }
+
+    @Test
+    void passwordResetAlsoVerifiesPendingLocalAccount() {
+        String email = registerPending("reset-verifies");
+        request(email, "PASSWORD_RESET").statusCode(202);
+        String code = emailSender.codeFor(email);
+
+        given().contentType(ContentType.JSON).body(Map.of(
+                        "email", email,
+                        "code", code,
+                        "newPassword", "654321"
+                )).post("/auth/password-reset/confirm")
+                .then().statusCode(200);
+
+        login(email, "654321").statusCode(200);
+    }
+
     private String register(String prefix) {
+        String email = registerPending(prefix);
+        String code = emailSender.codeFor(email);
+        given().contentType(ContentType.JSON)
+                .body(Map.of("email", email, "code", code))
+                .post("/auth/email-verification/confirm")
+                .then().statusCode(200);
+        return email;
+    }
+
+    private String registerPending(String prefix) {
         String email = prefix + "-" + UUID.randomUUID() + "@test.com";
         InsertUpdateUserDTO dto = new InsertUpdateUserDTO();
         dto.setUsername(prefix);
@@ -240,6 +373,13 @@ class AccountRecoveryControllerTest extends BaseTest {
         given().contentType(ContentType.JSON).body(dto).post("/users/register")
                 .then().statusCode(200);
         return email;
+    }
+
+    private io.restassured.response.ValidatableResponse emailVerificationRequest(String email) {
+        return given().contentType(ContentType.JSON)
+                .body(Map.of("email", email))
+                .post("/auth/email-verification/request")
+                .then();
     }
 
     private io.restassured.response.ValidatableResponse request(String email, String purpose) {

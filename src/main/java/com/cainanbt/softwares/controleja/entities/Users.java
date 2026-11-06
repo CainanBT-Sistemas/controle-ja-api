@@ -58,6 +58,9 @@ public class Users {
     private Boolean localPasswordEnabled = true;
     @Column(nullable = false)
     @Builder.Default
+    private Boolean emailVerified = false;
+    @Column(nullable = false)
+    @Builder.Default
     private Long sessionVersion = 0L;
     @Column(nullable = true, columnDefinition = "TEXT")
     private String oauth2Provider;

@@ -111,6 +111,26 @@ class GoogleIdTokenValidatorImplTest {
     }
 
     @Test
+    void shouldRejectGoogleTokenWithUnverifiedEmail() {
+        GoogleIdTokenValidatorImpl validator = new GoogleIdTokenValidatorImpl(
+                token -> googleJwtWithEmailVerification(false),
+                EXPECTED_AUDIENCE
+        );
+
+        assertRejectsWithReason(validator, "unverified-email-token", "REQUIRED_CLAIMS_MISSING");
+    }
+
+    @Test
+    void shouldRejectGoogleTokenWithoutEmailVerificationClaim() {
+        GoogleIdTokenValidatorImpl validator = new GoogleIdTokenValidatorImpl(
+                token -> googleJwtWithEmailVerification(null),
+                EXPECTED_AUDIENCE
+        );
+
+        assertRejectsWithReason(validator, "missing-email-verification-token", "REQUIRED_CLAIMS_MISSING");
+    }
+
+    @Test
     void shouldRejectWhenGoogleJwksCannotBeAccessed() {
         JwtDecoder decoder = token -> {
             throw new JwtException(
@@ -156,11 +176,27 @@ class GoogleIdTokenValidatorImplTest {
                 .expiresAt(expiresAt);
         if (includeRequiredClaims) {
             builder.subject("google-subject")
-                    .claim("email", "Google@Test.com");
+                    .claim("email", "Google@Test.com")
+                    .claim("email_verified", true);
         }
         return builder
                 .claim("name", "Google User")
                 .claim("picture", "https://example.com/photo.png")
                 .build();
+    }
+
+    private Jwt googleJwtWithEmailVerification(Boolean emailVerified) {
+        Jwt.Builder builder = Jwt.withTokenValue("token")
+                .header("alg", "RS256")
+                .issuer("https://accounts.google.com")
+                .audience(List.of(EXPECTED_AUDIENCE))
+                .issuedAt(Instant.now().minusSeconds(30))
+                .expiresAt(Instant.now().plusSeconds(300))
+                .subject("google-subject")
+                .claim("email", "Google@Test.com");
+        if (emailVerified != null) {
+            builder.claim("email_verified", emailVerified);
+        }
+        return builder.build();
     }
 }

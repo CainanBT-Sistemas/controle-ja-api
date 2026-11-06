@@ -22,10 +22,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.mockito.Mockito.doThrow;
 
 @ExtendWith(MockitoExtension.class)
 class AccountRecoveryMutationServicesTest {
@@ -66,6 +66,7 @@ class AccountRecoveryMutationServicesTest {
         assertEquals("encoded-new-password", user.getPassword());
         assertNull(user.getRefreshToken());
         assertEquals(0L, user.getRefreshTokenExpiry());
+        assertTrue(user.getEmailVerified());
         verify(usersRepository).save(user);
         verify(tokenService).consume(token);
     }
@@ -142,6 +143,7 @@ class AccountRecoveryMutationServicesTest {
                 .accountNonLocked(true)
                 .credentialsNonExpired(true)
                 .localPasswordEnabled(true)
+                .emailVerified(false)
                 .refreshToken("old-refresh")
                 .refreshTokenExpiry(123L)
                 .build();

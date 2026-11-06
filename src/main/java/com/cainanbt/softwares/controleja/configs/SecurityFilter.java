@@ -32,6 +32,8 @@ public class SecurityFilter extends OncePerRequestFilter {
             "/controle_ja_api/v1/auth/recovery/request",
             "/controle_ja_api/v1/auth/password-reset/confirm",
             "/controle_ja_api/v1/auth/reactivation/confirm",
+            "/controle_ja_api/v1/auth/email-verification/request",
+            "/controle_ja_api/v1/auth/email-verification/confirm",
             "/controle_ja_api/v1/users/register",
             "/controle_ja_api/v1/health",
             "/health",
@@ -70,6 +72,11 @@ public class SecurityFilter extends OncePerRequestFilter {
                 var login = tokenService.validateToken(token);
                 var user = userRepository.findByEmailIgnoreCase(login)
                         .orElseThrow(() -> new JwtException("User not found or inactive"));
+                if (!Boolean.TRUE.equals(user.getEmailVerified())) {
+                    SecurityContextHolder.clearContext();
+                    SecurityErrorResponseWriter.writeEmailNotVerifiedForbidden(request, response);
+                    return;
+                }
                 UserAuthenticateDTO userAuthenticateDTO = new UserAuthenticateDTO(user);
 
                 if (!isValidUser(userAuthenticateDTO)
@@ -113,6 +120,7 @@ public class SecurityFilter extends OncePerRequestFilter {
 
     private boolean isValidUser(UserAuthenticateDTO userAuthenticateDTO) {
         return userAuthenticateDTO.isEnabled()
+                && Boolean.TRUE.equals(userAuthenticateDTO.getUser().getEmailVerified())
                 && userAuthenticateDTO.isAccountNonExpired()
                 && userAuthenticateDTO.isAccountNonLocked()
                 && userAuthenticateDTO.isCredentialsNonExpired();

@@ -74,6 +74,7 @@ class ClosedTestAccessIntegrationTest extends BaseTest {
                 .when().post("/users/register")
                 .then().statusCode(200)
                 .body("email", is(TestUserFixtures.TESTER_EMAIL));
+        verifyEmail(TestUserFixtures.TESTER_EMAIL);
 
         String refreshToken = given().contentType(ContentType.JSON)
                 .body(UserLoginDTO.builder()
@@ -233,6 +234,7 @@ class ClosedTestAccessIntegrationTest extends BaseTest {
                 .when().post("/users/register")
                 .then().statusCode(200)
                 .extract().path("id");
+        verifyEmail(email);
 
         UserLoginDTO login = UserLoginDTO.builder().email(email).password("123456").build();
         var loginResponse = given().contentType(ContentType.JSON).body(login)
@@ -281,6 +283,7 @@ class ClosedTestAccessIntegrationTest extends BaseTest {
                 .credentialsNonExpired(true)
                 .role("USER")
                 .oauth2User(false)
+                .emailVerified(true)
                 .createdAt(DateUtils.getEpochNow())
                 .build());
     }

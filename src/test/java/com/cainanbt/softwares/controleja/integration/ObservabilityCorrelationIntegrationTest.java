@@ -256,6 +256,7 @@ class ObservabilityCorrelationIntegrationTest extends BaseTest {
         given().contentType(ContentType.JSON).body(user)
                 .post("/users/register")
                 .then().statusCode(200);
+        verifyEmail(user.getEmail());
 
         UserLoginDTO login = UserLoginDTO.builder()
                 .email(user.getEmail())

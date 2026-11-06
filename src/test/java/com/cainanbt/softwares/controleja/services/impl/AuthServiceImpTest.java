@@ -3,13 +3,15 @@ package com.cainanbt.softwares.controleja.services.impl;
 import com.cainanbt.softwares.controleja.dtos.GoogleIdentityDTO;
 import com.cainanbt.softwares.controleja.dtos.GoogleLoginDTO;
 import com.cainanbt.softwares.controleja.dtos.InsertUpdateUserDTO;
+import com.cainanbt.softwares.controleja.dtos.TokenLoginDTO;
+import com.cainanbt.softwares.controleja.dtos.UserAuthenticateDTO;
 import com.cainanbt.softwares.controleja.dtos.UserLoginDTO;
-import com.cainanbt.softwares.controleja.dtos.UserUpdateTokenDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.UserResponseDTO;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
-import com.cainanbt.softwares.controleja.services.EntitlementService;
+import com.cainanbt.softwares.controleja.exceptions.models.ForbiddenException;
 import com.cainanbt.softwares.controleja.services.ClosedTestAccessPolicy;
+import com.cainanbt.softwares.controleja.services.EntitlementService;
 import com.cainanbt.softwares.controleja.services.GoogleIdTokenValidator;
 import com.cainanbt.softwares.controleja.services.UsersService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
@@ -33,11 +35,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.mockito.Mockito.doThrow;
 
 @ExtendWith(MockitoExtension.class)
 class AuthServiceImpTest {
@@ -133,6 +135,68 @@ class AuthServiceImpTest {
     }
 
     @Test
+    void shouldRejectUnverifiedEmailOnlyAfterPasswordMatches() {
+        Users user = userWithoutGoogleIdentity();
+        user.setEmailVerified(false);
+        when(usersService.getAnyUserByEmail("google@test.com")).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("123456", "encoded-password")).thenReturn(true);
+
+        UserLoginDTO login = UserLoginDTO.builder()
+                .email("google@test.com")
+                .password("123456")
+                .build();
+
+        ForbiddenException exception = assertThrows(
+                ForbiddenException.class,
+                () -> authService.login(login, request)
+        );
+
+        assertEquals(ConstsMessages.EMAIL_NOT_VERIFIED_TITLE, exception.getTitle());
+        verify(authenticationManager, never()).authenticate(any());
+        verify(jwtService, never()).generateAccessToken(any());
+    }
+
+    @Test
+    void shouldNotRevealUnverifiedEmailWhenPasswordIsWrong() {
+        Users user = userWithoutGoogleIdentity();
+        user.setEmailVerified(false);
+        when(usersService.getAnyUserByEmail("google@test.com")).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("wrong-password", "encoded-password")).thenReturn(false);
+
+        UserLoginDTO login = UserLoginDTO.builder()
+                .email("google@test.com")
+                .password("wrong-password")
+                .build();
+
+        BadRequestException exception = assertThrows(
+                BadRequestException.class,
+                () -> authService.login(login, request)
+        );
+
+        assertEquals(ConstsMessages.WRONG_LOGIN_CREDENTIALS, exception.getDetail());
+    }
+
+    @Test
+    void shouldRejectAutoLoginForUnverifiedLocalAccount() {
+        Users user = userWithoutGoogleIdentity();
+        user.setEmailVerified(false);
+        TokenLoginDTO token = new TokenLoginDTO();
+        token.setToken("stored-refresh-token");
+        UserAuthenticateDTO authentication = new UserAuthenticateDTO(user);
+        when(jwtService.isValidTokenToLogin("stored-refresh-token")).thenReturn(true);
+        when(jwtService.getUserAuthenticateFromRefreshToken("stored-refresh-token")).thenReturn(authentication);
+        when(usersService.getUserByEmail(user.getEmail())).thenReturn(Optional.of(user));
+
+        ForbiddenException exception = assertThrows(
+                ForbiddenException.class,
+                () -> authService.loginAuto(token, request)
+        );
+
+        assertEquals(ConstsMessages.EMAIL_NOT_VERIFIED_TITLE, exception.getTitle());
+        verify(jwtService, never()).generateAccessToken(any());
+    }
+
+    @Test
     void shouldCreateUserFromValidatedGoogleToken() {
         when(googleIdTokenValidator.validate("valid-id-token")).thenReturn(GOOGLE_IDENTITY);
         when(usersService.getUserByEmail("google@test.com")).thenReturn(Optional.empty());
@@ -179,6 +243,7 @@ class AuthServiceImpTest {
         authService.loginGoogle(request("client@fake.com", "fake-google-id", "valid-id-token"), request);
 
         assertTrue(user.getOauth2User());
+        assertTrue(user.getEmailVerified());
         assertEquals("GOOGLE", user.getOauth2Provider());
         assertEquals("google-subject", user.getOauth2ProviderId());
         verify(usersService, never()).createNewUser(any(), any());
@@ -275,6 +340,7 @@ class AuthServiceImpTest {
                 .credentialsNonExpired(true)
                 .role("USER")
                 .oauth2User(oauth2User)
+                .emailVerified(true)
                 .oauth2Provider(provider)
                 .oauth2ProviderId(providerId)
                 .createdAt(DateUtils.getEpochNow())

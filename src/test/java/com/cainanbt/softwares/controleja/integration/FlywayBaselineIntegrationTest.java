@@ -255,13 +255,13 @@ class FlywayBaselineIntegrationTest {
     private void assertMigrationAppliedSuccessfully(Flyway flyway, JdbcTemplate jdbc) {
         MigrationInfo current = flyway.info().current();
         assertNotNull(current);
-        assertEquals("7", current.getVersion().getVersion());
+        assertEquals("8", current.getVersion().getVersion());
         assertEquals(MigrationState.SUCCESS, current.getState());
         assertEquals(
-                7,
+                8,
                 jdbc.queryForObject(
                         "SELECT COUNT(*) FROM flyway_schema_history "
-                                + "WHERE version IN ('1', '2', '3', '4', '5', '6', '7') AND success = true",
+                                + "WHERE version IN ('1', '2', '3', '4', '5', '6', '7', '8') AND success = true",
                         Integer.class
                 )
         );
@@ -384,6 +384,7 @@ class FlywayBaselineIntegrationTest {
                 .statusCode(200)
                 .body("id", notNullValue())
                 .extract().path("id");
+        jdbc.update("UPDATE users SET email_verified = true WHERE id = ?::uuid", userId);
 
         UUID id = UUID.fromString(userId);
         assertEquals(
@@ -484,6 +485,7 @@ class FlywayBaselineIntegrationTest {
                 "enabled",
                 "oauth2user",
                 "local_password_enabled",
+                "email_verified",
                 "session_version",
                 "created_at",
                 "deleted_at",

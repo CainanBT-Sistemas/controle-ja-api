@@ -123,6 +123,7 @@ public class UserResetControllerTest extends BaseTest {
                 .post("/users/register")
                 .then().statusCode(200)
                 .extract().path("id"));
+        verifyEmail(user.getEmail());
 
         String token = given().contentType(ContentType.JSON)
                 .body(UserLoginDTO.builder().email(prefix + "@test.com").password("123456").build())
