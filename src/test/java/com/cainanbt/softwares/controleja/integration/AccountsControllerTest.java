@@ -37,6 +37,7 @@ public class AccountsControllerTest extends BaseTest {
         user.setEmail("owner@bank.com");
         user.setPassword("123456");
         given().contentType(ContentType.JSON).body(user).post("/users/register");
+        verifyEmail(user.getEmail());
 
         UserLoginDTO login = UserLoginDTO.builder().email("owner@bank.com").password("123456").build();
         token = given().contentType(ContentType.JSON).body(login).post("/auth").then().extract().path("tokens.accessToken");
@@ -110,6 +111,7 @@ public class AccountsControllerTest extends BaseTest {
         otherUser.setEmail("intruder@bank.com");
         otherUser.setPassword("123456");
         given().contentType(ContentType.JSON).body(otherUser).post("/users/register");
+        verifyEmail(otherUser.getEmail());
 
         UserLoginDTO otherLogin = UserLoginDTO.builder().email("intruder@bank.com").password("123456").build();
         String otherToken = given().contentType(ContentType.JSON).body(otherLogin).post("/auth").then().extract().path("tokens.accessToken");

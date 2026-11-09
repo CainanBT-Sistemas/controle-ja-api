@@ -1,7 +1,7 @@
 package com.cainanbt.softwares.controleja.services.impl;
 
-import com.cainanbt.softwares.controleja.dtos.GoogleLoginDTO;
 import com.cainanbt.softwares.controleja.dtos.GoogleIdentityDTO;
+import com.cainanbt.softwares.controleja.dtos.GoogleLoginDTO;
 import com.cainanbt.softwares.controleja.dtos.InsertUpdateUserDTO;
 import com.cainanbt.softwares.controleja.dtos.TokenLoginDTO;
 import com.cainanbt.softwares.controleja.dtos.UserAuthenticateDTO;
@@ -11,6 +11,7 @@ import com.cainanbt.softwares.controleja.dtos.responses.AuthResponseDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.UserResponseDTO;
 import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
+import com.cainanbt.softwares.controleja.exceptions.models.ForbiddenException;
 import com.cainanbt.softwares.controleja.services.AuthService;
 import com.cainanbt.softwares.controleja.services.ClosedTestAccessPolicy;
 import com.cainanbt.softwares.controleja.services.EntitlementService;
@@ -69,6 +70,7 @@ public class AuthServiceImp implements AuthService {
         if (!passwordMatches) {
             throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.WRONG_LOGIN_CREDENTIALS);
         }
+        requireVerifiedEmail(user);
         closedTestAccessPolicy.requireAccess(user.getEmail());
         validateActiveUser(user);
 
@@ -108,6 +110,7 @@ public class AuthServiceImp implements AuthService {
             user = usersService.createNewUser(newUserDto, request);
             user.setOauth2User(true);
             user.setLocalPasswordEnabled(false);
+            user.setEmailVerified(true);
             user.setOauth2Provider("GOOGLE");
             user.setOauth2ProviderId(googleIdentity.subject());
         }
@@ -125,10 +128,12 @@ public class AuthServiceImp implements AuthService {
             if (!sameProvider || !sameSubject) {
                 throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.GOOGLE_EMAIL_CONFLICT);
             }
+            user.setEmailVerified(true);
             return;
         }
 
         user.setOauth2User(true);
+        user.setEmailVerified(true);
         user.setOauth2Provider("GOOGLE");
         user.setOauth2ProviderId(googleIdentity.subject());
     }
@@ -189,6 +194,16 @@ public class AuthServiceImp implements AuthService {
     private void validateActiveUser(Users user) {
         if (!user.getEnabled() || !user.getAccountNonLocked()) {
             throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.BLOCKED_USER);
+        }
+        requireVerifiedEmail(user);
+    }
+
+    private void requireVerifiedEmail(Users user) {
+        if (!Boolean.TRUE.equals(user.getEmailVerified())) {
+            throw new ForbiddenException(
+                    ConstsMessages.EMAIL_NOT_VERIFIED_TITLE,
+                    ConstsMessages.EMAIL_NOT_VERIFIED
+            );
         }
     }
 

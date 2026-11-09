@@ -21,8 +21,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class AccountActionTokenServiceTest {
@@ -85,7 +85,7 @@ class AccountActionTokenServiceTest {
         String code = service.issue(
                 "user@test.com",
                 "127.0.0.1",
-                AccountActionPurpose.PASSWORD_RESET,
+                AccountActionPurpose.EMAIL_VERIFICATION,
                 null
         ).orElseThrow();
         String wrongCode = code.equals("999999") ? "888888" : "999999";
@@ -93,7 +93,7 @@ class AccountActionTokenServiceTest {
         for (int attempt = 0; attempt < 5; attempt++) {
             assertThrows(BadRequestException.class, () -> service.verifyForUpdate(
                     "user@test.com",
-                    AccountActionPurpose.PASSWORD_RESET,
+                    AccountActionPurpose.EMAIL_VERIFICATION,
                     wrongCode
             ));
         }
@@ -102,7 +102,7 @@ class AccountActionTokenServiceTest {
         assertTrue(stored.get().getInvalidatedAt() != null);
         assertThrows(BadRequestException.class, () -> service.verifyForUpdate(
                 "user@test.com",
-                AccountActionPurpose.PASSWORD_RESET,
+                AccountActionPurpose.EMAIL_VERIFICATION,
                 code
         ));
     }
@@ -114,14 +114,14 @@ class AccountActionTokenServiceTest {
         String code = service.issue(
                 "user@test.com",
                 "127.0.0.1",
-                AccountActionPurpose.ACCOUNT_REACTIVATION,
+                AccountActionPurpose.EMAIL_VERIFICATION,
                 null
         ).orElseThrow();
         stored.get().setExpiresAt(System.currentTimeMillis() - 1);
 
         assertThrows(BadRequestException.class, () -> service.verifyForUpdate(
                 "user@test.com",
-                AccountActionPurpose.ACCOUNT_REACTIVATION,
+                AccountActionPurpose.EMAIL_VERIFICATION,
                 code
         ));
     }

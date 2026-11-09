@@ -4,6 +4,7 @@ import com.cainanbt.softwares.controleja.dtos.InsertUpdateUserDTO;
 import com.cainanbt.softwares.controleja.dtos.PasswordChangeDTO;
 import com.cainanbt.softwares.controleja.dtos.UpdateProfileDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.UserResponseDTO;
+import com.cainanbt.softwares.controleja.services.EmailVerificationService;
 import com.cainanbt.softwares.controleja.services.UsersService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import jakarta.servlet.http.HttpServletRequest;
@@ -26,9 +27,11 @@ import java.util.UUID;
 public class UsersController {
 
     private final UsersService usersService;
+    private final EmailVerificationService emailVerificationService;
 
-    public UsersController(UsersService usersService) {
+    public UsersController(UsersService usersService, EmailVerificationService emailVerificationService) {
         this.usersService = usersService;
+        this.emailVerificationService = emailVerificationService;
     }
 
     /**
@@ -36,7 +39,9 @@ public class UsersController {
      */
     @PostMapping("/register")
     public ResponseEntity<?> createNewUser(@RequestBody @Valid InsertUpdateUserDTO insertUpdateUser, HttpServletRequest request) {
-        return ResponseEntity.ok(UserResponseDTO.toDTO(usersService.createNewUser(insertUpdateUser, request)));
+        var user = usersService.createNewUser(insertUpdateUser, request);
+        emailVerificationService.requestAfterRegistration(user, request.getRemoteAddr());
+        return ResponseEntity.ok(UserResponseDTO.toDTO(user));
     }
 
     /**

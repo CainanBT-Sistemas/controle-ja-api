@@ -44,6 +44,7 @@ public class AuthControllerTest extends BaseTest {
         user.setPassword("123456");
 
         given().contentType(ContentType.JSON).body(user).post("/users/register").then().statusCode(200);
+        verifyEmail(user.getEmail());
 
         UserLoginDTO login = UserLoginDTO.builder()
                 .email("login@teste.com")
@@ -92,6 +93,7 @@ public class AuthControllerTest extends BaseTest {
         user.setEmail("wrong@teste.com");
         user.setPassword("123456");
         given().contentType(ContentType.JSON).body(user).post("/users/register").then().statusCode(200);
+        verifyEmail(user.getEmail());
 
         UserLoginDTO login = UserLoginDTO.builder()
                 .email("wrong@teste.com")
@@ -112,6 +114,7 @@ public class AuthControllerTest extends BaseTest {
         user.setEmail("auto@teste.com");
         user.setPassword("123456");
         given().contentType(ContentType.JSON).body(user).post("/users/register").then().statusCode(200);
+        verifyEmail(user.getEmail());
 
         UserLoginDTO login = UserLoginDTO.builder().email("auto@teste.com").password("123456").build();
 
@@ -142,6 +145,7 @@ public class AuthControllerTest extends BaseTest {
         user.setEmail(TestUserFixtures.TESTER_EMAIL);
         user.setPassword("123456");
         given().contentType(ContentType.JSON).body(user).post("/users/register").then().statusCode(200);
+        verifyEmail(user.getEmail());
 
         UserLoginDTO login = UserLoginDTO.builder()
                 .email(TestUserFixtures.TESTER_EMAIL)

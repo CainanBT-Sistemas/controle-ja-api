@@ -9,8 +9,8 @@ import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.enums.RoleEnum;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.repositories.UsersRepository;
-import com.cainanbt.softwares.controleja.services.ClosedTestAccessPolicy;
 import com.cainanbt.softwares.controleja.services.AccountDeletionService;
+import com.cainanbt.softwares.controleja.services.ClosedTestAccessPolicy;
 import com.cainanbt.softwares.controleja.services.UsersService;
 import com.cainanbt.softwares.controleja.services.users.UserDefaultDataInitializer;
 import com.cainanbt.softwares.controleja.services.users.UserOperationalDataResetter;
@@ -113,6 +113,7 @@ public class UserServiceImpl implements UsersService {
                     .role(RoleEnum.ROLE_USER.getValue())
                     .oauth2User(false)
                     .localPasswordEnabled(true)
+                    .emailVerified(false)
                     .createdAt(DateUtils.getEpochNow())
                     .build();
 

@@ -42,6 +42,7 @@ public class PasswordRecoveryService {
         user.setRefreshToken(null);
         user.setRefreshTokenExpiry(0L);
         user.setSessionVersion(user.getSessionVersion() + 1L);
+        user.setEmailVerified(true);
         user.setUpdatedAt(DateUtils.getEpochNow());
         usersRepository.save(user);
         tokenService.consume(token);

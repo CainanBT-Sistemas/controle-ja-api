@@ -39,6 +39,19 @@ public final class SecurityErrorResponseWriter {
         );
     }
 
+    public static void writeEmailNotVerifiedForbidden(
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) throws IOException {
+        write(
+                request,
+                response,
+                HttpStatus.FORBIDDEN,
+                ConstsMessages.EMAIL_NOT_VERIFIED_TITLE,
+                ConstsMessages.EMAIL_NOT_VERIFIED
+        );
+    }
+
     private static void write(
             HttpServletRequest request,
             HttpServletResponse response,
