@@ -58,6 +58,25 @@ public class UsersControllerTest extends BaseTest {
     }
 
     @Test
+    @DisplayName("Deve retornar o contrato canonico de entitlements do usuario autenticado")
+    void shouldReturnCurrentUserEntitlements() {
+        given().header("Authorization", "Bearer " + token)
+                .when().get("/users/me/entitlements")
+                .then().statusCode(200)
+                .body("plan", is("FREE"))
+                .body("tester", is(false))
+                .body("plusEquivalent", is(false))
+                .body("adsEnabled", is(true))
+                .body("limits.accounts", is(3))
+                .body("limits.creditCards", is(1))
+                .body("limits.vehicles", is(0))
+                .body("limits.categories", is(5))
+                .body("limits.subcategoriesPerParent", is(2))
+                .body("permissions.vehicleModule", is(false))
+                .body("permissions.noAds", is(false));
+    }
+
+    @Test
     @DisplayName("Deve acessar todas as rotas restritas de usuário")
     void shouldHitAllRestrictedUserEndpoints() {
         UpdateProfileDTO profileDTO = new UpdateProfileDTO();

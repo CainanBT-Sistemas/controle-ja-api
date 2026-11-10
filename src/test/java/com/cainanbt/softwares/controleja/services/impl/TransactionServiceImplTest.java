@@ -24,6 +24,7 @@ import com.cainanbt.softwares.controleja.services.InvoicesService;
 import com.cainanbt.softwares.controleja.services.RecurrenceRuleService;
 import com.cainanbt.softwares.controleja.services.VehicleService;
 import com.cainanbt.softwares.controleja.services.invoices.InvoiceDateService;
+import com.cainanbt.softwares.controleja.services.entitlements.EntitlementMutationGuard;
 import com.cainanbt.softwares.controleja.services.processors.TransactionHelper;
 import com.cainanbt.softwares.controleja.services.processors.TransactionProcessorFactory;
 import com.cainanbt.softwares.controleja.services.vehicles.VehicleOdometerTimelineService;
@@ -91,6 +92,8 @@ class TransactionServiceImplTest {
     private VehicleRefuelMetricsService refuelMetricsService;
     @Mock
     private InvoiceDateService invoiceDateService;
+    @Mock
+    private EntitlementMutationGuard entitlementGuard;
 
     @InjectMocks
     private TransactionServiceImpl service;
@@ -100,6 +103,46 @@ class TransactionServiceImplTest {
     @BeforeEach
     void setUp() {
         currentUser = Users.builder().id(UUID.randomUUID()).build();
+    }
+
+    @Test
+    void updateTransaction_whenCurrentAccountIsPlanRestricted_shouldBlockBeforeSaving() {
+        UUID transactionId = UUID.randomUUID();
+        Accounts account = Accounts.builder()
+                .id(UUID.randomUUID())
+                .type(AccountType.BANK)
+                .planRestricted(true)
+                .user(currentUser)
+                .build();
+        Category category = Category.builder().id(UUID.randomUUID()).user(currentUser).build();
+        Transactions transaction = Transactions.builder()
+                .id(transactionId)
+                .name("Despesa")
+                .type(TransactionType.DESPESA)
+                .amount(BigDecimal.TEN)
+                .paid(false)
+                .fixed(false)
+                .account(account)
+                .category(category)
+                .user(currentUser)
+                .build();
+        TransactionDTO dto = new TransactionDTO();
+        dto.setName("Novo nome");
+
+        when(repository.findByIdAndNotDeleted(transactionId)).thenReturn(Optional.of(transaction));
+        doThrow(new BadRequestException("Recurso indisponível no plano", "Use o Plus."))
+                .when(entitlementGuard).requireAvailable(account);
+
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            assertThrows(
+                    BadRequestException.class,
+                    () -> service.updateTransaction(transactionId, dto, OperationScope.ONLY_THIS)
+            );
+        }
+
+        verify(repository, never()).save(any(Transactions.class));
     }
 
     @Test
@@ -199,6 +242,82 @@ class TransactionServiceImplTest {
             assertEquals(new BigDecimal("0.01"), card.getCurrentLimit());
             verify(creditCardService, never()).updateLimit(any());
         }
+    }
+
+    @Test
+    void updateTransactionDTO_whenCreditCardIsPlanRestricted_shouldBlockBeforeSaving() {
+        try (MockedStatic<SecurityContextUtils> mocked = Mockito.mockStatic(SecurityContextUtils.class)) {
+            mocked.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+
+            UUID purchaseId = UUID.randomUUID();
+            CreditCard card = CreditCard.builder()
+                    .id(UUID.randomUUID())
+                    .planRestricted(true)
+                    .user(currentUser)
+                    .build();
+            Invoices invoice = invoice(false, "100.00", card, 5, 2026);
+            InstallmentPlan installment = installment(purchaseId, invoice, 1, 1, "100.00", false);
+            Transactions purchase = Transactions.builder()
+                    .id(purchaseId)
+                    .name("Compra")
+                    .type(TransactionType.DESPESA)
+                    .amount(new BigDecimal("100.00"))
+                    .creditCard(card)
+                    .user(currentUser)
+                    .build();
+            TransactionDTO dto = new TransactionDTO();
+            dto.setName("Compra alterada");
+
+            when(invoicesService.findById(installment.getId())).thenReturn(Optional.empty());
+            when(installmentPlanService.findById(installment.getId())).thenReturn(Optional.of(installment));
+            when(repository.findById(purchaseId)).thenReturn(Optional.of(purchase));
+            when(installmentPlanService.findByPurchaseId(purchaseId)).thenReturn(List.of(installment));
+            doThrow(new BadRequestException("Recurso indisponível no plano", "Use o Plus."))
+                    .when(entitlementGuard).requireAvailable(card);
+
+            assertThrows(
+                    BadRequestException.class,
+                    () -> service.updateTransactionDTO(installment.getId(), dto, OperationScope.ALL)
+            );
+
+            verify(installmentPlanService, never()).saveAll(anyList());
+            verify(repository, never()).save(any(Transactions.class));
+        }
+    }
+
+    @Test
+    void generateProjectionsForRule_whenAccountIsPlanRestricted_shouldNotCreateTransactions() {
+        Accounts account = Accounts.builder()
+                .id(UUID.randomUUID())
+                .type(AccountType.BANK)
+                .planRestricted(true)
+                .user(currentUser)
+                .build();
+        Category category = Category.builder().id(UUID.randomUUID()).user(currentUser).build();
+        long startDate = DateUtils.localDateToEpoch(LocalDate.of(2026, 5, 1));
+        RecurrenceRule rule = RecurrenceRule.builder()
+                .id(UUID.randomUUID())
+                .name("Mensalidade")
+                .baseAmount(BigDecimal.TEN)
+                .type(TransactionType.DESPESA)
+                .frequency(RecurrenceFrequency.MONTHLY)
+                .startDate(startDate)
+                .status(RuleStatus.ACTIVE)
+                .account(account)
+                .category(category)
+                .user(currentUser)
+                .build();
+
+        doThrow(new BadRequestException("Recurso indisponível no plano", "Use o Plus."))
+                .when(entitlementGuard).requireAvailable(account);
+
+        assertThrows(
+                BadRequestException.class,
+                () -> service.generateProjectionsForRule(rule, LocalDate.of(2026, 6, 1))
+        );
+
+        verify(repository, never()).save(any(Transactions.class));
+        verify(repository, never()).saveAll(anyList());
     }
 
     @Test

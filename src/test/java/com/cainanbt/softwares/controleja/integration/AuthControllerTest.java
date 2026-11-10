@@ -155,12 +155,11 @@ public class AuthControllerTest extends BaseTest {
         given().contentType(ContentType.JSON).body(login)
                 .when().post("/auth")
                 .then().statusCode(200)
-                .body("entitlements.plan", is("TESTER"))
+                .body("entitlements.plan", is("TESTER_PLUS"))
                 .body("entitlements.tester", is(true))
                 .body("entitlements.plusEquivalent", is(true))
                 .body("entitlements.adsEnabled", is(false))
                 .body("entitlements.permissions.vehicleModule", is(true))
-                .body("entitlements.permissions.expandedLimits", is(true))
                 .body("entitlements.permissions.noAds", is(true));
     }
 

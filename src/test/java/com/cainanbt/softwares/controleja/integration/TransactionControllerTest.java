@@ -61,6 +61,7 @@ public class TransactionControllerTest extends BaseTest {
                 .then().statusCode(200)
                 .extract().path("id"));
         verifyEmail(email);
+        jdbcTemplate.update("UPDATE users SET plan = 'PLUS' WHERE id = ?", userId);
 
         UserLoginDTO login = UserLoginDTO.builder().email(email).password("123456").build();
         token = given().contentType(ContentType.JSON).body(login).post("/auth").then().extract().path("tokens.accessToken");

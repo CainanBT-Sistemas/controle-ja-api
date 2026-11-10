@@ -83,7 +83,7 @@ class ClosedTestAccessIntegrationTest extends BaseTest {
                         .build())
                 .when().post("/auth")
                 .then().statusCode(200)
-                .body("entitlements.plan", is("TESTER"))
+                .body("entitlements.plan", is("TESTER_PLUS"))
                 .body("entitlements.tester", is(true))
                 .body("tokens.accessToken", notNullValue())
                 .extract().path("tokens.refreshToken");
@@ -91,7 +91,7 @@ class ClosedTestAccessIntegrationTest extends BaseTest {
         given().contentType(ContentType.JSON).body(Map.of("token", refreshToken))
                 .when().post("/auth/auto-login")
                 .then().statusCode(200)
-                .body("entitlements.plan", is("TESTER"))
+                .body("entitlements.plan", is("TESTER_PLUS"))
                 .body("tokens.refreshToken", notNullValue());
     }
 
@@ -148,7 +148,7 @@ class ClosedTestAccessIntegrationTest extends BaseTest {
                 .when().post("/auth/google")
                 .then().statusCode(200)
                 .body("email", is(allowedEmail))
-                .body("entitlements.plan", is("TESTER"));
+                .body("entitlements.plan", is("TESTER_PLUS"));
 
         String deniedEmail = uniqueEmail("google-denied");
         when(googleIdTokenValidator.validate("denied-google-token"))
@@ -268,7 +268,7 @@ class ClosedTestAccessIntegrationTest extends BaseTest {
                 .when().post("/auth")
                 .then().statusCode(200)
                 .body("id", is(userId))
-                .body("entitlements.plan", is("TESTER"));
+                .body("entitlements.plan", is("TESTER_PLUS"));
     }
 
     private Users createExistingUser(String email) {

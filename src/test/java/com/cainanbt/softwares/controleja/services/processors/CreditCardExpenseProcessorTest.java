@@ -15,6 +15,7 @@ import com.cainanbt.softwares.controleja.services.AccountsService;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
 import com.cainanbt.softwares.controleja.services.InstallmentPlanService;
 import com.cainanbt.softwares.controleja.services.InvoicesService;
+import com.cainanbt.softwares.controleja.services.entitlements.EntitlementMutationGuard;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -53,6 +54,8 @@ class CreditCardExpenseProcessorTest {
     private AccountsService accountsService;
     @Mock
     private TransactionHelper helper;
+    @Mock
+    private EntitlementMutationGuard entitlementGuard;
 
     @InjectMocks
     private CreditCardExpenseProcessor processor;
@@ -141,6 +144,7 @@ class CreditCardExpenseProcessorTest {
 
         assertEquals(BigDecimal.ZERO, cardAccount.getCurrentBalance());
         assertEquals(new BigDecimal("380.00"), card.getCurrentLimit());
+        verify(entitlementGuard).requireAvailable(card);
         assertEquals(new BigDecimal("120.00"), invoice.getAmount());
         verify(accountsService, never()).update(cardAccount);
 

@@ -140,7 +140,11 @@ class FlywayBaselineIntegrationTest {
             "idx_vehicles_purge_deleted_id",
             "idx_category_purge_deleted_id",
             "idx_accounts_purge_deleted_id",
-            "idx_users_deleted_id"
+            "idx_users_deleted_id",
+            "idx_accounts_plan_limits",
+            "idx_credit_cards_plan_limits",
+            "idx_category_plan_limits",
+            "idx_vehicles_plan_limits"
     );
 
     @BeforeAll
@@ -255,13 +259,13 @@ class FlywayBaselineIntegrationTest {
     private void assertMigrationAppliedSuccessfully(Flyway flyway, JdbcTemplate jdbc) {
         MigrationInfo current = flyway.info().current();
         assertNotNull(current);
-        assertEquals("8", current.getVersion().getVersion());
+        assertEquals("9", current.getVersion().getVersion());
         assertEquals(MigrationState.SUCCESS, current.getState());
         assertEquals(
-                8,
+                9,
                 jdbc.queryForObject(
                         "SELECT COUNT(*) FROM flyway_schema_history "
-                                + "WHERE version IN ('1', '2', '3', '4', '5', '6', '7', '8') AND success = true",
+                                + "WHERE version IN ('1', '2', '3', '4', '5', '6', '7', '8', '9') AND success = true",
                         Integer.class
                 )
         );
@@ -486,6 +490,8 @@ class FlywayBaselineIntegrationTest {
                 "oauth2user",
                 "local_password_enabled",
                 "email_verified",
+                "entitlement_version",
+                "entitlement_touched_at",
                 "session_version",
                 "created_at",
                 "deleted_at",
@@ -500,6 +506,7 @@ class FlywayBaselineIntegrationTest {
                 "password",
                 "refresh_token",
                 "role",
+                "plan",
                 "username"
         ));
         columns.put("account_action_tokens", Set.of(
@@ -523,6 +530,7 @@ class FlywayBaselineIntegrationTest {
                 "enabled",
                 "initial_balance",
                 "is_default",
+                "plan_restricted",
                 "created_at",
                 "deleted_at",
                 "updated_at",
@@ -539,6 +547,7 @@ class FlywayBaselineIntegrationTest {
                 "enabled",
                 "is_default",
                 "is_sub_category",
+                "plan_restricted",
                 "created_at",
                 "deleted_at",
                 "updated_at",
@@ -555,6 +564,7 @@ class FlywayBaselineIntegrationTest {
                 "close_day",
                 "current_limit",
                 "enabled",
+                "plan_restricted",
                 "total_limit",
                 "created_at",
                 "deleted_at",
@@ -573,6 +583,7 @@ class FlywayBaselineIntegrationTest {
                 "current_odometer",
                 "initial_odometer",
                 "tank_capacity",
+                "plan_restricted",
                 "year",
                 "created_at",
                 "deleted_at",
@@ -706,6 +717,7 @@ class FlywayBaselineIntegrationTest {
                 "id",
                 "email",
                 "normalized_email",
+                "profile",
                 "reason"
         ));
         return Map.copyOf(columns);

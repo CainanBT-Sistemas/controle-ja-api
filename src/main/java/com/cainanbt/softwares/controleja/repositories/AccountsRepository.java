@@ -18,6 +18,16 @@ public interface AccountsRepository extends JpaRepository<Accounts, UUID> {
     @Query("SELECT a FROM Accounts a WHERE a.user.id = :userId AND a.deletedAt IS NULL AND a.type <> com.cainanbt.softwares.controleja.enums.AccountType.CREDIT_CARD ORDER BY a.createdAt DESC")
     List<Accounts> findByUserId(UUID userId);
 
+    @Query("SELECT COUNT(a) FROM Accounts a WHERE a.user.id = :userId AND a.deletedAt IS NULL "
+            + "AND a.enabled = true AND a.planRestricted = false "
+            + "AND a.type <> com.cainanbt.softwares.controleja.enums.AccountType.CREDIT_CARD")
+    long countAvailableFinancialAccounts(UUID userId);
+
+    @Query("SELECT a FROM Accounts a WHERE a.user.id = :userId AND a.deletedAt IS NULL "
+            + "AND a.type <> com.cainanbt.softwares.controleja.enums.AccountType.CREDIT_CARD "
+            + "ORDER BY a.createdAt ASC, a.id ASC")
+    List<Accounts> findFinancialAccountsForReconciliation(UUID userId);
+
     /**
      * Busca uma conta ativa pelo ID, respeitando soft delete.
      */

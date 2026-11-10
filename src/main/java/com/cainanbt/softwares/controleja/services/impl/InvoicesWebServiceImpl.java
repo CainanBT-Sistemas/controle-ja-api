@@ -29,6 +29,7 @@ import com.cainanbt.softwares.controleja.services.invoices.InvoiceDateService;
 import com.cainanbt.softwares.controleja.services.invoices.InvoiceDomainValidator;
 import com.cainanbt.softwares.controleja.services.invoices.InvoiceTotalsCalculator;
 import com.cainanbt.softwares.controleja.services.invoices.InvoiceTotalsSummary;
+import com.cainanbt.softwares.controleja.services.entitlements.EntitlementMutationGuard;
 import com.cainanbt.softwares.controleja.services.web.InvoicesWebService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
@@ -64,6 +65,7 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
     private final CategoryService categoryService;
     private final TransactionService transactionService;
     private final TransactionRepository transactionRepository;
+    private final EntitlementMutationGuard entitlementGuard;
 
     /**
      * Monta a visão detalhada da fatura com datas, status, totais e itens enriquecidos pela transação pai.
@@ -823,6 +825,7 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         invoiceDomainValidator.validatePaymentRequest(request);
 
         Users currentUser = SecurityContextUtils.getCurrentUser();
+        entitlementGuard.reconcileForMutation(currentUser);
         Invoices invoice = invoicesService.findByIdOrThrow(invoiceId);
         invoiceDomainValidator.validateInvoiceOwner(invoice, currentUser);
 
@@ -839,6 +842,7 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
 
         Accounts sourceAccount = accountsService.findByIdOrThrow(request.getAccountId());
         invoiceDomainValidator.validatePaymentSourceAccount(sourceAccount, currentUser);
+        entitlementGuard.requireAvailable(sourceAccount);
 
         CreditCard card = invoiceDomainValidator.requireInvoiceCard(invoice);
         Accounts cardAccount = invoiceDomainValidator.requireCardAccount(card);

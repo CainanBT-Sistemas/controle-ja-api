@@ -11,6 +11,8 @@ import com.cainanbt.softwares.controleja.repositories.RecurrenceRuleRepository;
 import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.services.AccountsService;
 import com.cainanbt.softwares.controleja.services.accounts.AccountDomainValidator;
+import com.cainanbt.softwares.controleja.services.entitlements.EntitlementMutationGuard;
+import com.cainanbt.softwares.controleja.services.entitlements.PlanLimits;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
@@ -38,13 +40,21 @@ public class AccountsServiceImpl implements AccountsService {
     private final TransactionRepository transactionRepository;
     private final RecurrenceRuleRepository recurrenceRuleRepository;
     private final CreditCardRepository creditCardRepository;
+    private final EntitlementMutationGuard entitlementGuard;
 
     /**
      * Cria uma conta financeira do usuário autenticado, aplicando padrões visuais e bloqueando duplicidade.
      */
     @Override
+    @Transactional
     public Accounts createAccount(AccountDTO dto) {
         Users user = SecurityContextUtils.getCurrentUser();
+        PlanLimits limits = entitlementGuard.touchAndGetLimits(user);
+        entitlementGuard.requireCapacity(
+                repository.countAvailableFinancialAccounts(user.getId()),
+                limits.accounts(),
+                "contas"
+        );
         String normalizedName = normalizeName(dto.getName());
         accountDomainValidator.validateUniqueNameAndType(repository, user.getId(), normalizedName, dto.getType(), null);
 
@@ -109,9 +119,11 @@ public class AccountsServiceImpl implements AccountsService {
      */
     @Override
     public Accounts updateAccount(UUID id, AccountDTO dto) {
-        Accounts account = findByIdOrThrow(id);
         Users currentUser = SecurityContextUtils.getCurrentUser();
+        entitlementGuard.reconcileForMutation(currentUser);
+        Accounts account = findByIdOrThrow(id);
         accountDomainValidator.validateOwner(account, currentUser);
+        entitlementGuard.requireAvailable(account);
 
         String normalizedName = normalizeName(dto.getName());
         accountDomainValidator.validateUniqueNameAndType(repository, currentUser.getId(), normalizedName, dto.getType(), account.getId());

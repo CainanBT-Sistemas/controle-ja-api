@@ -12,8 +12,6 @@ import java.math.BigDecimal;
  */
 public class CreditCardDomainValidator {
 
-    private static final int FREE_PLAN_CARD_LIMIT = 2;
-
     /**
      * Garante que o cartão pertence ao usuário autenticado antes de expor ou alterar dados.
      */
@@ -21,15 +19,6 @@ public class CreditCardDomainValidator {
         if (card == null || card.getUser() == null || currentUser == null
                 || !card.getUser().getId().equals(currentUser.getId())) {
             throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_CARD);
-        }
-    }
-
-    /**
-     * Bloqueia criação acima do limite permitido para o plano atual.
-     */
-    public void validateCanCreate(long activeCardsCount) {
-        if (activeCardsCount >= FREE_PLAN_CARD_LIMIT) {
-            throw new BadRequestException(ConstsMessages.LIMIT_REACHED_TITLE, ConstsMessages.LIMIT_REACHED_CARDS);
         }
     }
 

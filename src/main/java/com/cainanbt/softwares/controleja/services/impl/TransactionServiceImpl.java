@@ -27,6 +27,7 @@ import com.cainanbt.softwares.controleja.services.InvoicesService;
 import com.cainanbt.softwares.controleja.services.RecurrenceRuleService;
 import com.cainanbt.softwares.controleja.services.TransactionService;
 import com.cainanbt.softwares.controleja.services.VehicleService;
+import com.cainanbt.softwares.controleja.services.entitlements.EntitlementMutationGuard;
 import com.cainanbt.softwares.controleja.services.invoices.InvoiceDateService;
 import com.cainanbt.softwares.controleja.services.processors.TransactionHelper;
 import com.cainanbt.softwares.controleja.services.processors.TransactionProcessor;
@@ -88,17 +89,20 @@ public class TransactionServiceImpl implements TransactionService {
     private final VehicleOdometerTimelineService odometerTimelineService;
     private final VehicleRefuelMetricsService refuelMetricsService;
     private final InvoiceDateService invoiceDateService;
+    private final EntitlementMutationGuard entitlementGuard;
 
     @Override
     @Transactional
     public Transactions createTransaction(TransactionDTO dto) {
         Users user = SecurityContextUtils.getCurrentUser();
+        entitlementGuard.reconcileForMutation(user);
         Accounts account = accountsService.findById(dto.getAccountId())
                 .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.ACCOUNT_NOT_FOUND));
 
         if (!account.getUser().getId().equals(user.getId())) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_ACCOUNT);
         }
+        entitlementGuard.requireAvailable(account);
 
         Category category;
         if (dto.getType() == TransactionType.TRANSFERENCIA) {
@@ -110,6 +114,7 @@ public class TransactionServiceImpl implements TransactionService {
                     .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.CATEGORY_NOT_FOUND));
             validateCategoryForTransaction(category);
         }
+        entitlementGuard.requireAvailable(category);
         validateVehicleOdometerOnCreate(dto, user);
 
         TransactionProcessor processor = processorFactory.getProcessor(dto, account);
@@ -196,6 +201,7 @@ public class TransactionServiceImpl implements TransactionService {
     @Override
     @Transactional
     public TransactionResponseDTO updateTransactionDTO(UUID id, TransactionDTO dto, OperationScope operationScope) {
+        entitlementGuard.reconcileForMutation(SecurityContextUtils.getCurrentUser());
         OperationScope scope = normalizeScope(operationScope);
         Optional<Invoices> invOpt = invoicesService.findById(id);
 
@@ -654,6 +660,8 @@ public class TransactionServiceImpl implements TransactionService {
         }
 
         CreditCard targetCard = resolveTargetCard(dto, purchase, activeInstallments);
+        entitlementGuard.requireAvailable(targetCard);
+        entitlementGuard.requireAvailable(purchase != null ? purchase.getCategory() : null);
         Map<UUID, Invoices> invoicesToUpdate = new HashMap<>();
         int referenceInstallment = reference != null
                 ? reference.getCurrentInstallment()
@@ -788,6 +796,7 @@ public class TransactionServiceImpl implements TransactionService {
 
         List<InstallmentPlan> selectedInstallments = installmentsByPurchase.get(selectedPurchase.getId());
         CreditCard targetCard = resolveTargetCard(dto, selectedPurchase, selectedInstallments);
+        entitlementGuard.requireAvailable(targetCard);
         if (targetCard.getUser() == null || !targetCard.getUser().getId().equals(currentUser.getId())) {
             throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_ACCOUNT);
         }
@@ -796,6 +805,7 @@ public class TransactionServiceImpl implements TransactionService {
             targetCategory = categoryService.findByIdOrThrow(dto.getCategoryId());
             validateCategoryForTransaction(targetCategory);
         }
+        entitlementGuard.requireAvailable(targetCategory);
 
         Long newSeriesStart = dto.getDate() != null ? dto.getDate() : selectedOriginalDate;
         Long newSeriesEnd = dto.getRecurrenceEndDate() != null ? dto.getRecurrenceEndDate() : originalRuleEndDate;
@@ -1578,7 +1588,6 @@ public class TransactionServiceImpl implements TransactionService {
         if (!transaction.getUser().getId().equals(currentUser.getId())) {
             throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_TRANSACTION);
         }
-
         if (isTransferSide(transaction)) {
             deleteTransferPair(transaction, scope, dateNow, currentUser);
             return;
@@ -1776,6 +1785,11 @@ public class TransactionServiceImpl implements TransactionService {
         if (!transaction.getUser().getId().equals(currentUser.getId())) {
             throw new BadRequestException(ConstsMessages.ACCESS_DENIED_TITLE, ConstsMessages.NO_PERMISSION_TRANSACTION);
         }
+        entitlementGuard.requireAvailable(transaction.getAccount());
+        entitlementGuard.requireAvailable(transaction.getCategory());
+        if (transaction.getVehicle() != null) {
+            entitlementGuard.requireAvailable(transaction.getVehicle());
+        }
         if (transaction.getType() == TransactionType.PAGAMENTO_FATURA || dto.getType() == TransactionType.PAGAMENTO_FATURA) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.INVOICE_PAYMENT_EDIT_BLOCKED);
         }
@@ -1856,6 +1870,7 @@ public class TransactionServiceImpl implements TransactionService {
             if (!currentAccount.getUser().getId().equals(currentUser.getId())) {
                 throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_ACCOUNT);
             }
+            entitlementGuard.requireAvailable(currentAccount);
             transaction.setAccount(currentAccount);
         }
 
@@ -1863,6 +1878,7 @@ public class TransactionServiceImpl implements TransactionService {
         if (dto.getCategoryId() != null) {
             currentCategory = categoryService.findByIdOrThrow(dto.getCategoryId());
         }
+        entitlementGuard.requireAvailable(currentCategory);
         validateCategoryForTransaction(currentCategory);
         transaction.setCategory(currentCategory);
 
@@ -2059,6 +2075,7 @@ public class TransactionServiceImpl implements TransactionService {
             if (!vehicle.getUser().getId().equals(currentUser.getId())) {
                 throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_VEHICLE);
             }
+            entitlementGuard.requireAvailable(vehicle);
             transaction.setVehicle(vehicle);
         }
 
@@ -2326,8 +2343,15 @@ public class TransactionServiceImpl implements TransactionService {
     @Override
     @Transactional
     public void generateProjectionsForRule(RecurrenceRule rule, LocalDate limitDate) {
+        entitlementGuard.reconcileForMutation(rule.getUser());
         if (rule.getType() == TransactionType.TRANSFERENCIA) {
             rule.setCategory(categoryService.findTransferCategory(rule.getUser()));
+        }
+        entitlementGuard.requireAvailable(rule.getAccount());
+        entitlementGuard.requireAvailable(rule.getTargetAccount());
+        entitlementGuard.requireAvailable(rule.getCategory());
+        if (rule.getAccount().getType() == AccountType.CREDIT_CARD) {
+            entitlementGuard.requireAvailable(creditCardService.findByAccountId(rule.getAccount().getId()));
         }
         Long maxDateEpoch = repository.findMaxDateByRuleId(rule.getId());
         LocalDate nextDate = (maxDateEpoch != null) ? calculateNextDate(DateUtils.epochToLocalDate(maxDateEpoch), rule.getFrequency()) : DateUtils.epochToLocalDate(rule.getStartDate());

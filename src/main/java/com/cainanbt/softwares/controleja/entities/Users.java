@@ -1,10 +1,14 @@
 package com.cainanbt.softwares.controleja.entities;
 
+import com.cainanbt.softwares.controleja.enums.EffectivePlan;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -51,6 +55,17 @@ public class Users {
     private Boolean credentialsNonExpired;
     @Column(nullable = false)
     private String role;
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private EffectivePlan plan = EffectivePlan.FREE;
+    @Builder.Default
+    @Version
+    @Column(name = "entitlement_version", nullable = false)
+    private Long entitlementVersion = 0L;
+    @Builder.Default
+    @Column(name = "entitlement_touched_at", nullable = false)
+    private Long entitlementTouchedAt = 0L;
     @Column(nullable = false)
     private Boolean oauth2User;
     @Column(nullable = false)

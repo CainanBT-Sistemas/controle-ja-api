@@ -9,6 +9,7 @@ import com.cainanbt.softwares.controleja.enums.TransactionType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.services.VehicleService;
+import com.cainanbt.softwares.controleja.services.entitlements.EntitlementMutationGuard;
 import com.cainanbt.softwares.controleja.services.vehicles.VehicleConsumptionCalculator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -36,6 +38,8 @@ class VehicleTransactionProcessorTest {
     private TransactionRepository transactionRepository;
     @Mock
     private VehicleConsumptionCalculator vehicleConsumptionCalculator;
+    @Mock
+    private EntitlementMutationGuard entitlementGuard;
 
     @InjectMocks
     private VehicleTransactionProcessor processor;
@@ -77,6 +81,7 @@ class VehicleTransactionProcessorTest {
         assertNull(transaction.getLiters());
         assertNull(transaction.getFuelType());
         assertFalse(transaction.getFullTank());
+        verify(entitlementGuard).requireAvailable(vehicle);
     }
 
     @Test

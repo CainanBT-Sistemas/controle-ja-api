@@ -240,8 +240,8 @@ public class UserResetControllerTest extends BaseTest {
 
     private void insertClosedTester(String email) {
         jdbc.update("""
-                INSERT INTO closed_test_testers (enabled, created_at, id, email, normalized_email)
-                VALUES (true, ?, ?, ?, ?)
+                INSERT INTO closed_test_testers (enabled, created_at, id, email, normalized_email, profile)
+                VALUES (true, ?, ?, ?, ?, 'TESTER_PLUS')
                 """, System.currentTimeMillis(), UUID.randomUUID(), email, email.toLowerCase());
     }
 

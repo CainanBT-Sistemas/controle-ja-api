@@ -11,6 +11,7 @@ import com.cainanbt.softwares.controleja.enums.TransactionType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.services.AccountsService;
+import com.cainanbt.softwares.controleja.services.entitlements.EntitlementMutationGuard;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
@@ -26,6 +27,7 @@ public class TransferProcessor implements TransactionProcessor {
     private final AccountsService accountsService;
     private final TransactionRepository repository;
     private final TransactionHelper helper;
+    private final EntitlementMutationGuard entitlementGuard;
 
     @Override
     public boolean supports(TransactionDTO dto, Accounts account) {
@@ -47,6 +49,8 @@ public class TransferProcessor implements TransactionProcessor {
         if (!accountDest.getUser().getId().equals(user.getId())) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_ACCOUNT);
         }
+        entitlementGuard.requireAvailable(accountOrigin);
+        entitlementGuard.requireAvailable(accountDest);
         if (accountOrigin.getId().equals(accountDest.getId())) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, "A conta de origem e destino devem ser diferentes.");
         }

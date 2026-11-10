@@ -18,6 +18,7 @@ public class VehicleResponseDTO {
     private Integer year;
     private String plate;
     private Double tankCapacity;
+    private Boolean planRestricted;
 
     public static VehicleResponseDTO toDTO(Vehicle entity) {
         VehicleResponseDTO dto = new VehicleResponseDTO();
@@ -31,6 +32,7 @@ public class VehicleResponseDTO {
         dto.setPlate(entity.getPlate());
         dto.setYear(entity.getYear());
         dto.setTankCapacity(entity.getTankCapacity());
+        dto.setPlanRestricted(Boolean.TRUE.equals(entity.getPlanRestricted()));
         return dto;
     }
 }

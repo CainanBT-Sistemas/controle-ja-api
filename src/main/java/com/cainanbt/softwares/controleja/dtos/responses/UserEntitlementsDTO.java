@@ -10,5 +10,6 @@ public class UserEntitlementsDTO {
     private Boolean tester;
     private Boolean plusEquivalent;
     private Boolean adsEnabled;
+    private UserEntitlementLimitsDTO limits;
     private UserEntitlementPermissionsDTO permissions;
 }

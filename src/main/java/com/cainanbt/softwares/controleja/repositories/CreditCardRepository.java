@@ -14,7 +14,13 @@ public interface CreditCardRepository extends JpaRepository<CreditCard, UUID> {
     /**
      * Conta cartões ativos do usuário para aplicar limites do plano.
      */
-    long countByUserId(UUID userId);
+    @Query("SELECT COUNT(c) FROM CreditCard c WHERE c.user.id = :userId AND c.deletedAt IS NULL "
+            + "AND c.enabled = true AND c.planRestricted = false")
+    long countAvailableByUserId(UUID userId);
+
+    @Query("SELECT c FROM CreditCard c WHERE c.user.id = :userId AND c.deletedAt IS NULL "
+            + "ORDER BY c.createdAt ASC, c.id ASC")
+    List<CreditCard> findForReconciliation(UUID userId);
 
     /**
      * Lista cartões ativos do usuário autenticado.

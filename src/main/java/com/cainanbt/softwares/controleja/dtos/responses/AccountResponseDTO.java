@@ -15,6 +15,7 @@ public class AccountResponseDTO {
     private String institution;
     private BigDecimal currentBalance;
     private Boolean enabled;
+    private Boolean planRestricted;
 
     private String icon;
     private String color;
@@ -29,6 +30,7 @@ public class AccountResponseDTO {
         dto.setInstitution(entity.getInstitution());
         dto.setCurrentBalance(entity.getCurrentBalance());
         dto.setEnabled(entity.getEnabled());
+        dto.setPlanRestricted(Boolean.TRUE.equals(entity.getPlanRestricted()));
         dto.setIcon(entity.getIcon());
         dto.setColor(entity.getColor());
         dto.setIsDefault(entity.getIsDefault());

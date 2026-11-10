@@ -10,8 +10,6 @@ import com.cainanbt.softwares.controleja.utils.ConstsMessages;
  */
 public class CategoryDomainValidator {
 
-    private static final int FREE_PLAN_CHILD_CATEGORY_LIMIT = 2;
-
     /**
      * Garante que a categoria pertence ao usuário autenticado antes de expor ou alterar dados.
      */
@@ -29,18 +27,6 @@ public class CategoryDomainValidator {
         validateOwner(parent, currentUser);
         if (Boolean.TRUE.equals(parent.getIsSubCategory())) {
             throw new BadRequestException("Ação não permitida", "Não é possível criar uma subcategoria dentro de outra. O limite é de 1 nível.");
-        }
-    }
-
-    /**
-     * Bloqueia criação acima do limite permitido de subcategorias no plano atual.
-     */
-    public void validateCanAddChildCategory(long activeChildrenCount) {
-        if (activeChildrenCount >= FREE_PLAN_CHILD_CATEGORY_LIMIT) {
-            throw new BadRequestException(
-                    "Limite Atingido",
-                    "Você atingiu o limite de 2 subcategorias por categoria pai. Assine o Premium para liberar acesso ilimitado!"
-            );
         }
     }
 

@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.UUID;
 
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
@@ -32,14 +33,16 @@ public class AccountsControllerTest extends BaseTest {
     @BeforeEach
     void setupUser() {
         log.info("Starting AccountsControllerTest");
+        String unique = UUID.randomUUID().toString().substring(0, 8);
+        String email = "owner_" + unique + "@bank.com";
         InsertUpdateUserDTO user = new InsertUpdateUserDTO();
-        user.setUsername("account_owner");
-        user.setEmail("owner@bank.com");
+        user.setUsername("account_owner_" + unique);
+        user.setEmail(email);
         user.setPassword("123456");
-        given().contentType(ContentType.JSON).body(user).post("/users/register");
+        given().contentType(ContentType.JSON).body(user).post("/users/register").then().statusCode(200);
         verifyEmail(user.getEmail());
 
-        UserLoginDTO login = UserLoginDTO.builder().email("owner@bank.com").password("123456").build();
+        UserLoginDTO login = UserLoginDTO.builder().email(email).password("123456").build();
         token = given().contentType(ContentType.JSON).body(login).post("/auth").then().extract().path("tokens.accessToken");
     }
 

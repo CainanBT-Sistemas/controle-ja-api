@@ -7,6 +7,8 @@ import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.exceptions.models.EntityNotFoundException;
 import com.cainanbt.softwares.controleja.repositories.VehicleRepository;
 import com.cainanbt.softwares.controleja.services.VehicleService;
+import com.cainanbt.softwares.controleja.services.entitlements.EntitlementMutationGuard;
+import com.cainanbt.softwares.controleja.services.entitlements.PlanLimits;
 import com.cainanbt.softwares.controleja.services.vehicles.VehicleDomainValidator;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
@@ -14,6 +16,7 @@ import com.cainanbt.softwares.controleja.utils.ID;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -24,13 +27,21 @@ import java.util.UUID;
 public class VehicleServiceImpl implements VehicleService {
     private final VehicleDomainValidator vehicleDomainValidator = new VehicleDomainValidator();
     private final VehicleRepository repository;
+    private final EntitlementMutationGuard entitlementGuard;
 
     /**
      * Cria um veículo do usuário autenticado usando o odômetro informado como leitura inicial e atual.
      */
     @Override
+    @Transactional
     public Vehicle createVehicle(VehicleDTO dto) {
         Users user = SecurityContextUtils.getCurrentUser();
+        PlanLimits limits = entitlementGuard.touchAndGetLimits(user);
+        entitlementGuard.requireCapacity(
+                repository.countAvailableByUserId(user.getId()),
+                limits.vehicles(),
+                "veículos"
+        );
         vehicleDomainValidator.validateInitialOdometer(dto.getCurrentOdometer());
 
         Vehicle vehicle = Vehicle.builder()
@@ -104,9 +115,11 @@ public class VehicleServiceImpl implements VehicleService {
      */
     @Override
     public Vehicle updateVehicle(UUID id, VehicleDTO dto) {
-        Vehicle vehicle = findByIdOrThrow(id);
         Users currentUser = SecurityContextUtils.getCurrentUser();
+        entitlementGuard.reconcileForMutation(currentUser);
+        Vehicle vehicle = findByIdOrThrow(id);
         vehicleDomainValidator.validateOwner(vehicle, currentUser);
+        entitlementGuard.requireAvailable(vehicle);
 
         if (dto.getName() != null && !dto.getName().trim().isEmpty()) {
             vehicle.setName(dto.getName());

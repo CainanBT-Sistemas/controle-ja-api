@@ -11,6 +11,7 @@ import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -88,6 +89,20 @@ public class RestExceptionHandler {
     @ExceptionHandler(EntityNotFoundException.class)
     public ResponseEntity<ApiErrorResponse> handlerEntityNotFoundException(EntityNotFoundException ex, HttpServletRequest request) {
         return build(HttpStatus.NOT_FOUND, ex.getTitle(), ex.getMessage(), ex, request);
+    }
+
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<ApiErrorResponse> handleOptimisticLockingFailure(
+            OptimisticLockingFailureException ex,
+            HttpServletRequest request
+    ) {
+        return build(
+                HttpStatus.CONFLICT,
+                "Conflito de atualização",
+                "Os dados foram atualizados por outra operação. Tente novamente.",
+                ex,
+                request
+        );
     }
 
     /**

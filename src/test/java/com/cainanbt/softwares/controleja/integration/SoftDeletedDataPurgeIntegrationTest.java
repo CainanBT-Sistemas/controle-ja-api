@@ -473,8 +473,10 @@ class SoftDeletedDataPurgeIntegrationTest extends BaseIntegrationTest {
                 INSERT INTO users (
                     id, username, email, password, role, enabled, account_non_expired,
                     account_non_locked, credentials_non_expired, oauth2user,
-                    local_password_enabled, session_version, created_at
-                ) VALUES (?, ?, ?, ?, ?, true, true, true, true, false, true, 0, ?)
+                    local_password_enabled, session_version, email_verified, plan,
+                    entitlement_version, entitlement_touched_at, created_at
+                ) VALUES (?, ?, ?, ?, ?, true, true, true, true, false, true, 0, true,
+                          'FREE', 0, 0, ?)
                 """, id, "user", id + "@test.local", "password", "USER", 1L);
         return id;
     }
@@ -654,8 +656,8 @@ class SoftDeletedDataPurgeIntegrationTest extends BaseIntegrationTest {
         UUID id = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO closed_test_testers (
-                    id, email, normalized_email, enabled, created_at
-                ) VALUES (?, ?, ?, true, 1)
+                    id, email, normalized_email, enabled, profile, created_at
+                ) VALUES (?, ?, ?, true, 'TESTER_PLUS', 1)
                 """, id, id + "@test.local", id + "@test.local");
         return id;
     }
