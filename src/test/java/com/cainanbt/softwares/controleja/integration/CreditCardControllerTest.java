@@ -93,13 +93,12 @@ public class CreditCardControllerTest extends BaseTest {
     }
 
     @Test
-    @DisplayName("Deve bloquear o 3º cartão (Regra do Plano Free)")
-    void shouldBlockThirdCard() {
+    @DisplayName("Deve bloquear o 2º cartão (Regra do Plano Free)")
+    void shouldBlockSecondCard() {
         createCardAux("Card 1");
-        createCardAux("Card 2");
 
         CreditCardDTO dto = new CreditCardDTO();
-        dto.setName("Card 3 Bloqueado");
+        dto.setName("Card 2 Bloqueado");
         dto.setTotalLimit(BigDecimal.TEN);
         dto.setCloseDay(1);
         dto.setBestDay(10);
@@ -108,7 +107,7 @@ public class CreditCardControllerTest extends BaseTest {
                 .contentType(ContentType.JSON).body(dto)
                 .when().post("/cards")
                 .then().statusCode(400)
-                .body("title", is("Limite Atingido"));
+                .body("title", is("Limite atingido"));
     }
 
     @Test

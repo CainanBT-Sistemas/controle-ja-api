@@ -29,6 +29,24 @@ public interface CategoryRepository extends JpaRepository<Category, UUID> {
     @Query("SELECT COUNT(c) FROM Category c WHERE c.subCategory.id = :parentId AND c.deletedAt IS NULL")
     long countActiveSubCategories(@Param("parentId") UUID parentId);
 
+    @Query("SELECT COUNT(c) FROM Category c WHERE c.user.id = :userId AND c.deletedAt IS NULL "
+            + "AND c.enabled = true AND c.isDefault = false AND c.isSubCategory = false "
+            + "AND c.planRestricted = false")
+    long countAvailableCustomParents(@Param("userId") UUID userId);
+
+    @Query("SELECT COUNT(c) FROM Category c WHERE c.subCategory.id = :parentId AND c.deletedAt IS NULL "
+            + "AND c.enabled = true AND c.isDefault = false AND c.planRestricted = false")
+    long countAvailableCustomChildren(@Param("parentId") UUID parentId);
+
+    @Query("SELECT c FROM Category c WHERE c.user.id = :userId AND c.deletedAt IS NULL "
+            + "AND c.isDefault = false AND c.isSubCategory = false "
+            + "ORDER BY c.createdAt ASC, c.id ASC")
+    List<Category> findCustomParentsForReconciliation(@Param("userId") UUID userId);
+
+    @Query("SELECT c FROM Category c WHERE c.subCategory.id = :parentId AND c.deletedAt IS NULL "
+            + "AND c.isDefault = false ORDER BY c.createdAt ASC, c.id ASC")
+    List<Category> findCustomChildrenForReconciliation(@Param("parentId") UUID parentId);
+
     /**
      * Localiza categoria ativa por usuário e nome.
      */

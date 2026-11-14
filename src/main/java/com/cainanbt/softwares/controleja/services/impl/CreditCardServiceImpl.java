@@ -14,6 +14,8 @@ import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
 import com.cainanbt.softwares.controleja.services.creditcards.CreditCardAccountFactory;
 import com.cainanbt.softwares.controleja.services.creditcards.CreditCardDomainValidator;
+import com.cainanbt.softwares.controleja.services.entitlements.EntitlementMutationGuard;
+import com.cainanbt.softwares.controleja.services.entitlements.PlanLimits;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
@@ -39,6 +41,7 @@ public class CreditCardServiceImpl implements CreditCardService {
     private final InvoicesRepository invoicesRepository;
     private final InstallmentPlanRepository installmentPlanRepository;
     private final TransactionRepository transactionRepository;
+    private final EntitlementMutationGuard entitlementGuard;
 
     /**
      * Cria o cartão e a conta espelho usada pelo fluxo de faturas.
@@ -49,7 +52,12 @@ public class CreditCardServiceImpl implements CreditCardService {
         Users user = SecurityContextUtils.getCurrentUser();
         long now = DateUtils.getEpochNow();
 
-        creditCardDomainValidator.validateCanCreate(creditCardRepository.countByUserId(user.getId()));
+        PlanLimits limits = entitlementGuard.touchAndGetLimits(user);
+        entitlementGuard.requireCapacity(
+                creditCardRepository.countAvailableByUserId(user.getId()),
+                limits.creditCards(),
+                "cartões de crédito"
+        );
         Accounts savedAccount = accountsRepository.save(creditCardAccountFactory.createInvoiceAccount(dto, user, now));
         CreditCard savedCard = creditCardRepository.save(buildCreditCard(dto, user, savedAccount, now));
 
@@ -115,7 +123,9 @@ public class CreditCardServiceImpl implements CreditCardService {
     @Override
     @Transactional
     public CreditCard updateCard(UUID id, CreditCardDTO dto) {
+        entitlementGuard.reconcileForMutation(SecurityContextUtils.getCurrentUser());
         CreditCard card = findMyCardById(id);
+        entitlementGuard.requireAvailable(card);
         applyLimitChange(card, dto.getTotalLimit());
         applyLinkedAccountChanges(card, dto);
         applyCardFields(card, dto);

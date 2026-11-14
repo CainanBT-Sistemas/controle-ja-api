@@ -4,9 +4,12 @@ import com.cainanbt.softwares.controleja.dtos.InsertUpdateUserDTO;
 import com.cainanbt.softwares.controleja.dtos.PasswordChangeDTO;
 import com.cainanbt.softwares.controleja.dtos.UpdateProfileDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.UserResponseDTO;
+import com.cainanbt.softwares.controleja.dtos.responses.UserEntitlementsDTO;
 import com.cainanbt.softwares.controleja.services.EmailVerificationService;
+import com.cainanbt.softwares.controleja.services.EntitlementService;
 import com.cainanbt.softwares.controleja.services.UsersService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
+import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -28,10 +31,21 @@ public class UsersController {
 
     private final UsersService usersService;
     private final EmailVerificationService emailVerificationService;
+    private final EntitlementService entitlementService;
 
-    public UsersController(UsersService usersService, EmailVerificationService emailVerificationService) {
+    public UsersController(
+            UsersService usersService,
+            EmailVerificationService emailVerificationService,
+            EntitlementService entitlementService
+    ) {
         this.usersService = usersService;
         this.emailVerificationService = emailVerificationService;
+        this.entitlementService = entitlementService;
+    }
+
+    @GetMapping("/me/entitlements")
+    public ResponseEntity<UserEntitlementsDTO> getMyEntitlements() {
+        return ResponseEntity.ok(entitlementService.buildForUser(SecurityContextUtils.getCurrentUser()));
     }
 
     /**

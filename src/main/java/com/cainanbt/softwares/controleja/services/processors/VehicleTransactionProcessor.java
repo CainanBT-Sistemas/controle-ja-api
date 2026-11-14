@@ -6,6 +6,7 @@ import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.entities.Vehicle;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.services.VehicleService;
+import com.cainanbt.softwares.controleja.services.entitlements.EntitlementMutationGuard;
 import com.cainanbt.softwares.controleja.services.vehicles.VehicleTransactionRules;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class VehicleTransactionProcessor {
     private final VehicleService vehicleService;
+    private final EntitlementMutationGuard entitlementGuard;
 
     /**
      * Enriquece o builder com veiculo e metricas sem misturar essa regra com processadores financeiros.
@@ -37,6 +39,7 @@ public class VehicleTransactionProcessor {
         if (!vehicle.getUser().getId().equals(user.getId())) {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.NO_PERMISSION_VEHICLE);
         }
+        entitlementGuard.requireAvailable(vehicle);
 
         builder.vehicle(vehicle)
                 .drivingPredominance(dto.getDrivingPredominance())

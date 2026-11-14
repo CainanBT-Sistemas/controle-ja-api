@@ -7,6 +7,5 @@ import lombok.Data;
 @AllArgsConstructor
 public class UserEntitlementPermissionsDTO {
     private Boolean vehicleModule;
-    private Boolean expandedLimits;
     private Boolean noAds;
 }

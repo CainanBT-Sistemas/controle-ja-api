@@ -16,6 +16,7 @@ public class CreditCardResponseDTO {
     private int closeDay;
     private int bestDay;
     private Boolean enabled;
+    private Boolean planRestricted;
     private String icon;
     private String color;
 
@@ -32,6 +33,7 @@ public class CreditCardResponseDTO {
         dto.setCloseDay(entity.getCloseDay());
         dto.setBestDay(entity.getBestDay());
         dto.setEnabled(entity.getEnabled());
+        dto.setPlanRestricted(Boolean.TRUE.equals(entity.getPlanRestricted()));
         dto.setIcon(entity.getIcon());
         dto.setColor(entity.getColor());
         return dto;

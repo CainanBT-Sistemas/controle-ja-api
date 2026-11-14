@@ -11,6 +11,8 @@ import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.services.CategoryService;
 import com.cainanbt.softwares.controleja.services.categories.CategoryDomainValidator;
 import com.cainanbt.softwares.controleja.services.categories.CategoryFactory;
+import com.cainanbt.softwares.controleja.services.entitlements.EntitlementMutationGuard;
+import com.cainanbt.softwares.controleja.services.entitlements.PlanLimits;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
@@ -32,6 +34,7 @@ public class CategoryServiceImpl implements CategoryService {
 
     private final CategoryRepository repository;
     private final TransactionRepository transactionRepository;
+    private final EntitlementMutationGuard entitlementGuard;
 
     /**
      * Cria categoria ou subcategoria respeitando propriedade, limite e profundidade máxima.
@@ -41,6 +44,21 @@ public class CategoryServiceImpl implements CategoryService {
     public Category createCategory(CategoryDTO dto) {
         Users user = SecurityContextUtils.getCurrentUser();
         Category parent = resolveParentForCreate(dto, user);
+        PlanLimits limits = entitlementGuard.touchAndGetLimits(user);
+        if (parent == null) {
+            entitlementGuard.requireCapacity(
+                    repository.countAvailableCustomParents(user.getId()),
+                    limits.categories(),
+                    "categorias"
+            );
+        } else {
+            entitlementGuard.requireAvailable(parent);
+            entitlementGuard.requireCapacity(
+                    repository.countAvailableCustomChildren(parent.getId()),
+                    limits.subcategoriesPerParent(),
+                    "subcategorias desta categoria"
+            );
+        }
 
         return repository.save(categoryFactory.create(dto, user, parent, DateUtils.getEpochNow()));
     }
@@ -87,8 +105,10 @@ public class CategoryServiceImpl implements CategoryService {
     @Override
     @Transactional
     public Category updateCategory(UUID id, CategoryDTO dto) {
-        Category category = findMyCategoryById(id);
         Users currentUser = SecurityContextUtils.getCurrentUser();
+        entitlementGuard.reconcileForMutation(currentUser);
+        Category category = findMyCategoryById(id);
+        entitlementGuard.requireAvailable(category);
 
         applyCategoryFields(category, dto);
         applyParentChange(category, dto, currentUser);
@@ -210,7 +230,6 @@ public class CategoryServiceImpl implements CategoryService {
 
         Category parent = findParentOrThrow(dto.getParentId());
         categoryDomainValidator.validateParentCategory(parent, user);
-        categoryDomainValidator.validateCanAddChildCategory(repository.countActiveSubCategories(parent.getId()));
         return parent;
     }
 
@@ -253,6 +272,17 @@ public class CategoryServiceImpl implements CategoryService {
             throw new BadRequestException(ConstsMessages.ERROR_TITLE, "A categoria não pode ser pai dela mesma.");
         }
         categoryDomainValidator.validateParentCategory(parent, currentUser);
+        entitlementGuard.requireAvailable(parent);
+
+        if (category.getSubCategory() == null
+                || !category.getSubCategory().getId().equals(parent.getId())) {
+            PlanLimits limits = entitlementGuard.touchAndGetLimits(currentUser);
+            entitlementGuard.requireCapacity(
+                    repository.countAvailableCustomChildren(parent.getId()),
+                    limits.subcategoriesPerParent(),
+                    "subcategorias desta categoria"
+            );
+        }
 
         category.setSubCategory(parent);
         category.setIsSubCategory(true);

@@ -16,6 +16,14 @@ public interface VehicleRepository extends JpaRepository<Vehicle, UUID> {
      */
     List<Vehicle> findByUserIdAndDeletedAtIsNull(UUID userId);
 
+    @Query("SELECT COUNT(v) FROM Vehicle v WHERE v.user.id = :userId AND v.deletedAt IS NULL "
+            + "AND v.planRestricted = false")
+    long countAvailableByUserId(UUID userId);
+
+    @Query("SELECT v FROM Vehicle v WHERE v.user.id = :userId AND v.deletedAt IS NULL "
+            + "ORDER BY v.createdAt ASC, v.id ASC")
+    List<Vehicle> findForReconciliation(UUID userId);
+
     /**
      * Busca veículo ativo por id, ignorando registros removidos logicamente.
      */

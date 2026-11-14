@@ -25,6 +25,7 @@ import com.cainanbt.softwares.controleja.services.CreditCardService;
 import com.cainanbt.softwares.controleja.services.InstallmentPlanService;
 import com.cainanbt.softwares.controleja.services.InvoicesService;
 import com.cainanbt.softwares.controleja.services.TransactionService;
+import com.cainanbt.softwares.controleja.services.entitlements.EntitlementMutationGuard;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.SecurityContextUtils;
 import org.junit.jupiter.api.BeforeEach;
@@ -80,6 +81,9 @@ public class InvoicesWebServiceImplTest {
 
     @Mock
     private TransactionRepository transactionRepository;
+
+    @Mock
+    private EntitlementMutationGuard entitlementGuard;
 
     @InjectMocks
     private InvoicesWebServiceImpl service;
@@ -1170,6 +1174,8 @@ public class InvoicesWebServiceImplTest {
 
             service.processPayment(fixture.invoice.getId(), request);
 
+            verify(entitlementGuard).reconcileForMutation(currentUser);
+            verify(entitlementGuard).requireAvailable(fixture.sourceAccount);
             assertEquals(new BigDecimal("900.00"), fixture.sourceAccount.getCurrentBalance());
             assertEquals(new BigDecimal("100.00"), fixture.cardAccount.getCurrentBalance());
             assertEquals(new BigDecimal("600.00"), fixture.card.getCurrentLimit());

@@ -200,6 +200,7 @@ class VehicleCreditCardExpenseIntegrationTest extends BaseTest {
         user.setPassword("123456");
         given().contentType(ContentType.JSON).body(user).post("/users/register").then().statusCode(200);
         verifyEmail(user.getEmail());
+        jdbcTemplate.update("UPDATE users SET plan = 'PLUS' WHERE email = ?", user.getEmail());
 
         UserLoginDTO login = UserLoginDTO.builder().email(user.getEmail()).password("123456").build();
         token = given().contentType(ContentType.JSON).body(login).post("/auth")

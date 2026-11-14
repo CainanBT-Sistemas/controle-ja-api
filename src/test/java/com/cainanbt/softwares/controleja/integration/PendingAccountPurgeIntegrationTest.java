@@ -292,8 +292,10 @@ class PendingAccountPurgeIntegrationTest extends BaseIntegrationTest {
                             id, username, email, password, role, enabled, account_non_expired,
                             account_non_locked, credentials_non_expired, oauth2user,
                             local_password_enabled, session_version, refresh_token_expiry,
+                            email_verified, plan, entitlement_version, entitlement_touched_at,
                             created_at, deleted_at
-                        ) VALUES (?, ?, ?, ?, 'USER', ?, true, ?, true, false, true, 0, 0, 1, ?)
+                        ) VALUES (?, ?, ?, ?, 'USER', ?, true, ?, true, false, true, 0, 0,
+                                  true, 'FREE', 0, 0, 1, ?)
                         """, id, prefix, prefix + "@test.local", "password", deletedAt == null,
                 deletedAt == null, deletedAt);
         return id;
@@ -336,8 +338,8 @@ class PendingAccountPurgeIntegrationTest extends BaseIntegrationTest {
     private UUID insertClosedTester(String email) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
-                INSERT INTO closed_test_testers (id, email, normalized_email, enabled, created_at)
-                VALUES (?, ?, ?, true, 1)
+                INSERT INTO closed_test_testers (id, email, normalized_email, enabled, profile, created_at)
+                VALUES (?, ?, ?, true, 'TESTER_PLUS', 1)
                 """, id, email, email);
         return id;
     }

@@ -15,6 +15,7 @@ public class CategoryResponseDTO {
     private String icon;
     private String color;
     private Boolean isDefault;
+    private Boolean planRestricted;
     private UUID parentId;
 
     /**
@@ -29,6 +30,7 @@ public class CategoryResponseDTO {
         dto.setIcon(entity.getIcon());
         dto.setColor(entity.getColor());
         dto.setIsDefault(entity.getIsDefault());
+        dto.setPlanRestricted(Boolean.TRUE.equals(entity.getPlanRestricted()));
 
         if (entity.getSubCategory() != null) {
             dto.setParentName(entity.getSubCategory().getName());

@@ -68,6 +68,10 @@ public class Accounts {
 
     @Column(nullable = false)
     private Boolean enabled;
+    @Builder.Default
+    @ColumnDefault("false")
+    @Column(name = "plan_restricted", nullable = false)
+    private Boolean planRestricted = false;
     @Column(nullable = false)
     private Long createdAt;
     @Column(nullable = true)

@@ -16,6 +16,7 @@ import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.services.CreditCardService;
 import com.cainanbt.softwares.controleja.services.InstallmentPlanService;
 import com.cainanbt.softwares.controleja.services.InvoicesService;
+import com.cainanbt.softwares.controleja.services.entitlements.EntitlementMutationGuard;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import com.cainanbt.softwares.controleja.utils.DateUtils;
 import com.cainanbt.softwares.controleja.utils.ID;
@@ -37,6 +38,7 @@ public class CreditCardExpenseProcessor implements TransactionProcessor {
     private final InvoicesService invoicesService;
     private final InstallmentPlanService installmentPlanService;
     private final TransactionHelper helper;
+    private final EntitlementMutationGuard entitlementGuard;
 
     /**
      * Informa se este processor deve tratar uma despesa feita em conta espelho de cartão.
@@ -54,6 +56,7 @@ public class CreditCardExpenseProcessor implements TransactionProcessor {
         validateCreditCardExpense(dto);
         long dateNow = DateUtils.getEpochNow();
         CreditCard card = creditCardService.findByAccountId(account.getId());
+        entitlementGuard.requireAvailable(card);
 
         card.consumeLimit(dto.getAmount());
         creditCardService.updateLimit(card);

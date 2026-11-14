@@ -13,4 +13,6 @@ public interface ClosedTestTesterRepository extends JpaRepository<ClosedTestTest
     boolean existsByNormalizedEmailAndEnabledTrue(String normalizedEmail);
 
     Optional<ClosedTestTester> findByNormalizedEmail(String normalizedEmail);
+
+    Optional<ClosedTestTester> findByNormalizedEmailAndEnabledTrue(String normalizedEmail);
 }

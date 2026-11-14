@@ -1,7 +1,10 @@
 package com.cainanbt.softwares.controleja.entities;
 
+import com.cainanbt.softwares.controleja.enums.EffectivePlan;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.PrePersist;
@@ -51,6 +54,11 @@ public class ClosedTestTester {
 
     @Column(nullable = false)
     private Boolean enabled;
+
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private EffectivePlan profile = EffectivePlan.TESTER_PLUS;
 
     private String reason;
 
