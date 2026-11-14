@@ -36,3 +36,6 @@ build/
 ### VS Code ###
 .vscode/
 /scripts/run-dev.ps1
+
+# Generated code graph
+graphify-out/
