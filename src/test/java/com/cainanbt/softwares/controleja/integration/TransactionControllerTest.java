@@ -794,6 +794,22 @@ public class TransactionControllerTest extends BaseTest {
     }
 
     @Test
+    void shouldAccept420InstallmentsAndReject421OnCreateAndUpdate() {
+        LocalDate date = LocalDate.of(2026, 1, 25);
+        String transactionId = createBankInstallmentPurchase("No limite de parcelas", date, 420, false);
+        TransactionDTO dto = bankInstallmentUpdate("Acima do limite de parcelas", date);
+        dto.setInstallments(421);
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(dto).post("/transactions")
+                .then().statusCode(400).body("message", is("O número máximo de parcelas é 420"));
+
+        given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(dto).put("/transactions/" + transactionId)
+                .then().statusCode(400).body("message", is("O número máximo de parcelas é 420"));
+    }
+
+    @Test
     @DisplayName("CENÁRIO 4: Efeito Cascata (Update) e Cancelamento (Delete) de Assinatura")
     void shouldCascadeUpdateAndDeleteFixedTransaction() {
         TransactionDTO dto = new TransactionDTO();
