@@ -21,4 +21,7 @@ public interface UsersRepository extends JpaRepository<Users, UUID> {
 
     @Query(value = "SELECT * FROM users WHERE lower(email) = :email ORDER BY deleted_at NULLS FIRST, created_at DESC LIMIT 1 FOR UPDATE", nativeQuery = true)
     Optional<Users> findAnyByEmailForUpdate(@Param("email") String normalizedEmail);
+
+    @Query(value = "SELECT 1 FROM users WHERE id = :id FOR NO KEY UPDATE", nativeQuery = true)
+    Optional<Integer> lockById(@Param("id") UUID id);
 }

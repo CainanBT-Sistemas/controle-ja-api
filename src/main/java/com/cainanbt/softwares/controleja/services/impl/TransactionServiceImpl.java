@@ -95,6 +95,9 @@ public class TransactionServiceImpl implements TransactionService {
     @Transactional
     public Transactions createTransaction(TransactionDTO dto) {
         Users user = SecurityContextUtils.getCurrentUser();
+        if (dto.getType() == TransactionType.PAGAMENTO_FATURA) {
+            invoicesService.lockPaymentsForUser(user.getId());
+        }
         entitlementGuard.reconcileForMutation(user);
         Accounts account = accountsService.findById(dto.getAccountId())
                 .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.ACCOUNT_NOT_FOUND));
@@ -2564,6 +2567,9 @@ public class TransactionServiceImpl implements TransactionService {
             Transactions parent = current.getParentTransaction();
             if (parent == null) {
                 throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Transferência de entrada sem vínculo com a saída.");
+            }
+            if (parent.getType() == TransactionType.PAGAMENTO_FATURA) {
+                throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.INVOICE_PAYMENT_EDIT_BLOCKED);
             }
             return new TransferPair(parent, current);
         }

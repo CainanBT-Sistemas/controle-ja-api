@@ -825,6 +825,7 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
         invoiceDomainValidator.validatePaymentRequest(request);
 
         Users currentUser = SecurityContextUtils.getCurrentUser();
+        invoicesService.lockPaymentsForUser(currentUser.getId());
         entitlementGuard.reconcileForMutation(currentUser);
         Invoices invoice = invoicesService.findByIdOrThrow(invoiceId);
         invoiceDomainValidator.validateInvoiceOwner(invoice, currentUser);
@@ -949,6 +950,7 @@ public class InvoicesWebServiceImpl implements InvoicesWebService {
     @Transactional
     public InvoiceDetailsDTO cancelPayment(UUID paymentTransactionId) {
         Users currentUser = SecurityContextUtils.getCurrentUser();
+        invoicesService.lockPaymentsForUser(currentUser.getId());
         Transactions payment = findInvoicePaymentTransaction(paymentTransactionId);
 
         if (payment.getDeletedAt() != null) {
