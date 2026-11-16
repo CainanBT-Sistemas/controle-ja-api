@@ -93,12 +93,13 @@ public class CreditCardControllerTest extends BaseTest {
     }
 
     @Test
-    @DisplayName("Deve bloquear o 2º cartão (Regra do Plano Free)")
-    void shouldBlockSecondCard() {
+    @DisplayName("Deve bloquear o 3º cartão (Regra do Plano Free)")
+    void shouldBlockThirdCard() {
         createCardAux("Card 1");
+        createCardAux("Card 2");
 
         CreditCardDTO dto = new CreditCardDTO();
-        dto.setName("Card 2 Bloqueado");
+        dto.setName("Card 3 Bloqueado");
         dto.setTotalLimit(BigDecimal.TEN);
         dto.setCloseDay(1);
         dto.setBestDay(10);

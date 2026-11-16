@@ -3,10 +3,10 @@ package com.cainanbt.softwares.controleja.enums;
 import com.cainanbt.softwares.controleja.services.entitlements.PlanLimits;
 
 public enum EffectivePlan {
-    FREE(false, false, true, false, false, new PlanLimits(3, 1, 0, 5, 2)),
-    FREE_NO_ADS(false, false, false, false, true, new PlanLimits(3, 1, 0, 5, 2)),
+    FREE(false, false, true, false, false, new PlanLimits(3, 2, 0, 5, 2)),
+    FREE_NO_ADS(false, false, false, false, true, new PlanLimits(3, 2, 0, 5, 2)),
     PLUS(false, true, false, true, true, new PlanLimits(10, 5, 2, 10, 10)),
-    TESTER_FREE(true, false, true, false, false, new PlanLimits(3, 1, 0, 5, 2)),
+    TESTER_FREE(true, false, true, false, false, new PlanLimits(3, 2, 0, 5, 2)),
     TESTER_PLUS(true, true, false, true, true, new PlanLimits(10, 5, 2, 10, 10));
 
     private final boolean tester;

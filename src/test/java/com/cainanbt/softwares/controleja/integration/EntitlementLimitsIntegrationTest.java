@@ -69,6 +69,7 @@ class EntitlementLimitsIntegrationTest extends BaseTest {
         createAccount(session.token(), "Conta substituta").then().statusCode(200);
 
         createCard(session.token(), "Cartao 1").then().statusCode(200);
+        createCard(session.token(), "Cartao 2").then().statusCode(200);
         createCard(session.token(), "Cartao bloqueado")
                 .then().statusCode(400).body("title", is("Limite atingido"));
         given().header("Authorization", bearer(session.token()))
@@ -119,7 +120,7 @@ class EntitlementLimitsIntegrationTest extends BaseTest {
         getEntitlements(session.token()).then().statusCode(200).body("plan", is("FREE"));
 
         assertRestrictionOrder("accounts", "user_id = ? AND deleted_at IS NULL AND type <> 'CREDIT_CARD'", session.userId(), 3);
-        assertRestrictionOrder("credit_cards", "user_id = ? AND deleted_at IS NULL", session.userId(), 1);
+        assertRestrictionOrder("credit_cards", "user_id = ? AND deleted_at IS NULL", session.userId(), 2);
         assertRestrictionOrder("vehicles", "user_id = ? AND deleted_at IS NULL", session.userId(), 0);
         assertRestrictionOrder("category", "user_id = ? AND deleted_at IS NULL AND is_default = false AND is_sub_category = false", session.userId(), 5);
         assertRestrictionOrder("category", "sub_category_id = ? AND deleted_at IS NULL AND is_default = false", UUID.fromString(parents.get(0)), 2);

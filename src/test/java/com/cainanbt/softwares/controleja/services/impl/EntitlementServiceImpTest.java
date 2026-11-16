@@ -74,6 +74,7 @@ class EntitlementServiceImpTest {
         assertFalse(entitlements.getPlusEquivalent());
         assertTrue(entitlements.getAdsEnabled());
         assertEquals(3, entitlements.getLimits().getAccounts());
+        assertEquals(2, entitlements.getLimits().getCreditCards());
         assertEquals(0, entitlements.getLimits().getVehicles());
     }
 
@@ -88,7 +89,7 @@ class EntitlementServiceImpTest {
         assertFalse(entitlements.getPermissions().getNoAds());
         assertTrue(entitlements.getAdsEnabled());
         assertEquals(3, entitlements.getLimits().getAccounts());
-        assertEquals(1, entitlements.getLimits().getCreditCards());
+        assertEquals(2, entitlements.getLimits().getCreditCards());
         assertEquals(0, entitlements.getLimits().getVehicles());
         assertEquals(5, entitlements.getLimits().getCategories());
         assertEquals(2, entitlements.getLimits().getSubcategoriesPerParent());
@@ -104,6 +105,7 @@ class EntitlementServiceImpTest {
         assertFalse(entitlements.getAdsEnabled());
         assertTrue(entitlements.getPermissions().getNoAds());
         assertEquals(3, entitlements.getLimits().getAccounts());
+        assertEquals(2, entitlements.getLimits().getCreditCards());
     }
 
     @Test
