@@ -15,6 +15,7 @@ import com.cainanbt.softwares.controleja.enums.RecurrenceFrequency;
 import com.cainanbt.softwares.controleja.enums.RuleStatus;
 import com.cainanbt.softwares.controleja.enums.TransactionType;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
+import com.cainanbt.softwares.controleja.exceptions.models.EntityNotFoundException;
 import com.cainanbt.softwares.controleja.repositories.TransactionRepository;
 import com.cainanbt.softwares.controleja.services.AccountsService;
 import com.cainanbt.softwares.controleja.services.CategoryService;
@@ -103,6 +104,43 @@ class TransactionServiceImplTest {
     @BeforeEach
     void setUp() {
         currentUser = Users.builder().id(UUID.randomUUID()).build();
+    }
+
+    @Test
+    void updateTransactionDTO_whenInvoiceBelongsToAnotherUserShouldHideIt() {
+        Invoices invoice = invoice(false, "100.00", CreditCard.builder().name("Cartão").build(), null, null);
+        invoice.setUser(Users.builder().id(UUID.randomUUID()).build());
+        TransactionDTO dto = new TransactionDTO();
+        dto.setPaid(true);
+        when(invoicesService.findById(invoice.getId())).thenReturn(Optional.of(invoice));
+
+        try (MockedStatic<SecurityContextUtils> security = Mockito.mockStatic(SecurityContextUtils.class)) {
+            security.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+            assertThrows(EntityNotFoundException.class,
+                    () -> service.updateTransactionDTO(invoice.getId(), dto, OperationScope.ONLY_THIS));
+        }
+
+        assertFalse(invoice.getPaid());
+        verify(invoicesService, never()).save(any(Invoices.class));
+        verify(installmentPlanService, never()).saveAll(anyList());
+    }
+
+    @Test
+    void updateTransactionDTO_whenInvoiceBelongsToCurrentUserShouldRequireDedicatedPayment() {
+        Invoices invoice = invoice(false, "100.00", CreditCard.builder().name("Cartão").build(), null, null);
+        TransactionDTO dto = new TransactionDTO();
+        dto.setPaid(true);
+        when(invoicesService.findById(invoice.getId())).thenReturn(Optional.of(invoice));
+
+        try (MockedStatic<SecurityContextUtils> security = Mockito.mockStatic(SecurityContextUtils.class)) {
+            security.when(SecurityContextUtils::getCurrentUser).thenReturn(currentUser);
+            assertThrows(BadRequestException.class,
+                    () -> service.updateTransactionDTO(invoice.getId(), dto, OperationScope.ONLY_THIS));
+        }
+
+        assertFalse(invoice.getPaid());
+        verify(invoicesService, never()).save(any(Invoices.class));
+        verify(installmentPlanService, never()).saveAll(anyList());
     }
 
     @Test

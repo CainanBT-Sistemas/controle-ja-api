@@ -110,8 +110,11 @@ public class TransactionServiceImpl implements TransactionService {
         } else if (shouldResolveVehicleTechnicalCategory(dto)) {
             category = categoryService.ensureVehicleEntryCategory(user, VehicleTransactionRules.isRefuel(dto));
         } else {
-            category = categoryService.findById(dto.getCategoryId())
-                    .orElseThrow(() -> new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.CATEGORY_NOT_FOUND));
+            try {
+                category = categoryService.findMyCategoryById(dto.getCategoryId());
+            } catch (EntityNotFoundException ex) {
+                throw new BadRequestException(ConstsMessages.ERROR_TITLE, ConstsMessages.CATEGORY_NOT_FOUND);
+            }
             validateCategoryForTransaction(category);
         }
         entitlementGuard.requireAvailable(category);
@@ -201,38 +204,26 @@ public class TransactionServiceImpl implements TransactionService {
     @Override
     @Transactional
     public TransactionResponseDTO updateTransactionDTO(UUID id, TransactionDTO dto, OperationScope operationScope) {
-        entitlementGuard.reconcileForMutation(SecurityContextUtils.getCurrentUser());
-        OperationScope scope = normalizeScope(operationScope);
+        Users currentUser = SecurityContextUtils.getCurrentUser();
         Optional<Invoices> invOpt = invoicesService.findById(id);
 
         if (invOpt.isPresent()) {
             Invoices inv = invOpt.get();
-
-            if (dto.getPaid() != null) {
-                inv.setPaid(dto.getPaid());
-                invoicesService.save(inv);
-
-                List<InstallmentPlan> installments = installmentPlanService.findByInvoiceId(inv.getId());
-                installments.forEach(inst -> inst.setPaid(dto.getPaid()));
-                installmentPlanService.saveAll(installments);
+            if (inv.getDeletedAt() != null || inv.getUser() == null || !currentUser.getId().equals(inv.getUser().getId())) {
+                throw new EntityNotFoundException(ConstsMessages.ERROR_TITLE, ConstsMessages.TRANSACTION_NOT_FOUND);
             }
-
-            TransactionResponseDTO resp = new TransactionResponseDTO();
-            resp.setId(inv.getId());
-            resp.setName("Fatura " + inv.getCreditCard().getName());
-            resp.setAmount(inv.getAmount());
-            resp.setDate(canonicalInvoiceExpirationDate(inv));
-            resp.setPaid(inv.getPaid());
-            resp.setType(TransactionType.DESPESA);
-            return resp;
+            throw new BadRequestException(ConstsMessages.ERROR_TITLE, "Use a operação de pagamento ou cancelamento da fatura.");
         }
 
+        entitlementGuard.reconcileForMutation(currentUser);
+        OperationScope scope = normalizeScope(operationScope);
         Optional<InstallmentPlan> instOpt = installmentPlanService.findById(id);
         if (instOpt.isPresent()) {
             return updateCreditCardInstallments(instOpt.get(), dto, scope);
         }
 
         Transactions current = findByIdOrThrow(id);
+        validateTransactionOwner(current, currentUser);
         List<InstallmentPlan> installments = installmentPlanService.findByPurchaseId(current.getId());
         if (current.getAccount().getType() == AccountType.CREDIT_CARD && !installments.isEmpty()) {
             return updateCreditCardInstallments(current, installments, dto, scope, null);
@@ -385,7 +376,7 @@ public class TransactionServiceImpl implements TransactionService {
         }
         Category targetCategory = null;
         if (dto.getCategoryId() != null) {
-            targetCategory = categoryService.findByIdOrThrow(dto.getCategoryId());
+            targetCategory = categoryService.findMyCategoryById(dto.getCategoryId());
             validateCategoryForTransaction(targetCategory);
         }
 
@@ -728,7 +719,7 @@ public class TransactionServiceImpl implements TransactionService {
                 purchase.setDescription(dto.getDescription());
             if (!installmentsToUpdate.isEmpty() && dto.getType() != null) purchase.setType(dto.getType());
             if (scope == OperationScope.ALL && dto.getCategoryId() != null) {
-                Category category = categoryService.findByIdOrThrow(dto.getCategoryId());
+                Category category = categoryService.findMyCategoryById(dto.getCategoryId());
                 validateCategoryForTransaction(category);
                 purchase.setCategory(category);
             }
@@ -802,7 +793,7 @@ public class TransactionServiceImpl implements TransactionService {
         }
         Category targetCategory = selectedPurchase.getCategory();
         if (dto.getCategoryId() != null) {
-            targetCategory = categoryService.findByIdOrThrow(dto.getCategoryId());
+            targetCategory = categoryService.findMyCategoryById(dto.getCategoryId());
             validateCategoryForTransaction(targetCategory);
         }
         entitlementGuard.requireAvailable(targetCategory);
@@ -1771,7 +1762,12 @@ public class TransactionServiceImpl implements TransactionService {
     @Override
     @Transactional(readOnly = true)
     public TransactionResponseDTO findByIdDTO(UUID id) {
-        return toDetailedDTOWithSeriesInfo(findByIdOrThrow(id));
+        Transactions transaction = findByIdOrThrow(id);
+        Users currentUser = SecurityContextUtils.getCurrentUser();
+        if (transaction.getUser() == null || !currentUser.getId().equals(transaction.getUser().getId())) {
+            throw new EntityNotFoundException(ConstsMessages.ERROR_TITLE, ConstsMessages.TRANSACTION_NOT_FOUND);
+        }
+        return toDetailedDTOWithSeriesInfo(transaction);
     }
 
     @Override
@@ -1876,7 +1872,7 @@ public class TransactionServiceImpl implements TransactionService {
 
         Category currentCategory = transaction.getCategory();
         if (dto.getCategoryId() != null) {
-            currentCategory = categoryService.findByIdOrThrow(dto.getCategoryId());
+            currentCategory = categoryService.findMyCategoryById(dto.getCategoryId());
         }
         entitlementGuard.requireAvailable(currentCategory);
         validateCategoryForTransaction(currentCategory);

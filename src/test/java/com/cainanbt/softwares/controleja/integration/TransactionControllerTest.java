@@ -91,6 +91,54 @@ public class TransactionControllerTest extends BaseTest {
     }
 
     @Test
+    void shouldProtectTransactionAndCategoriesAcrossUsers() {
+        String transactionId = createBankSingleExpense("Despesa privada", LocalDate.now(), false);
+
+        String email = "other_" + UUID.randomUUID() + "@test.com";
+        InsertUpdateUserDTO otherUser = new InsertUpdateUserDTO();
+        otherUser.setUsername("Outro titular");
+        otherUser.setEmail(email);
+        otherUser.setPassword("123456");
+        given().contentType(ContentType.JSON).body(otherUser).post("/users/register")
+                .then().statusCode(200);
+        verifyEmail(email);
+
+        String otherToken = given().contentType(ContentType.JSON)
+                .body(UserLoginDTO.builder().email(email).password("123456").build())
+                .post("/auth").then().statusCode(200).extract().path("tokens.accessToken");
+        UUID otherAccountId = UUID.fromString(given().header("Authorization", "Bearer " + otherToken)
+                .get("/accounts").then().statusCode(200).extract().path("[0].id"));
+
+        given().header("Authorization", "Bearer " + otherToken)
+                .get("/transactions/" + transactionId).then().statusCode(404);
+        given().header("Authorization", "Bearer " + token)
+                .get("/transactions/" + transactionId).then().statusCode(200)
+                .body("name", is("Despesa privada"));
+
+        TransactionDTO dto = new TransactionDTO();
+        dto.setName("Despesa");
+        dto.setType(TransactionType.DESPESA);
+        dto.setAmount(BigDecimal.TEN);
+        dto.setDate(DateUtils.getEpochNow());
+        dto.setPaid(false);
+        dto.setAccountId(otherAccountId);
+        dto.setCategoryId(categoryId);
+        dto.setIsFixed(false);
+
+        given().header("Authorization", "Bearer " + otherToken)
+                .contentType(ContentType.JSON).body(dto).post("/transactions")
+                .then().statusCode(400);
+
+        String defaultCategoryId = given().header("Authorization", "Bearer " + otherToken)
+                .get("/categories").then().statusCode(200)
+                .extract().path("find { it.isDefault && it.categoryType == 'DESPESA' }.id");
+        dto.setCategoryId(UUID.fromString(defaultCategoryId));
+        given().header("Authorization", "Bearer " + otherToken)
+                .contentType(ContentType.JSON).body(dto).post("/transactions")
+                .then().statusCode(200).body("categoryId", is(defaultCategoryId));
+    }
+
+    @Test
     @DisplayName("CENÁRIO 1: Despesa e Receita (CRUD Básico)")
     void shouldCreateUpdateAndDeleteTransaction() {
         TransactionDTO dto = new TransactionDTO();
