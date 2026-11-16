@@ -3,10 +3,13 @@ package com.cainanbt.softwares.controleja.services.impl;
 import com.cainanbt.softwares.controleja.entities.Invoices;
 import com.cainanbt.softwares.controleja.exceptions.models.EntityNotFoundException;
 import com.cainanbt.softwares.controleja.repositories.InvoicesRepository;
+import com.cainanbt.softwares.controleja.repositories.UsersRepository;
 import com.cainanbt.softwares.controleja.services.InvoicesService;
 import com.cainanbt.softwares.controleja.utils.ConstsMessages;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -18,6 +21,14 @@ import static com.cainanbt.softwares.controleja.utils.ConstsMessages.INVOICE_NOT
 @RequiredArgsConstructor
 public class InvoicesServiceImpl implements InvoicesService {
     private final InvoicesRepository repository;
+    private final UsersRepository usersRepository;
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void lockPaymentsForUser(UUID userId) {
+        usersRepository.lockById(userId).orElseThrow(() ->
+                new EntityNotFoundException(ConstsMessages.ERROR_TITLE, "Usuário não encontrado."));
+    }
 
     @Override
     public Invoices save(Invoices invoice) {

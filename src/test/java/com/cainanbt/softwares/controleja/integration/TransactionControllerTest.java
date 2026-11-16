@@ -7,6 +7,7 @@ import com.cainanbt.softwares.controleja.dtos.CreditCardDTO;
 import com.cainanbt.softwares.controleja.dtos.InsertUpdateUserDTO;
 import com.cainanbt.softwares.controleja.dtos.TransactionDTO;
 import com.cainanbt.softwares.controleja.dtos.UserLoginDTO;
+import com.cainanbt.softwares.controleja.dtos.invoices.InvoicePaymentRequestDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.AccountResponseDTO;
 import com.cainanbt.softwares.controleja.dtos.responses.CategoryResponseDTO;
 import com.cainanbt.softwares.controleja.enums.AccountType;
@@ -21,11 +22,15 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import javax.sql.DataSource;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.containsString;
@@ -35,6 +40,7 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class TransactionControllerTest extends BaseTest {
 
@@ -42,6 +48,8 @@ public class TransactionControllerTest extends BaseTest {
     private RecurrenceWorkerService workerService;
     @Autowired
     private JdbcTemplate jdbcTemplate;
+    @Autowired
+    private DataSource dataSource;
 
     private String token;
     private UUID userId;
@@ -728,6 +736,61 @@ public class TransactionControllerTest extends BaseTest {
 
         given().header("Authorization", "Bearer " + token).get("/cards")
                 .then().body("find { it.name == 'Nubank Gold' }.currentLimit", is(1400.0f));
+    }
+
+    @Test
+    void shouldRejectConcurrentPaymentsThatExceedInvoiceBalance() throws Exception {
+        UUID cardAccount = createCreditCardAux("Cartão concorrente", new BigDecimal("2000.00"));
+        UUID invoice = createInvoiceForPayment(cardAccount, LocalDate.of(2025, 1, 1));
+
+        assertEquals(List.of(200, 400), runConcurrentInvoiceOperations(
+                () -> payInvoice(invoice), () -> payInvoice(invoice)));
+
+        assertEquals(new BigDecimal("30.00"), invoiceAmount(invoice));
+        assertEquals(new BigDecimal("930.00"), accountBalance(walletId));
+        assertEquals(new BigDecimal("70.00"), accountBalance(cardAccount));
+        assertEquals(new BigDecimal("1970.00"), invoiceCardLimit(invoice));
+        assertEquals(1, activeInvoicePayments(invoice));
+    }
+
+    @Test
+    void shouldKeepBothPaymentsAcrossInvoicesSharingAccountAndCard() throws Exception {
+        UUID cardAccount = createCreditCardAux("Cartão compartilhado", new BigDecimal("2000.00"));
+        UUID january = createInvoiceForPayment(cardAccount, LocalDate.of(2025, 1, 1));
+        UUID february = createInvoiceForPayment(cardAccount, LocalDate.of(2025, 2, 1));
+
+        assertEquals(List.of(200, 200), runConcurrentInvoiceOperations(
+                () -> payInvoice(january), () -> payInvoice(february)));
+
+        assertEquals(new BigDecimal("30.00"), invoiceAmount(january));
+        assertEquals(new BigDecimal("30.00"), invoiceAmount(february));
+        assertEquals(new BigDecimal("860.00"), accountBalance(walletId));
+        assertEquals(new BigDecimal("140.00"), accountBalance(cardAccount));
+        assertEquals(new BigDecimal("1940.00"), invoiceCardLimit(january));
+    }
+
+    @Test
+    void shouldReverseAnInvoicePaymentOnlyOnce() throws Exception {
+        UUID cardAccount = createCreditCardAux("Cartão para cancelar", new BigDecimal("2000.00"));
+        UUID invoice = createInvoiceForPayment(cardAccount, LocalDate.of(2025, 1, 1));
+        assertEquals(200, payInvoice(invoice));
+        UUID payment = jdbcTemplate.queryForObject(
+                "SELECT transaction_id FROM invoicess WHERE id = ?", UUID.class, invoice);
+        UUID paymentIn = jdbcTemplate.queryForObject(
+                "SELECT id FROM transactions WHERE parent_transaction_id = ?", UUID.class, payment);
+        given().header("Authorization", "Bearer " + token)
+                .delete("/transactions/" + paymentIn).then().statusCode(400);
+
+        Callable<Integer> cancel = () -> given().header("Authorization", "Bearer " + token)
+                .post("/invoices/payments/" + payment + "/cancel").statusCode();
+
+        assertEquals(List.of(200, 400), runConcurrentInvoiceOperations(cancel, cancel));
+
+        assertEquals(new BigDecimal("100.00"), invoiceAmount(invoice));
+        assertEquals(new BigDecimal("1000.00"), accountBalance(walletId));
+        assertEquals(new BigDecimal("0.00"), accountBalance(cardAccount));
+        assertEquals(new BigDecimal("1900.00"), invoiceCardLimit(invoice));
+        assertEquals(0, activeInvoicePayments(invoice));
     }
 
     @Test
@@ -1435,6 +1498,100 @@ public class TransactionControllerTest extends BaseTest {
         // 4. Valida que o limite voltou para 5000 magicamente!
         given().header("Authorization", "Bearer " + token).get("/cards")
                 .then().body("find { it.name == 'Itaú Black' }.currentLimit", is(5000.0f));
+    }
+
+    private List<Integer> runConcurrentInvoiceOperations(Callable<Integer> first, Callable<Integer> second)
+            throws Exception {
+        var executor = Executors.newFixedThreadPool(2);
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            // Hold the source balance row until both requests are waiting, directly or through each other.
+            int blockingPid;
+            try (var statement = connection.prepareStatement(
+                    "SELECT pg_backend_pid() FROM accounts WHERE id = ? FOR NO KEY UPDATE")) {
+                statement.setObject(1, walletId);
+                try (var rows = statement.executeQuery()) {
+                    assertTrue(rows.next());
+                    blockingPid = rows.getInt(1);
+                }
+            }
+            var firstResponse = executor.submit(first);
+            var secondResponse = executor.submit(second);
+            try {
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+                while (blockedInvoiceOperations(blockingPid) < 2) {
+                    assertTrue(System.nanoTime() < deadline, "Both payment operations must reach the lock");
+                    Thread.sleep(25);
+                }
+            } finally {
+                connection.rollback();
+            }
+            return List.of(firstResponse.get(15, TimeUnit.SECONDS), secondResponse.get(15, TimeUnit.SECONDS))
+                    .stream().sorted().toList();
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private int blockedInvoiceOperations(int rootPid) {
+        return jdbcTemplate.queryForObject("""
+                WITH RECURSIVE waiting(pid) AS (
+                    SELECT CAST(? AS integer)
+                    UNION
+                    SELECT activity.pid FROM pg_stat_activity activity
+                    JOIN waiting ON waiting.pid = ANY(pg_blocking_pids(activity.pid))
+                )
+                SELECT count(*) - 1 FROM waiting
+                """, Integer.class, rootPid);
+    }
+
+    private UUID createInvoiceForPayment(UUID cardAccount, LocalDate date) {
+        TransactionDTO purchase = new TransactionDTO();
+        purchase.setName("Compra");
+        purchase.setType(TransactionType.DESPESA);
+        purchase.setAmount(new BigDecimal("100.00"));
+        purchase.setDate(DateUtils.localDateToEpoch(date));
+        purchase.setPaid(false);
+        purchase.setIsFixed(false);
+        purchase.setAccountId(cardAccount);
+        purchase.setCategoryId(categoryId);
+        purchase.setInstallments(1);
+        String purchaseId = given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(purchase).post("/transactions")
+                .then().statusCode(200).extract().path("id");
+        return jdbcTemplate.queryForObject(
+                "SELECT invoices_id FROM installment_plan WHERE purchase_id = ?", UUID.class, UUID.fromString(purchaseId));
+    }
+
+    private int payInvoice(UUID invoice) {
+        InvoicePaymentRequestDTO request = new InvoicePaymentRequestDTO();
+        request.setAccountId(walletId);
+        request.setAmount(new BigDecimal("70.00"));
+        request.setPaymentDate(DateUtils.localDateToEpoch(LocalDate.of(2025, 3, 1)));
+        return given().header("Authorization", "Bearer " + token)
+                .contentType(ContentType.JSON).body(request).post("/invoices/" + invoice + "/payments").statusCode();
+    }
+
+    private BigDecimal invoiceAmount(UUID invoice) {
+        return jdbcTemplate.queryForObject("SELECT amount FROM invoicess WHERE id = ?", BigDecimal.class, invoice);
+    }
+
+    private BigDecimal accountBalance(UUID account) {
+        return jdbcTemplate.queryForObject("SELECT current_balance FROM accounts WHERE id = ?", BigDecimal.class, account);
+    }
+
+    private BigDecimal invoiceCardLimit(UUID invoice) {
+        return jdbcTemplate.queryForObject("""
+                SELECT c.current_limit FROM credit_cards c
+                JOIN invoicess i ON i.credit_card_id = c.id WHERE i.id = ?
+                """, BigDecimal.class, invoice);
+    }
+
+    private int activeInvoicePayments(UUID invoice) {
+        return jdbcTemplate.queryForObject("""
+                SELECT count(*) FROM transactions
+                WHERE target_invoice_id = ? AND type = 'PAGAMENTO_FATURA' AND deleted_at IS NULL
+                """, Integer.class, invoice);
     }
 
     private UUID createCreditCardAux(String name, BigDecimal limit) {

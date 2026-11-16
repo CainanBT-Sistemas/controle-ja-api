@@ -7,6 +7,11 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface InvoicesService {
+
+    /**
+     * Serializa pagamentos do mesmo titular, que podem compartilhar conta e limite.
+     */
+    void lockPaymentsForUser(UUID userId);
     /**
      * Persiste uma fatura.
      */
