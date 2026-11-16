@@ -68,7 +68,7 @@ public class UsersControllerTest extends BaseTest {
                 .body("plusEquivalent", is(false))
                 .body("adsEnabled", is(true))
                 .body("limits.accounts", is(3))
-                .body("limits.creditCards", is(1))
+                .body("limits.creditCards", is(2))
                 .body("limits.vehicles", is(0))
                 .body("limits.categories", is(5))
                 .body("limits.subcategoriesPerParent", is(2))

@@ -73,10 +73,10 @@ class EntitlementReconciliationServiceTest {
         assertFalse(accounts.get(2).getPlanRestricted());
         assertTrue(accounts.get(3).getPlanRestricted());
         assertFalse(firstCard.getPlanRestricted());
-        assertTrue(secondCard.getPlanRestricted());
+        assertFalse(secondCard.getPlanRestricted());
         assertTrue(overflowCard.getPlanRestricted());
         assertFalse(mirrorOne.getPlanRestricted());
-        assertTrue(mirrorTwo.getPlanRestricted());
+        assertFalse(mirrorTwo.getPlanRestricted());
         assertTrue(mirrorThree.getPlanRestricted());
         assertFalse(parents.get(4).getPlanRestricted());
         assertTrue(parents.get(5).getPlanRestricted());
