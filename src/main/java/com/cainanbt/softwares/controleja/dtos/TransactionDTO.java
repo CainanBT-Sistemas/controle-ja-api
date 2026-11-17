@@ -7,6 +7,7 @@ import com.cainanbt.softwares.controleja.enums.TransactionType;
 import com.cainanbt.softwares.controleja.utils.StrictBigDecimalDeserializer;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -42,6 +43,7 @@ public class TransactionDTO {
     private UUID categoryId;
 
     @Min(value = 1, message = "O número mínimo de parcelas é 1")
+    @Max(value = 420, message = "O número máximo de parcelas é {value}")
     private Integer installments;
 
     @NotNull(message = "Deve ser informado se a transação foi paga ou não")
