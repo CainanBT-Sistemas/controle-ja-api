@@ -52,6 +52,14 @@ spring:
             user-name-attribute: sub
 
 app:
+  billing:
+    google-play:
+      enabled: ${BILLING_GOOGLE_PLAY_ENABLED:false}
+      package-name: ${BILLING_GOOGLE_PLAY_PACKAGE_NAME:br.com.controleja.app}
+      service-account-json: ${BILLING_GOOGLE_PLAY_SERVICE_ACCOUNT_JSON:}
+      token-key: ${BILLING_GOOGLE_PLAY_TOKEN_KEY:}
+      pubsub-audience: ${BILLING_GOOGLE_PLAY_PUBSUB_AUDIENCE:}
+      pubsub-service-account: ${BILLING_GOOGLE_PLAY_PUBSUB_SERVICE_ACCOUNT:}
   config:
     google:
       id-token:

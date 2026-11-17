@@ -57,7 +57,9 @@ class FlywayBaselineIntegrationTest {
             "invoicess",
             "installment_plan",
             "closed_test_testers",
-            "account_action_tokens"
+            "account_action_tokens",
+            "billing_purchases",
+            "billing_events"
     );
 
     private static final Map<String, Set<String>> EXPECTED_COLUMNS = expectedColumns();
@@ -90,7 +92,8 @@ class FlywayBaselineIntegrationTest {
             "fk_installment_plan_invoice",
             "fk_installment_plan_user",
             "fk_installment_advanced_from_invoice",
-            "fk_account_action_tokens_user"
+            "fk_account_action_tokens_user",
+            "fk_billing_purchases_user"
     );
 
     private static final Set<String> EXPECTED_INDEXES = Set.of(
@@ -144,7 +147,8 @@ class FlywayBaselineIntegrationTest {
             "idx_accounts_plan_limits",
             "idx_credit_cards_plan_limits",
             "idx_category_plan_limits",
-            "idx_vehicles_plan_limits"
+            "idx_vehicles_plan_limits",
+            "idx_billing_purchases_user"
     );
 
     @BeforeAll
@@ -259,13 +263,13 @@ class FlywayBaselineIntegrationTest {
     private void assertMigrationAppliedSuccessfully(Flyway flyway, JdbcTemplate jdbc) {
         MigrationInfo current = flyway.info().current();
         assertNotNull(current);
-        assertEquals("9", current.getVersion().getVersion());
+        assertEquals("10", current.getVersion().getVersion());
         assertEquals(MigrationState.SUCCESS, current.getState());
         assertEquals(
-                9,
+                10,
                 jdbc.queryForObject(
                         "SELECT COUNT(*) FROM flyway_schema_history "
-                                + "WHERE version IN ('1', '2', '3', '4', '5', '6', '7', '8', '9') AND success = true",
+                                + "WHERE version IN ('1', '2', '3', '4', '5', '6', '7', '8', '9', '10') AND success = true",
                         Integer.class
                 )
         );
@@ -292,7 +296,9 @@ class FlywayBaselineIntegrationTest {
                         "Invoices",
                         "InstallmentPlan",
                         "ClosedTestTester",
-                        "AccountActionToken"
+                        "AccountActionToken",
+                        "BillingPurchase",
+                        "BillingEvent"
                 ),
                 entityNames
         );
@@ -324,6 +330,17 @@ class FlywayBaselineIntegrationTest {
                 String.class
         ));
         assertEquals(EXPECTED_FOREIGN_KEYS, foreignKeys);
+
+        assertEquals("CASCADE", jdbc.queryForObject(
+                "SELECT delete_rule FROM information_schema.referential_constraints "
+                        + "WHERE constraint_schema = 'public' AND constraint_name = 'fk_billing_purchases_user'",
+                String.class
+        ));
+        assertEquals("fingerprint", jdbc.queryForObject(
+                "SELECT column_name FROM information_schema.key_column_usage "
+                        + "WHERE constraint_schema = 'public' AND constraint_name = 'uq_billing_purchases_fingerprint'",
+                String.class
+        ));
 
         Set<String> indexes = Set.copyOf(jdbc.queryForList(
                 "SELECT indexname FROM pg_indexes "
@@ -482,6 +499,14 @@ class FlywayBaselineIntegrationTest {
 
     private static Map<String, Set<String>> expectedColumns() {
         Map<String, Set<String>> columns = new LinkedHashMap<>();
+        columns.put("billing_purchases", Set.of(
+                "id", "version", "user_id", "fingerprint", "encrypted_token", "package_name", "product_id",
+                "base_plan_id", "order_id", "official_state", "subscription", "active", "acknowledged", "starts_at",
+                "expires_at", "verified_at", "auto_renew", "linked_fingerprint", "superseded", "created_at"
+        ));
+        columns.put("billing_events", Set.of(
+                "id", "fingerprint", "type", "received_at", "processed_at", "status", "error_code"
+        ));
         columns.put("users", Set.of(
                 "account_non_expired",
                 "account_non_locked",

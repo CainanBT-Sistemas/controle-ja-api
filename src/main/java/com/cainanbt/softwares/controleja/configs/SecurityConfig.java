@@ -1,5 +1,6 @@
 package com.cainanbt.softwares.controleja.configs;
 
+import com.cainanbt.softwares.controleja.controller.BillingController;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -125,6 +126,7 @@ public class SecurityConfig {
                                 SecurityErrorResponseWriter.writeForbidden(request, response)))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, BillingController.NOTIFICATIONS).permitAll()
                         .requestMatchers(PUBLIC).permitAll()
                         .anyRequest().authenticated())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
