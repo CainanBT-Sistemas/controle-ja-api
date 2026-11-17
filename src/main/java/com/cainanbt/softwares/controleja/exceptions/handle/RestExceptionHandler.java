@@ -6,6 +6,7 @@ import com.cainanbt.softwares.controleja.exceptions.models.ApiErrorResponse;
 import com.cainanbt.softwares.controleja.exceptions.models.BadRequestException;
 import com.cainanbt.softwares.controleja.exceptions.models.EntityNotFoundException;
 import com.cainanbt.softwares.controleja.exceptions.models.ForbiddenException;
+import com.cainanbt.softwares.controleja.services.billing.BillingProblem;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
@@ -25,6 +26,11 @@ import java.util.stream.Collectors;
 @Slf4j
 @ControllerAdvice
 public class RestExceptionHandler {
+
+    @ExceptionHandler(BillingProblem.class)
+    public ResponseEntity<ApiErrorResponse> handleBilling(BillingProblem problem, HttpServletRequest request) {
+        return build(problem.status(), problem.code(), problem.getMessage(), problem, request);
+    }
 
     /**
      * Converte falhas de regra de negocio para o contrato padrao 400.

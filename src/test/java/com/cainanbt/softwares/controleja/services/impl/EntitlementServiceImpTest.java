@@ -6,6 +6,7 @@ import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.enums.EffectivePlan;
 import com.cainanbt.softwares.controleja.repositories.ClosedTestTesterRepository;
 import com.cainanbt.softwares.controleja.services.entitlements.EntitlementReconciliationService;
+import com.cainanbt.softwares.controleja.services.billing.BillingRights;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
@@ -28,7 +29,7 @@ class EntitlementServiceImpTest {
                         .profile(EffectivePlan.TESTER_PLUS)
                         .enabled(true)
                         .build()));
-        EntitlementServiceImp service = new EntitlementServiceImp(repository, reconciliationService);
+        EntitlementServiceImp service = new EntitlementServiceImp(repository, reconciliationService, mock(BillingRights.class));
         Users user = Users.builder()
                 .email("TESTER@controleja.local")
                 .plan(EffectivePlan.FREE)
@@ -60,7 +61,8 @@ class EntitlementServiceImpTest {
                         .build()));
         EntitlementServiceImp service = new EntitlementServiceImp(
                 repository,
-                mock(EntitlementReconciliationService.class)
+                mock(EntitlementReconciliationService.class),
+                mock(BillingRights.class)
         );
         Users user = Users.builder()
                 .email("tester@controleja.local")
@@ -127,7 +129,8 @@ class EntitlementServiceImpTest {
         ClosedTestTesterRepository repository = mock(ClosedTestTesterRepository.class);
         EntitlementServiceImp service = new EntitlementServiceImp(
                 repository,
-                mock(EntitlementReconciliationService.class)
+                mock(EntitlementReconciliationService.class),
+                mock(BillingRights.class)
         );
         Users user = Users.builder()
                 .email("common@controleja.local")

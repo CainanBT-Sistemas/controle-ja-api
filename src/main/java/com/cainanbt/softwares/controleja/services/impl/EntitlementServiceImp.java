@@ -7,6 +7,7 @@ import com.cainanbt.softwares.controleja.entities.Users;
 import com.cainanbt.softwares.controleja.enums.EffectivePlan;
 import com.cainanbt.softwares.controleja.repositories.ClosedTestTesterRepository;
 import com.cainanbt.softwares.controleja.services.EntitlementService;
+import com.cainanbt.softwares.controleja.services.billing.BillingRights;
 import com.cainanbt.softwares.controleja.services.entitlements.EntitlementReconciliationService;
 import org.springframework.stereotype.Service;
 
@@ -17,13 +18,16 @@ public class EntitlementServiceImp implements EntitlementService {
 
     private final ClosedTestTesterRepository testerRepository;
     private final EntitlementReconciliationService reconciliationService;
+    private final BillingRights billingRights;
 
     public EntitlementServiceImp(
             ClosedTestTesterRepository testerRepository,
-            EntitlementReconciliationService reconciliationService
+            EntitlementReconciliationService reconciliationService,
+            BillingRights billingRights
     ) {
         this.testerRepository = testerRepository;
         this.reconciliationService = reconciliationService;
+        this.billingRights = billingRights;
     }
 
     @Override
@@ -47,6 +51,10 @@ public class EntitlementServiceImp implements EntitlementService {
             plan = user.getPlan() == null
                     ? EffectivePlan.FREE
                     : user.getPlan().asPersistedBasePlan();
+            EffectivePlan purchased = billingRights.resolve(user.getId());
+            if (purchased == EffectivePlan.PLUS || (plan == EffectivePlan.FREE && purchased == EffectivePlan.FREE_NO_ADS)) {
+                plan = purchased;
+            }
             if (user.getEmail() != null) {
                 String normalizedEmail = user.getEmail().trim().toLowerCase(Locale.ROOT);
                 plan = testerRepository.findByNormalizedEmailAndEnabledTrue(normalizedEmail)

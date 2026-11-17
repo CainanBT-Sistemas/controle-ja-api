@@ -1,5 +1,6 @@
 package com.cainanbt.softwares.controleja.configs;
 
+import com.cainanbt.softwares.controleja.controller.BillingController;
 import com.cainanbt.softwares.controleja.dtos.UserAuthenticateDTO;
 import com.cainanbt.softwares.controleja.exceptions.models.ForbiddenException;
 import com.cainanbt.softwares.controleja.repositories.UsersRepository;
@@ -133,6 +134,9 @@ public class SecurityFilter extends OncePerRequestFilter {
         }
 
         String path = request.getServletPath();
+        if (HttpMethod.POST.matches(request.getMethod()) && BillingController.NOTIFICATIONS.equals(path)) {
+            return true;
+        }
         return PUBLIC_ROUTES.stream().anyMatch(route -> pathMatcher.match(route, path));
     }
 }
