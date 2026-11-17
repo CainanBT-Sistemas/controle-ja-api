@@ -1,0 +1,1742 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "__export_date": "2026-11-16T21:15:18.533Z",
+  "__export_source": "controleja:openapi+qa",
+  "resources": [
+    {
+      "_type": "workspace",
+      "_id": "wrk_controleja_qa",
+      "parentId": null,
+      "name": "Controle Já API",
+      "scope": "collection",
+      "description": "Catálogo OpenAPI e regressões 1.0.10 para ambientes de teste."
+    },
+    {
+      "_type": "environment",
+      "_id": "env_controleja_qa",
+      "parentId": "wrk_controleja_qa",
+      "name": "Base Environment",
+      "data": {
+        "origin": "http://127.0.0.1:18081",
+        "access_token": "",
+        "qa_email_a": "qa.insomnia.a@controleja.test",
+        "qa_email_b": "qa.insomnia.b@controleja.test",
+        "qa_password": "",
+        "start": 1735689600000,
+        "end": 1767225599999,
+        "id": "",
+        "categoryId": "",
+        "cardId": "",
+        "month": "",
+        "year": "",
+        "paymentTransactionId": "",
+        "invoiceId": "",
+        "operationId": "",
+        "installmentId": "",
+        "operationScope": "",
+        "purchaseId": "",
+        "date": "",
+        "transactionId": ""
+      }
+    },
+    {
+      "_type": "request_group",
+      "_id": "fld_controleja_qa",
+      "parentId": "wrk_controleja_qa",
+      "name": "QA 1.0.10 — base de teste",
+      "metaSortKey": 1
+    },
+    {
+      "_type": "request",
+      "_id": "req_controleja_qa_0",
+      "parentId": "fld_controleja_qa",
+      "name": "01 — Cadastrar usuários e conferir bloqueio de e-mail",
+      "description": "Execute em uma base de teste limpa. Depois confirme apenas estes dois usuários e execute o cenário 02.",
+      "method": "GET",
+      "url": "{{ _.origin }}/v3/api-docs",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "afterResponseScript": "const { get, set, emailA, emailB, eq, call, http, login, cardPayload } = (function helpers() {\n  const get = key => insomnia.environment.get(key);\n  const set = (key, value) => {\n    if (value === undefined || value === null) throw Error('Variável ausente: ' + key);\n    insomnia.environment.set(key, value);\n  };\n  const emailA = get('qa_email_a');\n  const emailB = get('qa_email_b');\n  const base = get('origin').replace(/\\/$/, '') + '/controle_ja_api/v1';\n  function eq(label, value, expected) {\n    insomnia.test(label, () => insomnia.expect(value).to.eql(expected));\n    if (JSON.stringify(value) !== JSON.stringify(expected)) throw Error(label + ': resultado inesperado');\n  }\n  function call(method, path, payload, token) {\n    return new Promise((resolve, reject) => {\n      const header = { Accept: 'application/json' };\n      if (token) header.Authorization = 'Bearer ' + token;\n      const request = { url: base + path, method, header };\n      if (payload !== undefined) {\n        header['Content-Type'] = 'application/json';\n        request.body = { mode: 'raw', raw: JSON.stringify(payload) };\n      }\n      insomnia.sendRequest(request, (error, response) => error ? reject(error) : resolve(response));\n    });\n  }\n  async function http(label, status, method, path, body, token) {\n    const result = await call(method, path, body, token);\n    eq(label + ' — HTTP', result.code, status);\n    return result;\n  }\n  async function login(email, label) {\n    return (await http(label, 200, 'POST', '/auth', { email, password: get('qa_password') })).json().tokens;\n  }\n  const cardPayload = name => ({ name, totalLimit: 2000, closeDay: 10, bestDay: 15 });\n  return { get, set, emailA, emailB, eq, call, http, login, cardPayload };\n})();\nawait (async () => {\n    const password = get('qa_password') || 'Qa!' + require('uuid').v4();\n    set('qa_password', password);\n    for (const [suffix, email] of [['A', emailA], ['B', emailB]]) {\n      await http('Cadastro ' + suffix, 200, 'POST', '/users/register', { username: 'Insomnia QA ' + suffix, email, password });\n      await http('Login com e-mail pendente ' + suffix, 403, 'POST', '/auth', { email, password });\n    }\n  })();",
+      "metaSortKey": 0,
+      "created": 1794863718533,
+      "modified": 1794863718533,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_controleja_qa_1",
+      "parentId": "fld_controleja_qa",
+      "name": "02 — Validar isolamento, parcelas, cartões Free e pagamentos",
+      "description": "Execute uma vez após confirmar os e-mails. As requisições de pagamento e cancelamento são enviadas em paralelo.",
+      "method": "GET",
+      "url": "{{ _.origin }}/v3/api-docs",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "afterResponseScript": "const { get, set, emailA, emailB, eq, call, http, login, cardPayload } = (function helpers() {\n  const get = key => insomnia.environment.get(key);\n  const set = (key, value) => {\n    if (value === undefined || value === null) throw Error('Variável ausente: ' + key);\n    insomnia.environment.set(key, value);\n  };\n  const emailA = get('qa_email_a');\n  const emailB = get('qa_email_b');\n  const base = get('origin').replace(/\\/$/, '') + '/controle_ja_api/v1';\n  function eq(label, value, expected) {\n    insomnia.test(label, () => insomnia.expect(value).to.eql(expected));\n    if (JSON.stringify(value) !== JSON.stringify(expected)) throw Error(label + ': resultado inesperado');\n  }\n  function call(method, path, payload, token) {\n    return new Promise((resolve, reject) => {\n      const header = { Accept: 'application/json' };\n      if (token) header.Authorization = 'Bearer ' + token;\n      const request = { url: base + path, method, header };\n      if (payload !== undefined) {\n        header['Content-Type'] = 'application/json';\n        request.body = { mode: 'raw', raw: JSON.stringify(payload) };\n      }\n      insomnia.sendRequest(request, (error, response) => error ? reject(error) : resolve(response));\n    });\n  }\n  async function http(label, status, method, path, body, token) {\n    const result = await call(method, path, body, token);\n    eq(label + ' — HTTP', result.code, status);\n    return result;\n  }\n  async function login(email, label) {\n    return (await http(label, 200, 'POST', '/auth', { email, password: get('qa_password') })).json().tokens;\n  }\n  const cardPayload = name => ({ name, totalLimit: 2000, closeDay: 10, bestDay: 15 });\n  return { get, set, emailA, emailB, eq, call, http, login, cardPayload };\n})();\nawait (async () => {\n    const tokensA = await login(emailA, 'Login A');\n    const tokensB = await login(emailB, 'Login B');\n    const a = tokensA.accessToken;\n    const b = tokensB.accessToken;\n    set('qa_access_a_before_revocation', a);\n    set('qa_access_b', b);\n    const wallet = (await http('Carteira QA A', 200, 'POST', '/accounts',\n      { name: 'Carteira Insomnia QA', type: 'WALLET', initialBalance: 1000 }, a)).json().id;\n    const walletB = (await http('Conta padrão B', 200, 'GET', '/accounts', undefined, b)).json()[0].id;\n    const category = (await http('Categoria privada A', 200, 'POST', '/categories',\n      { name: 'Categoria privada QA A', categoryType: 'DESPESA' }, a)).json().id;\n    const expense = (name, fields = {}) => ({ name, type: 'DESPESA', amount: 25,\n      date: Date.parse('2025-01-01T12:00:00Z'), accountId: wallet, categoryId: category,\n      paid: false, isFixed: false, installments: 1, ...fields });\n    const transaction = (await http('Criar lançamento A', 200, 'POST', '/transactions', expense('Despesa A'), a)).json().id;\n    await http('Titular consulta lançamento próprio', 200, 'GET', '/transactions/' + transaction, undefined, a);\n    await http('B não consulta lançamento A', 404, 'GET', '/transactions/' + transaction, undefined, b);\n    await http('B não usa categoria privada A', 400, 'POST', '/transactions', expense('Categoria alheia', { accountId: walletB }), b);\n    const plan = (await http('Entitlements A', 200, 'GET', '/users/me/entitlements', undefined, a)).json();\n    eq('Perfil Free', plan.plan, 'FREE');\n    eq('Limite Free de dois cartões', plan.limits.creditCards, 2);\n    const card = (await http('Primeiro cartão', 200, 'POST', '/cards', cardPayload('QA cartão 1'), a)).json();\n    await http('Segundo cartão', 200, 'POST', '/cards', cardPayload('QA cartão 2'), a);\n    const third = await http('Terceiro cartão bloqueado', 400, 'POST', '/cards', cardPayload('QA cartão 3'), a);\n    eq('Mensagem de limite atingido', third.json().title, 'Limite atingido');\n    const max = (await http('420 parcelas aceitas', 200, 'POST', '/transactions',\n      expense('420 parcelas', { amount: 420, installments: 420 }), a)).json();\n    eq('Série retornada com 420 parcelas', max.totalInstallmentsPlan, 420);\n    for (const [method, path] of [['POST', '/transactions'], ['PUT', '/transactions/' + max.id]]) {\n      const result = await http(method + ' com 421 parcelas', 400, method, path,\n        expense('421 parcelas', { amount: 421, installments: 421 }), a);\n      eq(method + ' informa o teto de 420', result.json().message, 'O número máximo de parcelas é 420');\n    }\n    for (const month of ['01', '02']) {\n      await http('Compra de R$ 100, mês ' + month, 200, 'POST', '/transactions',\n        expense('Compra QA ' + month, { accountId: card.accountId, amount: 100, date: Date.parse('2025-' + month + '-01T12:00:00Z') }), a);\n    }\n    const invoiceByMonth = async month => (await http('Fatura do mês ' + month, 200, 'GET',\n      '/invoices/card/' + card.id + '/month/' + month + '/year/2025', undefined, a)).json().invoiceId;\n    const jan = await invoiceByMonth(1);\n    const feb = await invoiceByMonth(2);\n    const invoice = async id => (await http('Consultar fatura', 200, 'GET', '/invoices/' + id, undefined, a)).json();\n    const balance = async id => (await http('Consultar saldo', 200, 'GET', '/accounts/' + id, undefined, a)).json().currentBalance;\n    const cardLimit = async () => (await http('Consultar limite disponível', 200, 'GET', '/cards', undefined, a))\n      .json().find(c => c.id === card.id).currentLimit;\n    await http('B não altera fatura A pela rota genérica', 404, 'PUT', '/transactions/' + jan,\n      expense('Tentativa de alterar fatura', { accountId: walletB, paid: true }), b);\n    await http('A usa rota própria para pagar fatura', 400, 'PUT', '/transactions/' + jan,\n      expense('Alteração direta', { paid: true }), a);\n    eq('Fatura A intacta', (await invoice(jan)).openAmount, 100);\n    eq('Saldo inicial da carteira', await balance(wallet), 1000);\n    const body = { accountId: wallet, amount: 70, paymentDate: Date.parse('2025-03-01T12:00:00Z') };\n    const pay = id => call('POST', '/invoices/' + id + '/payments', body, a);\n    const statuses = responses => responses.map(response => response.code).sort((x, y) => x - y);\n    eq('Pagamentos concorrentes na mesma fatura', statuses(await Promise.all([pay(jan), pay(jan)])), [200, 400]);\n    const paid = await invoice(jan);\n    eq('R$ 30 em aberto', paid.openAmount, 30);\n    eq('R$ 70 pagos', paid.paidAmount, 70);\n    const credits = paid.items.filter(item => item.amount === -70);\n    eq('Um único crédito de pagamento', credits.length, 1);\n    const paymentId = credits[0].transactionId;\n    eq('Carteira debitada uma vez', await balance(wallet), 930);\n    eq('Conta do cartão creditada uma vez', await balance(card.accountId), 70);\n    eq('Limite restaurado uma vez', await cardLimit(), 1870);\n    const cancel = () => call('POST', '/invoices/payments/' + paymentId + '/cancel', undefined, a);\n    eq('Cancelamentos concorrentes do mesmo pagamento', statuses(await Promise.all([cancel(), cancel()])), [200, 400]);\n    eq('Fatura reaberta', (await invoice(jan)).openAmount, 100);\n    eq('Carteira recomposta', await balance(wallet), 1000);\n    eq('Conta espelho recomposta', await balance(card.accountId), 0);\n    eq('Limite recomposto', await cardLimit(), 1800);\n    eq('Pagamentos válidos, faturas diferentes', statuses(await Promise.all([pay(jan), pay(feb)])), [200, 200]);\n    eq('Janeiro com R$ 30 em aberto', (await invoice(jan)).openAmount, 30);\n    eq('Fevereiro com R$ 30 em aberto', (await invoice(feb)).openAmount, 30);\n    eq('Dois débitos na carteira', await balance(wallet), 860);\n    eq('Dois créditos na conta espelho', await balance(card.accountId), 140);\n    eq('Dois ajustes no limite', await cardLimit(), 1940);\n  })();",
+      "metaSortKey": 1,
+      "created": 1794863718533,
+      "modified": 1794863718533,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_controleja_qa_2",
+      "parentId": "fld_controleja_qa",
+      "name": "03 — Criar três cartões no PLUS para testar downgrade",
+      "description": "Coloque somente B no perfil PLUS antes de executar.",
+      "method": "GET",
+      "url": "{{ _.origin }}/v3/api-docs",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "afterResponseScript": "const { get, set, emailA, emailB, eq, call, http, login, cardPayload } = (function helpers() {\n  const get = key => insomnia.environment.get(key);\n  const set = (key, value) => {\n    if (value === undefined || value === null) throw Error('Variável ausente: ' + key);\n    insomnia.environment.set(key, value);\n  };\n  const emailA = get('qa_email_a');\n  const emailB = get('qa_email_b');\n  const base = get('origin').replace(/\\/$/, '') + '/controle_ja_api/v1';\n  function eq(label, value, expected) {\n    insomnia.test(label, () => insomnia.expect(value).to.eql(expected));\n    if (JSON.stringify(value) !== JSON.stringify(expected)) throw Error(label + ': resultado inesperado');\n  }\n  function call(method, path, payload, token) {\n    return new Promise((resolve, reject) => {\n      const header = { Accept: 'application/json' };\n      if (token) header.Authorization = 'Bearer ' + token;\n      const request = { url: base + path, method, header };\n      if (payload !== undefined) {\n        header['Content-Type'] = 'application/json';\n        request.body = { mode: 'raw', raw: JSON.stringify(payload) };\n      }\n      insomnia.sendRequest(request, (error, response) => error ? reject(error) : resolve(response));\n    });\n  }\n  async function http(label, status, method, path, body, token) {\n    const result = await call(method, path, body, token);\n    eq(label + ' — HTTP', result.code, status);\n    return result;\n  }\n  async function login(email, label) {\n    return (await http(label, 200, 'POST', '/auth', { email, password: get('qa_password') })).json().tokens;\n  }\n  const cardPayload = name => ({ name, totalLimit: 2000, closeDay: 10, bestDay: 15 });\n  return { get, set, emailA, emailB, eq, call, http, login, cardPayload };\n})();\nawait (async () => {\n    const token = get('qa_access_b');\n    const state = (await http('Entitlements PLUS de B', 200, 'GET', '/users/me/entitlements', undefined, token)).json();\n    eq('Perfil PLUS de B', state.plan, 'PLUS');\n    const ids = [];\n    for (const number of [1, 2, 3]) {\n      const card = (await http('Cartão PLUS ' + number, 200, 'POST', '/cards',\n        cardPayload('Downgrade QA ' + number), token)).json();\n      ids.push(card.id);\n    }\n    set('qa_downgrade_card_ids', ids);\n  })();",
+      "metaSortKey": 2,
+      "created": 1794863718533,
+      "modified": 1794863718533,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_controleja_qa_3",
+      "parentId": "fld_controleja_qa",
+      "name": "04 — Conferir dois cartões disponíveis no downgrade",
+      "description": "Volte somente B para FREE antes de executar.",
+      "method": "GET",
+      "url": "{{ _.origin }}/v3/api-docs",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "afterResponseScript": "const { get, set, emailA, emailB, eq, call, http, login, cardPayload } = (function helpers() {\n  const get = key => insomnia.environment.get(key);\n  const set = (key, value) => {\n    if (value === undefined || value === null) throw Error('Variável ausente: ' + key);\n    insomnia.environment.set(key, value);\n  };\n  const emailA = get('qa_email_a');\n  const emailB = get('qa_email_b');\n  const base = get('origin').replace(/\\/$/, '') + '/controle_ja_api/v1';\n  function eq(label, value, expected) {\n    insomnia.test(label, () => insomnia.expect(value).to.eql(expected));\n    if (JSON.stringify(value) !== JSON.stringify(expected)) throw Error(label + ': resultado inesperado');\n  }\n  function call(method, path, payload, token) {\n    return new Promise((resolve, reject) => {\n      const header = { Accept: 'application/json' };\n      if (token) header.Authorization = 'Bearer ' + token;\n      const request = { url: base + path, method, header };\n      if (payload !== undefined) {\n        header['Content-Type'] = 'application/json';\n        request.body = { mode: 'raw', raw: JSON.stringify(payload) };\n      }\n      insomnia.sendRequest(request, (error, response) => error ? reject(error) : resolve(response));\n    });\n  }\n  async function http(label, status, method, path, body, token) {\n    const result = await call(method, path, body, token);\n    eq(label + ' — HTTP', result.code, status);\n    return result;\n  }\n  async function login(email, label) {\n    return (await http(label, 200, 'POST', '/auth', { email, password: get('qa_password') })).json().tokens;\n  }\n  const cardPayload = name => ({ name, totalLimit: 2000, closeDay: 10, bestDay: 15 });\n  return { get, set, emailA, emailB, eq, call, http, login, cardPayload };\n})();\nawait (async () => {\n    const token = get('qa_access_b');\n    const state = (await http('Entitlements FREE de B', 200, 'GET', '/users/me/entitlements', undefined, token)).json();\n    eq('Perfil Free após downgrade', state.plan, 'FREE');\n    eq('Limite após downgrade', state.limits.creditCards, 2);\n    const cards = (await http('Cartões históricos visíveis', 200, 'GET', '/cards', undefined, token)).json();\n    eq('Terceiro cartão preservado e restrito', get('qa_downgrade_card_ids').map(id => cards.find(card => card.id === id).planRestricted), [false, false, true]);\n  })();",
+      "metaSortKey": 3,
+      "created": 1794863718533,
+      "modified": 1794863718533,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_controleja_qa_4",
+      "parentId": "fld_controleja_qa",
+      "name": "05 — Sessão antiga inválida e novo login",
+      "description": "Incremente session_version somente de A na base de teste antes de executar.",
+      "method": "GET",
+      "url": "{{ _.origin }}/v3/api-docs",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "afterResponseScript": "const { get, set, emailA, emailB, eq, call, http, login, cardPayload } = (function helpers() {\n  const get = key => insomnia.environment.get(key);\n  const set = (key, value) => {\n    if (value === undefined || value === null) throw Error('Variável ausente: ' + key);\n    insomnia.environment.set(key, value);\n  };\n  const emailA = get('qa_email_a');\n  const emailB = get('qa_email_b');\n  const base = get('origin').replace(/\\/$/, '') + '/controle_ja_api/v1';\n  function eq(label, value, expected) {\n    insomnia.test(label, () => insomnia.expect(value).to.eql(expected));\n    if (JSON.stringify(value) !== JSON.stringify(expected)) throw Error(label + ': resultado inesperado');\n  }\n  function call(method, path, payload, token) {\n    return new Promise((resolve, reject) => {\n      const header = { Accept: 'application/json' };\n      if (token) header.Authorization = 'Bearer ' + token;\n      const request = { url: base + path, method, header };\n      if (payload !== undefined) {\n        header['Content-Type'] = 'application/json';\n        request.body = { mode: 'raw', raw: JSON.stringify(payload) };\n      }\n      insomnia.sendRequest(request, (error, response) => error ? reject(error) : resolve(response));\n    });\n  }\n  async function http(label, status, method, path, body, token) {\n    const result = await call(method, path, body, token);\n    eq(label + ' — HTTP', result.code, status);\n    return result;\n  }\n  async function login(email, label) {\n    return (await http(label, 200, 'POST', '/auth', { email, password: get('qa_password') })).json().tokens;\n  }\n  const cardPayload = name => ({ name, totalLimit: 2000, closeDay: 10, bestDay: 15 });\n  return { get, set, emailA, emailB, eq, call, http, login, cardPayload };\n})();\nawait (async () => {\n    await http('Token antigo retorna sessão inválida', 401, 'GET', '/accounts', undefined, get('qa_access_a_before_revocation'));\n    const tokens = await login(emailA, 'Novo login depois da invalidação');\n    await http('Nova sessão funciona', 200, 'GET', '/accounts', undefined, tokens.accessToken);\n  })();",
+      "metaSortKey": 4,
+      "created": 1794863718533,
+      "modified": 1794863718533,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request_group",
+      "_id": "fld_controleja_catalog",
+      "parentId": "wrk_controleja_qa",
+      "name": "Catálogo OpenAPI — uso manual",
+      "metaSortKey": 2
+    },
+    {
+      "_type": "request_group",
+      "_id": "fld_api_1",
+      "parentId": "fld_controleja_catalog",
+      "name": "accounts-controller",
+      "metaSortKey": 1
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_1",
+      "parentId": "fld_api_1",
+      "name": "GET /controle_ja_api/v1/accounts",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/accounts",
+      "method": "GET",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 1,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_2",
+      "parentId": "fld_api_1",
+      "name": "POST /controle_ja_api/v1/accounts",
+      "description": "Campos obrigatórios: initialBalance, name, type.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/accounts",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 2,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_3",
+      "parentId": "fld_api_1",
+      "name": "GET /controle_ja_api/v1/accounts/{id}",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/accounts/{{ _.id }}",
+      "method": "GET",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 3,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_4",
+      "parentId": "fld_api_1",
+      "name": "PUT /controle_ja_api/v1/accounts/{id}",
+      "description": "Campos obrigatórios: initialBalance, name, type.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/accounts/{{ _.id }}",
+      "method": "PUT",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 4,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_5",
+      "parentId": "fld_api_1",
+      "name": "DELETE /controle_ja_api/v1/accounts/{id}",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/accounts/{{ _.id }}",
+      "method": "DELETE",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 5,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_6",
+      "parentId": "fld_api_1",
+      "name": "PUT /controle_ja_api/v1/accounts/{id}/adjust",
+      "description": "Campos obrigatórios: newBalance.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/accounts/{{ _.id }}/adjust",
+      "method": "PUT",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 6,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request_group",
+      "_id": "fld_api_2",
+      "parentId": "fld_controleja_catalog",
+      "name": "auth-controller",
+      "metaSortKey": 2
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_7",
+      "parentId": "fld_api_2",
+      "name": "POST /controle_ja_api/v1/auth",
+      "description": "Campos obrigatórios: email, password.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/auth",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 7,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_8",
+      "parentId": "fld_api_2",
+      "name": "POST /controle_ja_api/v1/auth/auto-login",
+      "description": "Campos obrigatórios: token.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/auth/auto-login",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 8,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request_group",
+      "_id": "fld_api_3",
+      "parentId": "fld_controleja_catalog",
+      "name": "email-verification-controller",
+      "metaSortKey": 3
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_9",
+      "parentId": "fld_api_3",
+      "name": "POST /controle_ja_api/v1/auth/email-verification/confirm",
+      "description": "Campos obrigatórios: code, email.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/auth/email-verification/confirm",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 9,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_10",
+      "parentId": "fld_api_3",
+      "name": "POST /controle_ja_api/v1/auth/email-verification/request",
+      "description": "Campos obrigatórios: email.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/auth/email-verification/request",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 10,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_11",
+      "parentId": "fld_api_2",
+      "name": "POST /controle_ja_api/v1/auth/google",
+      "description": "Campos obrigatórios: idToken.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/auth/google",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 11,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request_group",
+      "_id": "fld_api_4",
+      "parentId": "fld_controleja_catalog",
+      "name": "account-recovery-controller",
+      "metaSortKey": 4
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_12",
+      "parentId": "fld_api_4",
+      "name": "POST /controle_ja_api/v1/auth/password-reset/confirm",
+      "description": "Campos obrigatórios: code, email, newPassword.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/auth/password-reset/confirm",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 12,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_13",
+      "parentId": "fld_api_4",
+      "name": "POST /controle_ja_api/v1/auth/reactivation/confirm",
+      "description": "Campos obrigatórios: code, email.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/auth/reactivation/confirm",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 13,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_14",
+      "parentId": "fld_api_4",
+      "name": "POST /controle_ja_api/v1/auth/recovery/request",
+      "description": "Campos obrigatórios: email, purpose.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/auth/recovery/request",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 14,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request_group",
+      "_id": "fld_api_5",
+      "parentId": "fld_controleja_catalog",
+      "name": "credit-card-controller",
+      "metaSortKey": 5
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_15",
+      "parentId": "fld_api_5",
+      "name": "GET /controle_ja_api/v1/cards",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/cards",
+      "method": "GET",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 15,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_16",
+      "parentId": "fld_api_5",
+      "name": "POST /controle_ja_api/v1/cards",
+      "description": "Campos obrigatórios: name, totalLimit.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/cards",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 16,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_17",
+      "parentId": "fld_api_5",
+      "name": "GET /controle_ja_api/v1/cards/{id}",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/cards/{{ _.id }}",
+      "method": "GET",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 17,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_18",
+      "parentId": "fld_api_5",
+      "name": "PUT /controle_ja_api/v1/cards/{id}",
+      "description": "Campos obrigatórios: name, totalLimit.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/cards/{{ _.id }}",
+      "method": "PUT",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 18,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_19",
+      "parentId": "fld_api_5",
+      "name": "DELETE /controle_ja_api/v1/cards/{id}",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/cards/{{ _.id }}",
+      "method": "DELETE",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 19,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request_group",
+      "_id": "fld_api_6",
+      "parentId": "fld_controleja_catalog",
+      "name": "category-controller",
+      "metaSortKey": 6
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_20",
+      "parentId": "fld_api_6",
+      "name": "GET /controle_ja_api/v1/categories",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/categories",
+      "method": "GET",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 20,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_21",
+      "parentId": "fld_api_6",
+      "name": "POST /controle_ja_api/v1/categories",
+      "description": "Campos obrigatórios: categoryType, name.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/categories",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 21,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_22",
+      "parentId": "fld_api_6",
+      "name": "GET /controle_ja_api/v1/categories/{id}",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/categories/{{ _.id }}",
+      "method": "GET",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 22,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_23",
+      "parentId": "fld_api_6",
+      "name": "PUT /controle_ja_api/v1/categories/{id}",
+      "description": "Campos obrigatórios: categoryType, name.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/categories/{{ _.id }}",
+      "method": "PUT",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 23,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_24",
+      "parentId": "fld_api_6",
+      "name": "DELETE /controle_ja_api/v1/categories/{id}",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/categories/{{ _.id }}",
+      "method": "DELETE",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 24,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request_group",
+      "_id": "fld_api_7",
+      "parentId": "fld_controleja_catalog",
+      "name": "dashboard-controller",
+      "metaSortKey": 7
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_25",
+      "parentId": "fld_api_7",
+      "name": "GET /controle_ja_api/v1/dashboard/credit-expenses-category",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/dashboard/credit-expenses-category",
+      "method": "GET",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "start",
+          "value": "{{ _.start }}",
+          "disabled": false,
+          "description": ""
+        },
+        {
+          "name": "end",
+          "value": "{{ _.end }}",
+          "disabled": false,
+          "description": ""
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": 25,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_26",
+      "parentId": "fld_api_7",
+      "name": "GET /controle_ja_api/v1/dashboard/evolution",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/dashboard/evolution",
+      "method": "GET",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "start",
+          "value": "{{ _.start }}",
+          "disabled": false,
+          "description": ""
+        },
+        {
+          "name": "end",
+          "value": "{{ _.end }}",
+          "disabled": false,
+          "description": ""
+        },
+        {
+          "name": "categoryId",
+          "value": "{{ _.categoryId }}",
+          "disabled": true,
+          "description": ""
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": 26,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_27",
+      "parentId": "fld_api_7",
+      "name": "GET /controle_ja_api/v1/dashboard/expenses-category",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/dashboard/expenses-category",
+      "method": "GET",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "start",
+          "value": "{{ _.start }}",
+          "disabled": false,
+          "description": ""
+        },
+        {
+          "name": "end",
+          "value": "{{ _.end }}",
+          "disabled": false,
+          "description": ""
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": 27,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_28",
+      "parentId": "fld_api_7",
+      "name": "GET /controle_ja_api/v1/dashboard/fuel-comparison",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/dashboard/fuel-comparison",
+      "method": "GET",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "start",
+          "value": "{{ _.start }}",
+          "disabled": false,
+          "description": ""
+        },
+        {
+          "name": "end",
+          "value": "{{ _.end }}",
+          "disabled": false,
+          "description": ""
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": 28,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_29",
+      "parentId": "fld_api_7",
+      "name": "GET /controle_ja_api/v1/dashboard/full-summary",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/dashboard/full-summary",
+      "method": "GET",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "start",
+          "value": "{{ _.start }}",
+          "disabled": false,
+          "description": ""
+        },
+        {
+          "name": "end",
+          "value": "{{ _.end }}",
+          "disabled": false,
+          "description": ""
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": 29,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_30",
+      "parentId": "fld_api_7",
+      "name": "GET /controle_ja_api/v1/dashboard/incomes-category",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/dashboard/incomes-category",
+      "method": "GET",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "start",
+          "value": "{{ _.start }}",
+          "disabled": false,
+          "description": ""
+        },
+        {
+          "name": "end",
+          "value": "{{ _.end }}",
+          "disabled": false,
+          "description": ""
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": 30,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_31",
+      "parentId": "fld_api_7",
+      "name": "GET /controle_ja_api/v1/dashboard/summary",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/dashboard/summary",
+      "method": "GET",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "start",
+          "value": "{{ _.start }}",
+          "disabled": false,
+          "description": ""
+        },
+        {
+          "name": "end",
+          "value": "{{ _.end }}",
+          "disabled": false,
+          "description": ""
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": 31,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request_group",
+      "_id": "fld_api_8",
+      "parentId": "fld_controleja_catalog",
+      "name": "invoices-controller",
+      "metaSortKey": 8
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_32",
+      "parentId": "fld_api_8",
+      "name": "GET /controle_ja_api/v1/invoices/card/{cardId}/month/{month}/year/{year}",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/invoices/card/{{ _.cardId }}/month/{{ _.month }}/year/{{ _.year }}",
+      "method": "GET",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 32,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_33",
+      "parentId": "fld_api_8",
+      "name": "GET /controle_ja_api/v1/invoices/card/{cardId}/month/{month}/year/{year}/advanceable",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/invoices/card/{{ _.cardId }}/month/{{ _.month }}/year/{{ _.year }}/advanceable",
+      "method": "GET",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 33,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_34",
+      "parentId": "fld_api_8",
+      "name": "POST /controle_ja_api/v1/invoices/payments/{paymentTransactionId}/cancel",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/invoices/payments/{{ _.paymentTransactionId }}/cancel",
+      "method": "POST",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 34,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_35",
+      "parentId": "fld_api_8",
+      "name": "GET /controle_ja_api/v1/invoices/{invoiceId}",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/invoices/{{ _.invoiceId }}",
+      "method": "GET",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 35,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_36",
+      "parentId": "fld_api_8",
+      "name": "POST /controle_ja_api/v1/invoices/{invoiceId}/advance",
+      "description": "Campos obrigatórios: purchaseId.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/invoices/{{ _.invoiceId }}/advance",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 36,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_37",
+      "parentId": "fld_api_8",
+      "name": "POST /controle_ja_api/v1/invoices/{invoiceId}/advances/{operationId}/correction",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/invoices/{{ _.invoiceId }}/advances/{{ _.operationId }}/correction",
+      "method": "POST",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 37,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_38",
+      "parentId": "fld_api_8",
+      "name": "PUT /controle_ja_api/v1/invoices/{invoiceId}/items/{installmentId}",
+      "description": "Campos obrigatórios: amount, date, isFixed, name, paid, type.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/invoices/{{ _.invoiceId }}/items/{{ _.installmentId }}",
+      "method": "PUT",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "operationScope",
+          "value": "{{ _.operationScope }}",
+          "disabled": true,
+          "description": ""
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": 38,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_39",
+      "parentId": "fld_api_8",
+      "name": "DELETE /controle_ja_api/v1/invoices/{invoiceId}/items/{installmentId}",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/invoices/{{ _.invoiceId }}/items/{{ _.installmentId }}",
+      "method": "DELETE",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "operationScope",
+          "value": "{{ _.operationScope }}",
+          "disabled": true,
+          "description": ""
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": 39,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_40",
+      "parentId": "fld_api_8",
+      "name": "POST /controle_ja_api/v1/invoices/{invoiceId}/payments",
+      "description": "Campos obrigatórios: accountId, amount.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/invoices/{{ _.invoiceId }}/payments",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 40,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_41",
+      "parentId": "fld_api_8",
+      "name": "DELETE /controle_ja_api/v1/invoices/{invoiceId}/purchases/{purchaseId}",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/invoices/{{ _.invoiceId }}/purchases/{{ _.purchaseId }}",
+      "method": "DELETE",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 41,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_42",
+      "parentId": "fld_api_8",
+      "name": "POST /controle_ja_api/v1/invoices/{invoiceId}/refund",
+      "description": "Campos obrigatórios: installmentId, refundAmount.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/invoices/{{ _.invoiceId }}/refund",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 42,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request_group",
+      "_id": "fld_api_9",
+      "parentId": "fld_controleja_catalog",
+      "name": "transaction-controller",
+      "metaSortKey": 9
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_43",
+      "parentId": "fld_api_9",
+      "name": "GET /controle_ja_api/v1/transactions",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/transactions",
+      "method": "GET",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "start",
+          "value": "{{ _.start }}",
+          "disabled": false,
+          "description": ""
+        },
+        {
+          "name": "end",
+          "value": "{{ _.end }}",
+          "disabled": false,
+          "description": ""
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": 43,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_44",
+      "parentId": "fld_api_9",
+      "name": "POST /controle_ja_api/v1/transactions",
+      "description": "Campos obrigatórios: amount, date, isFixed, name, paid, type.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/transactions",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 44,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_45",
+      "parentId": "fld_api_9",
+      "name": "GET /controle_ja_api/v1/transactions/vehicle/details",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/transactions/vehicle/details",
+      "method": "GET",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "start",
+          "value": "{{ _.start }}",
+          "disabled": false,
+          "description": ""
+        },
+        {
+          "name": "end",
+          "value": "{{ _.end }}",
+          "disabled": false,
+          "description": ""
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": 45,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_46",
+      "parentId": "fld_api_9",
+      "name": "GET /controle_ja_api/v1/transactions/{id}",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/transactions/{{ _.id }}",
+      "method": "GET",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 46,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_47",
+      "parentId": "fld_api_9",
+      "name": "PUT /controle_ja_api/v1/transactions/{id}",
+      "description": "Campos obrigatórios: amount, date, isFixed, name, paid, type.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/transactions/{{ _.id }}",
+      "method": "PUT",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "operationScope",
+          "value": "{{ _.operationScope }}",
+          "disabled": true,
+          "description": ""
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": 47,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_48",
+      "parentId": "fld_api_9",
+      "name": "DELETE /controle_ja_api/v1/transactions/{id}",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/transactions/{{ _.id }}",
+      "method": "DELETE",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "operationScope",
+          "value": "{{ _.operationScope }}",
+          "disabled": true,
+          "description": ""
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": 48,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request_group",
+      "_id": "fld_api_10",
+      "parentId": "fld_controleja_catalog",
+      "name": "users-controller",
+      "metaSortKey": 10
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_49",
+      "parentId": "fld_api_10",
+      "name": "PUT /controle_ja_api/v1/users/change-password",
+      "description": "Campos obrigatórios: currentPassword, newPassword.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/users/change-password",
+      "method": "PUT",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 49,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_50",
+      "parentId": "fld_api_10",
+      "name": "GET /controle_ja_api/v1/users/me/entitlements",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/users/me/entitlements",
+      "method": "GET",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 50,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_51",
+      "parentId": "fld_api_10",
+      "name": "PUT /controle_ja_api/v1/users/profile",
+      "description": "Campos obrigatórios: username.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/users/profile",
+      "method": "PUT",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 51,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_52",
+      "parentId": "fld_api_10",
+      "name": "POST /controle_ja_api/v1/users/register",
+      "description": "Campos obrigatórios: email, password, username.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/users/register",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 52,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_53",
+      "parentId": "fld_api_10",
+      "name": "GET /controle_ja_api/v1/users/reset/{id}",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/users/reset/{{ _.id }}",
+      "method": "GET",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 53,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_54",
+      "parentId": "fld_api_10",
+      "name": "DELETE /controle_ja_api/v1/users/{id}",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/users/{{ _.id }}",
+      "method": "DELETE",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 54,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_55",
+      "parentId": "fld_api_10",
+      "name": "POST /controle_ja_api/v1/users/{id}/reset",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/users/{{ _.id }}/reset",
+      "method": "POST",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 55,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request_group",
+      "_id": "fld_api_11",
+      "parentId": "fld_controleja_catalog",
+      "name": "vehicle-controller",
+      "metaSortKey": 11
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_56",
+      "parentId": "fld_api_11",
+      "name": "GET /controle_ja_api/v1/vehicles",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/vehicles",
+      "method": "GET",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 56,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_57",
+      "parentId": "fld_api_11",
+      "name": "POST /controle_ja_api/v1/vehicles",
+      "description": "Campos obrigatórios: brand, currentOdometer, model, name, year.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/vehicles",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 57,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_58",
+      "parentId": "fld_api_11",
+      "name": "GET /controle_ja_api/v1/vehicles/{id}",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/vehicles/{{ _.id }}",
+      "method": "GET",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 58,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_59",
+      "parentId": "fld_api_11",
+      "name": "PUT /controle_ja_api/v1/vehicles/{id}",
+      "description": "Campos obrigatórios: brand, currentOdometer, model, name, year.\n\nPreencha o JSON conforme o contrato OpenAPI.",
+      "url": "{{ _.origin }}/controle_ja_api/v1/vehicles/{{ _.id }}",
+      "method": "PUT",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 59,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_60",
+      "parentId": "fld_api_11",
+      "name": "DELETE /controle_ja_api/v1/vehicles/{id}",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/vehicles/{{ _.id }}",
+      "method": "DELETE",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "metaSortKey": 60,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_61",
+      "parentId": "fld_api_11",
+      "name": "GET /controle_ja_api/v1/vehicles/{id}/dashboard",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/vehicles/{{ _.id }}/dashboard",
+      "method": "GET",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "start",
+          "value": "{{ _.start }}",
+          "disabled": false,
+          "description": ""
+        },
+        {
+          "name": "end",
+          "value": "{{ _.end }}",
+          "disabled": false,
+          "description": ""
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": 61,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    },
+    {
+      "_type": "request",
+      "_id": "req_catalogue_62",
+      "parentId": "fld_api_11",
+      "name": "GET /controle_ja_api/v1/vehicles/{id}/odometer-context",
+      "description": "",
+      "url": "{{ _.origin }}/controle_ja_api/v1/vehicles/{{ _.id }}/odometer-context",
+      "method": "GET",
+      "body": {},
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.access_token }}"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "date",
+          "value": "{{ _.date }}",
+          "disabled": false,
+          "description": ""
+        },
+        {
+          "name": "transactionId",
+          "value": "{{ _.transactionId }}",
+          "disabled": true,
+          "description": ""
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": 62,
+      "settingSendCookies": false,
+      "settingStoreCookies": false
+    }
+  ]
+}
